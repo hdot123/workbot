@@ -1,0 +1,12 @@
+# People Directory
+
+This directory stores people profiles.
+
+## Files
+- `user-profile.md` - Commander profile
+
+## Metadata Required
+- date: YYYY-MM-DD
+- source: MEMORY.full.md / session / channel
+- evidence: Original text snippet (≤25 chars)
+- confidence: high/medium/low

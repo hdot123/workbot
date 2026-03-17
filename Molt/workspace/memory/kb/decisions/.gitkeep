@@ -1,0 +1,13 @@
+# Decisions Directory
+
+This directory stores decision records.
+
+## Naming Convention
+- Format: `YYYY-MM-DD-slug.md`
+- Example: `2026-02-21-memory-law.md`
+
+## Metadata Required
+- date: YYYY-MM-DD
+- source: MEMORY.full.md / session / channel
+- evidence: Original text snippet (≤25 chars)
+- confidence: high/medium/low

@@ -1,0 +1,16 @@
+FROM qwen35-standard:latest
+TEMPLATE {{ .Prompt }}
+SYSTEM "
+你的任务是处理提取的纯文本数据：
+1. 精准去噪：忽略无关的干扰字符。
+2. 还原结构：将混排文字还原为标准层级。
+3. 逻辑判定：基于文本内容进行逻辑验证。
+4. 简洁输出：直接给出结构化数据。
+"
+PARAMETER top_p 0.8
+PARAMETER num_ctx 4096
+PARAMETER num_gpu 32
+PARAMETER presence_penalty 1.5
+PARAMETER repeat_penalty 1.1
+PARAMETER temperature 0.2
+PARAMETER top_k 20

@@ -1,0 +1,38 @@
+services:
+  openclaw:
+    image: node:22-alpine
+    container_name: openclaw-molt
+    restart: unless-stopped
+    ports:
+      - "100:18789"
+
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=1024
+      # 使用 ClawRouter 的百炼服务（OpenAI 协议）
+      - OPENAI_BASE_URL=http://192.168.88.27:3000/v1
+      - OPENAI_API_KEY=sk-clawrouter-bailian
+
+    volumes:
+      - ./config:/root/.openclaw
+      - ./workspace:/root/.openclaw/workspace
+      - openclaw-cache:/root/.npm
+
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    command: ash -c "apk add --no-cache git curl && npx -y openclaw@latest gateway"
+
+volumes:
+  openclaw-cache:
+    driver: local

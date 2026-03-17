@@ -1,0 +1,13 @@
+# Lessons Directory
+
+This directory stores lessons learned.
+
+## Naming Convention
+- Format: `TOPIC.md`
+- Example: `mcp-config.md`, `git-security.md`
+
+## Metadata Required
+- date: YYYY-MM-DD
+- source: MEMORY.full.md / session / channel
+- evidence: Original text snippet (≤25 chars)
+- confidence: high/medium/low
