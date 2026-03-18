@@ -352,3 +352,13 @@ MVP 阶段成长型 Agent 优先支持：
 - 持续更新
 
 只有成长型 Agent 先做稳，教育孪生项目后面的推演与决策能力才有可信基础。
+
+## 与其他文档的关系
+
+| 文档 | 关联文档 | 关系说明 |
+|------|----------|----------|
+| SIM-008 成长型 Agent 设计 | TWIN-012 成长型与决策型 Agent 关系 | 本文档是成长型侧详细展开 |
+| SIM-008 成长型 Agent 设计 | TWIN-001 StudentTwinAgent 总体设计 | 成长型 Agent 基于 StudentTwinAgent 运行 |
+| SIM-008 成长型 Agent 设计 | TWIN-003 学生状态模型 | 当前状态是成长型 Agent 核心输入 |
+| SIM-008 成长型 Agent 设计 | OBS-006 报告与解释层设计 | 成长型 Agent 为报告提供解释输出 |
+| SIM-008 成长型 Agent 设计 | GRAPH-006 上下文装配规则 | 成长型 Agent 依赖上下文装配结果 |

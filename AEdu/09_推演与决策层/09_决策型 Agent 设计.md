@@ -348,3 +348,13 @@ MVP 阶段建议决策型 Agent 仅支持：
 - 先后台成熟再前台开放
 
 否则决策型 Agent 很容易在能力尚未成熟时，变成高风险输出放大器。
+
+## 与其他文档的关系
+
+| 文档 | 关联文档 | 关系说明 |
+|------|----------|----------|
+| SIM-009 决策型 Agent 设计 | TWIN-012 成长型与决策型 Agent 关系 | 本文档是决策型侧详细展开 |
+| SIM-009 决策型 Agent 设计 | TWIN-001 StudentTwinAgent 总体设计 | 决策型 Agent 基于 StudentTwinAgent 运行 |
+| SIM-009 决策型 Agent 设计 | SIM-002 InterventionSimulator 设计 | 决策型 Agent 会调用模拟器 |
+| SIM-009 决策型 Agent 设计 | SIM-006 后台影子推演机制 | 决策型 Agent 当前主要在影子机制中运行 |
+| SIM-009 决策型 Agent 设计 | ARCH-008 模型服务与 Agent 编排 | 决策型 Agent 属于高约束 Agent 编排对象 |

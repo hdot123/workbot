@@ -167,3 +167,12 @@ flowchart TD
 - 最后在明确边界下开放部分受控能力
 
 这样 StudentTwinAgent 才不会一开始就被推到高风险决策前台，而是先在真实教育场景中长出可信度。
+
+## 与其他文档的关系
+
+| 文档 | 关联文档 | 关系说明 |
+|------|----------|----------|
+| TWIN-012 成长型与决策型 Agent 关系 | TWIN-001 StudentTwinAgent 总体设计 | 本文档是总体设计的 Agent 类型关系展开 |
+| TWIN-012 成长型与决策型 Agent 关系 | TWIN-011 Agent 生命周期管理 | Agent 类型关系影响生命周期设计 |
+| TWIN-012 成长型与决策型 Agent 关系 | SIM-008 成长型 Agent 设计 | 成长型 Agent 设计遵循本文档定义 |
+| TWIN-012 成长型与决策型 Agent 关系 | SIM-009 决策型 Agent 设计 | 决策型 Agent 设计遵循本文档定义 |

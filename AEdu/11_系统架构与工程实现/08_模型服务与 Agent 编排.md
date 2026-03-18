@@ -566,3 +566,14 @@ MVP 阶段建议优先编排以下四类任务：
 - 输出可追溯
 
 否则系统很容易从"多 Agent 协作"滑向"多个黑箱互相甩锅"。
+
+## 与其他文档的关系
+
+| 文档 | 关联文档 | 关系说明 |
+|------|----------|----------|
+| ARCH-008 模型服务与 Agent 编排 | ARCH-001 总体技术架构 | Agent 编排遵循总体技术架构 |
+| ARCH-008 模型服务与 Agent 编排 | ARCH-009 任务调度与异步处理方案 | Agent 编排与任务调度协同设计 |
+| ARCH-008 模型服务与 Agent 编排 | TWIN-001 StudentTwinAgent 总体设计 | StudentTwinAgent 是核心个体 Agent |
+| ARCH-008 模型服务与 Agent 编排 | SIM-002 InterventionSimulator 设计 | 决策型 Agent 会调用模拟器 |
+| ARCH-008 模型服务与 Agent 编排 | SIM-008 成长型 Agent 设计 | 成长型 Agent 属于编排对象 |
+| ARCH-008 模型服务与 Agent 编排 | SIM-009 决策型 Agent 设计 | 决策型 Agent 属于高约束编排对象 |

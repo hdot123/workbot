@@ -504,3 +504,12 @@ Graphiti / Zep 选型的核心，不是选一个"最先进的记忆框架"，而
 **文档状态**：已有初稿  
 **审批人**：待定  
 **下次评审日期**：待定
+
+## 与其他文档的关系
+
+| 文档 | 关联文档 | 关系说明 |
+|------|----------|----------|
+| GRAPH-007 Graphiti_Zep 选型说明 | GRAPH-001 图谱记忆层设计 | 选型基于图谱记忆层技术需求 |
+| GRAPH-007 Graphiti_Zep 选型说明 | GRAPH-005 GraphRAG 检索设计 | 选型影响 GraphRAG 检索实现 |
+| GRAPH-007 Graphiti_Zep 选型说明 | ARCH-007 数据存储与索引设计 | 选型与存储索引设计协同 |
+| GRAPH-007 Graphiti_Zep 选型说明 | ARCH-008 模型服务与 Agent 编排 | 选型影响 Agent 服务实现 |
