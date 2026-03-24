@@ -137,3 +137,10 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Local worktrees / nested projects / machine-specific configs
+opencli/
+gpt-web-to/
+tests/autoresearch/
+tests/.gitignore
+node11-mihomo-config.yaml
