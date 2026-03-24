@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "7250c4068423fbed",
+    "type": "split",
+    "children": [
+      {
+        "id": "d966151de9c7af9f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "650bf5b6b0770512",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/笔记.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "笔记"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ee5b23a6ddfb468d",
+    "type": "split",
+    "children": [
+      {
+        "id": "072233659d376649",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f545885b5ddff099",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "612bdaf325a09a40",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "7fa54e401a18ccbd",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "a68bbb7490725f58",
+    "type": "split",
+    "children": [
+      {
+        "id": "93dc3d7d8c6c4d80",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "64966c8d58565422",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "反向链接"
+            }
+          },
+          {
+            "id": "21f8e234b46f73b8",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "出链"
+            }
+          },
+          {
+            "id": "4511788a1d2b9773",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "9cf84e11c406e57f",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "1dcc96626d62d0de",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false,
+      "workspaces:管理工作区布局": false
+    }
+  },
+  "active": "650bf5b6b0770512",
+  "lastOpenFiles": [
+    "opencli/SKILL copy.md",
+    "opencli/dist/registry.test.js",
+    "opencli/dist/registry-api.d.ts",
+    "opencli/dist/plugin.test.js",
+    "opencli/dist/output.test.d.ts",
+    "opencli/dist/explore.d.ts",
+    "opencli/dist/constants.d.ts",
+    "opencli/dist/constants.js",
+    "opencli/dist/commanderAdapter.d.ts",
+    "opencli/dist/pipeline/steps/transform.js",
+    "opencli/dist/pipeline/steps/transform.d.ts",
+    "docs/projects/opencli 操作手册.md",
+    "agents/github-skill.md",
+    "opencli/SKILL-GITHUB.md",
+    "opencli/ADPOWER-INTEGRATION.md",
+    "opencli/ADPOWER-README.md",
+    "docs/projects/supermemory-本地化部署方案.md",
+    "docs/projects/supermemory-阅读记录.md",
+    "docs/projects/supermemory-记忆层集成分析报告.md",
+    "docs/projects/chatgpt-库管会话整理 - 工程执行阶段.md",
+    "opencli/extension/node_modules/@types/har-format/README.md",
+    "opencli/extension/node_modules/@types/filewriter/README.md",
+    "opencli/extension/node_modules/@types/filesystem/README.md",
+    "opencli/extension/node_modules/@types/estree/README.md",
+    "opencli/extension/node_modules/@types/chrome/README.md",
+    "opencli/extension/node_modules/@rollup/rollup-darwin-arm64/README.md",
+    "opencli/extension/node_modules/@esbuild/darwin-arm64/README.md",
+    "opencli/extension/node_modules/typescript/SECURITY.md",
+    "opencli/extension/node_modules/typescript/README.md",
+    "opencli/extension/node_modules/vite/README.md",
+    "opencli/extension/node_modules/vite/LICENSE.md",
+    "opencli/extension/node_modules/tinyglobby/README.md",
+    "opencli/extension/node_modules/source-map-js/README.md",
+    "opencli/extension/node_modules/rollup/README.md",
+    "opencli/extension/node_modules/rollup/LICENSE.md",
+    "opencli/extension/node_modules/postcss/README.md",
+    "tests/autoresearch/progress.png",
+    "opencli/extension/store-assets/screenshot-1280x800.png",
+    "opencli/extension/icons/icon-48.png",
+    "opencli/extension/icons/icon-32.png",
+    "opencli/extension/icons/icon-16.png",
+    "opencli/extension/icons/icon-128.png",
+    "agents/molt/workspace/memory/kb/decisions/image.png",
+    "agents/molt/workspace/avatars/molt-king.png",
+    "agents/molt/workspace/avatars/folt.png",
+    "agents/molt/workspace/11.jpg",
+    "未命名.canvas"
+  ]
+}
