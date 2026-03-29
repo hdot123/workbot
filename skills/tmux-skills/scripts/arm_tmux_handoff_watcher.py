@@ -10,6 +10,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         dest="targets",
         default=[],
-        help="Explicit target to watch. Repeatable. Defaults to all formal whitelist targets.",
+        help="Explicit target to watch. Repeatable. Defaults to all formal session targets.",
     )
     parser.add_argument(
         "--pane-id",
@@ -46,21 +47,10 @@ def parse_args() -> argparse.Namespace:
         help="Deprecated compatibility input. Converted to target immediately.",
     )
     parser.add_argument(
-        "--include-non-bot-panes",
-        action="store_true",
-        help="Allow watching formal panes whose normalized title is not a whitelist bot role.",
-    )
-    parser.add_argument(
         "--interval",
         type=float,
-        default=0.8,
+        default=10.0,
         help="Polling interval for the watcher.",
-    )
-    parser.add_argument(
-        "--proactive-interval",
-        type=float,
-        default=300.0,
-        help="Proactive check-in interval for the watcher.",
     )
     parser.add_argument(
         "--session-mode",
@@ -128,8 +118,6 @@ def discover_targets(snapshot: dict[str, Any], args: argparse.Namespace) -> list
     for pane in snapshot.get("panes", []):
         if pane.get("session_name") != args.formal_session_name:
             continue
-        if not args.include_non_bot_panes and not pane.get("is_bot_named"):
-            continue
         target = str(pane.get("target", "")).strip()
         if target:
             targets.append(target)
@@ -138,7 +126,7 @@ def discover_targets(snapshot: dict[str, Any], args: argparse.Namespace) -> list
 
 def list_existing_watchers() -> list[dict[str, Any]]:
     result = subprocess.run(
-        ["pgrep", "-af", str(WATCHER_SCRIPT.name)],
+        ["ps", "ax", "-o", "pid=,command="],
         capture_output=True,
         text=True,
         check=False,
@@ -147,8 +135,11 @@ def list_existing_watchers() -> list[dict[str, Any]]:
     for raw in result.stdout.splitlines():
         if not raw.strip():
             continue
-        pid_text, _, command = raw.partition(" ")
+        pid_text, _, command = raw.strip().partition(" ")
         if not pid_text.isdigit():
+            continue
+        command = command.strip()
+        if str(WATCHER_SCRIPT.name) not in command:
             continue
         processes.append({"pid": int(pid_text), "command": command})
     return processes
@@ -167,7 +158,22 @@ def stop_conflicting_watchers(targets: list[str]) -> list[int]:
         except ProcessLookupError:
             continue
         stopped.append(pid)
+        wait_for_pid_exit(pid)
     return stopped
+
+
+def wait_for_pid_exit(pid: int, timeout_seconds: float = 3.0) -> None:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
 
 
 def build_watcher_command(args: argparse.Namespace, targets: list[str]) -> list[str]:
@@ -175,7 +181,6 @@ def build_watcher_command(args: argparse.Namespace, targets: list[str]) -> list[
     for target in targets:
         command.extend(["--target", target])
     command.extend(["--interval", str(args.interval)])
-    command.extend(["--proactive-interval", str(args.proactive_interval)])
     command.extend(["--session-mode", args.session_mode])
     command.extend(["--log-file", str(args.log_file)])
     if not args.no_deliver:
@@ -230,7 +235,12 @@ def enforce_destroy_unattached(formal_session_name: str) -> str:
     return "destroy_unattached=on"
 
 
-def maybe_write_ledger(status: str, codex_thread_id: str, targets: list[str], watcher_pid: int | None) -> None:
+def maybe_write_ledger(
+    status: str,
+    codex_thread_id: str,
+    targets: list[str],
+    watcher_pid: int | None,
+) -> None:
     try:
         update_current_runtime_ledger(
             watcher={

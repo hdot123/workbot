@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     init_parser.add_argument("--watcher-pid", type=int, help="Watcher pid, if already known.")
     init_parser.add_argument(
         "--codex-thread-bound",
+        dest="codex_thread_bound",
         action="store_true",
         help="Mark CODEX_THREAD_ID as already bound in the initial ledger.",
     )

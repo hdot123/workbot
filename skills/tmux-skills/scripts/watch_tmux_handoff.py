@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
+"""Watch tmux panes and report stopped or unreachable panes to the CODEX_THREAD_ID-bound Codex thread."""
+
+# pane_stopped 统一口径：
+# 1. pane_dead > 0
+# 2. 首次采样建立 baseline 后，必须先观察到 pane 出现过一次有效输出变化
+# 3. 进入过工作状态后，按轮询间隔连续 3 次比较最近 5 行输出 hash 都无变化
+#    默认轮询间隔为 10 秒，因此默认约 30 秒后触发 pane_stopped
+
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import hashlib
 import json
-import re
+import os
 import subprocess
 import sys
 import time
@@ -15,19 +23,15 @@ from typing import Any
 from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
 
 
-PROMPT_PATTERNS = (
-    re.compile(r"do you want to", re.IGNORECASE),
-    re.compile(r"\bselect\b", re.IGNORECASE),
-    re.compile(r"\bchoose\b", re.IGNORECASE),
-    re.compile(r"\bproceed\b", re.IGNORECASE),
-    re.compile(r"\by/n\b", re.IGNORECASE),
-    re.compile(r"^\s*❯?\s*1\.", re.IGNORECASE),
-    re.compile(r"^\s*1\.\s+\S+"),
+DEFAULT_POLL_INTERVAL_SECONDS = 10.0
+DEFAULT_CAPTURE_START = -5
+DEFAULT_UNCHANGED_OUTPUT_THRESHOLD = 3
+DEFAULT_DELIVERY_QUEUE_DIR = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/delivery-queue"
 )
-
-OPTION_PATTERN = re.compile(r"^\s*❯?\s*\d+\.\s+")
-SEPARATOR_PATTERN = re.compile(r"^[╌─-]{8,}$")
-DEFAULT_PROACTIVE_INTERVAL = 30.0
+DEFAULT_DELIVERY_STDOUT_LOG = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/deliver-tmux-handoff.stdout.log"
+)
 
 
 def run_tmux(*args: str) -> str:
@@ -52,66 +56,23 @@ def resolve_target_from_pane_id(pane_id: str) -> str:
     return display_value(pane_id, "#{session_name}:#{window_index}.#{pane_index}")
 
 
-def tail_block(text: str, max_lines: int) -> str | None:
-    lines = [line.rstrip() for line in text.splitlines()]
-    while lines and not lines[-1].strip():
-        lines.pop()
-    if not lines:
-        return None
-    block = lines[-max_lines:]
-    while block and not block[0].strip():
-        block.pop(0)
-    return "\n".join(block) if block else None
+def read_tmux_env(name: str) -> str:
+    try:
+        raw = run_tmux("show-environment", "-g", name).strip()
+    except subprocess.CalledProcessError:
+        return ""
+    prefix = f"{name}="
+    if raw.startswith(prefix):
+        return raw[len(prefix) :]
+    return ""
 
 
-def looks_like_attention(prompt: str | None) -> bool:
-    if not prompt:
-        return False
-    lines = prompt.splitlines()
-    numbered = sum(1 for line in lines if re.match(r"^\s*❯?\s*\d+\.", line))
-    if numbered >= 2:
-        return True
-    return any(pattern.search(prompt) for pattern in PROMPT_PATTERNS)
+def read_tmux_session_binding() -> str:
+    return read_tmux_env("CODEX_THREAD_ID")
 
 
-def prompt_headline(prompt: str | None) -> str | None:
-    if not prompt:
-        return None
-    lines = [line.strip() for line in prompt.splitlines() if line.strip()]
-    for line in lines:
-        lowered = line.lower()
-        if "?" in line or any(pattern.search(line) for pattern in PROMPT_PATTERNS):
-            if OPTION_PATTERN.match(line):
-                continue
-            if lowered.startswith("esc to cancel"):
-                continue
-            return line
-    for line in lines:
-        stripped = line.strip()
-        if OPTION_PATTERN.match(stripped):
-            continue
-        if SEPARATOR_PATTERN.match(stripped):
-            continue
-        if stripped.startswith(("+++", "---", "@@", "⏺", "❯")):
-            continue
-        if stripped.lower().startswith("esc to cancel"):
-            continue
-        return stripped
-    return None
-
-
-def option_lines(prompt: str | None) -> list[str]:
-    if not prompt:
-        return []
-    return [line.strip() for line in prompt.splitlines() if OPTION_PATTERN.match(line.strip())]
-
-
-def signature_for(prompt: str) -> str:
-    return hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:12]
-
-
-def state_signature_for(*parts: str) -> str:
-    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+def signature_for(payload: str) -> str:
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def event_id_for(event: dict[str, object]) -> str:
@@ -126,17 +87,36 @@ def event_id_for(event: dict[str, object]) -> str:
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
-def capture_snapshot(target: str, start: int, max_prompt_lines: int) -> dict[str, object]:
+def capture_line_count_from_start(start: int) -> int:
+    if start < 0:
+        return abs(start)
+    return max(1, start + 1)
+
+
+def capture_snapshot(target: str, start: int) -> dict[str, object]:
     recent_output = capture_output(target, start)
-    prompt = tail_block(recent_output, max_prompt_lines)
+    recent_output_hash = signature_for(recent_output)
+    session_attached = display_value(target, "#{session_attached}")
+    pane_dead = display_value(target, "#{pane_dead}")
+    dead_status = display_value(target, "#{pane_dead_status}")
+    current_command = display_value(target, "#{pane_current_command}")
     pane_title = display_value(target, "#{pane_title}")
     cwd = display_value(target, "#{pane_current_path}")
-    current_command = display_value(target, "#{pane_current_command}")
-    session_attached = display_value(target, "#{session_attached}")
     session_name = display_value(target, "#{session_name}")
     window_index = display_value(target, "#{window_index}")
     pane_index = display_value(target, "#{pane_index}")
     pane_id = display_value(target, "#{pane_id}")
+    state_basis = "|".join(
+        [
+            target,
+            pane_title,
+            current_command,
+            pane_dead,
+            dead_status,
+            session_attached,
+            recent_output_hash,
+        ]
+    )
     return {
         "target": target,
         "session": session_name,
@@ -146,132 +126,151 @@ def capture_snapshot(target: str, start: int, max_prompt_lines: int) -> dict[str
         "pane_title": pane_title,
         "cwd": cwd,
         "current_command": current_command,
+        "pane_dead": int(pane_dead or 0),
+        "pane_dead_status": dead_status,
         "session_attached": int(session_attached or 0),
-        "prompt": prompt,
-        "prompt_headline": prompt_headline(prompt),
-        "option_lines": option_lines(prompt),
         "recent_output": recent_output,
+        "recent_output_hash": recent_output_hash,
         "reachable": True,
-        "state_signature": state_signature_for(
-            target,
-            pane_title,
-            cwd,
-            current_command,
-            tail_block(recent_output, max_prompt_lines) or "",
-        ),
+        "state_signature": signature_for(state_basis),
     }
 
 
-def build_attention_event(snapshot: dict[str, object]) -> dict[str, object] | None:
-    prompt = snapshot.get("prompt")
-    if not looks_like_attention(prompt if isinstance(prompt, str) else None):
-        return None
-    event = {
-        "event": "pane_attention",
-        "state_class": "sop_approval",
-        "state_label": "审批",
-        "deliverable": True,
-        "detected_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        **snapshot,
-        "signature": signature_for(str(prompt or "")),
-        "source": "tmux-skills",
-    }
-    event["event_id"] = event_id_for(event)
-    return event
+def classify_snapshot(snapshot: dict[str, object]) -> tuple[str, str, str] | None:
+    if int(snapshot.get("session_attached", 0)) <= 0:
+        return ("session_detached", "会话已脱离前台", "session_detached")
+    if int(snapshot.get("pane_dead", 0)) > 0:
+        status = str(snapshot.get("pane_dead_status", "")).strip()
+        label = f"pane 已停止 ({status})" if status else "pane 已停止"
+        return ("pane_stopped", label, "pane_stopped")
+    return None
 
 
-def build_proactive_event(
+def build_state_event(
     snapshot: dict[str, object],
     *,
-    proactive_interval: float,
+    event_name: str,
+    state_label: str,
+    state: str,
+    reachable: bool,
+    codex_thread_id: str,
+    extra_fields: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    prompt = f"主动巡检：pane 状态已连续 {int(proactive_interval)} 秒未变化，请查看现场。"
     event = {
-        "event": "pane_checkin",
-        "state_class": "pane_checkin",
-        "state_label": "巡检",
+        "event": event_name,
+        "state_class": state,
+        "state_label": state_label,
+        "state": state,
         "deliverable": True,
         "detected_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         **snapshot,
-        "prompt": prompt,
-        "prompt_headline": prompt,
-        "option_lines": [],
-        "signature": signature_for(f"{snapshot['state_signature']}|pane_checkin"),
+        "reachable": reachable,
+        "codex_thread_id": codex_thread_id,
+        "signature": signature_for(f"{snapshot['target']}|{state}|{snapshot['state_signature']}"),
         "source": "tmux-skills",
     }
+    if extra_fields:
+        event.update(extra_fields)
     event["event_id"] = event_id_for(event)
     return event
 
 
-def build_runtime_blocked_event(
+def reset_output_hash_state(
+    target: str,
+    *,
+    last_output_hash: dict[str, str],
+    unchanged_output_count: dict[str, int],
+    observed_activity: dict[str, bool],
+) -> None:
+    last_output_hash.pop(target, None)
+    unchanged_output_count.pop(target, None)
+    observed_activity.pop(target, None)
+
+
+def advance_output_hash_state(
+    target: str,
+    snapshot: dict[str, object],
+    *,
+    last_output_hash: dict[str, str],
+    unchanged_output_count: dict[str, int],
+    observed_activity: dict[str, bool],
+) -> int:
+    current_hash = str(snapshot.get("recent_output_hash", "")).strip()
+    previous_hash = last_output_hash.get(target, "")
+    observed_activity.setdefault(target, False)
+
+    # 首次采样只建立 baseline，不计入“无变化比较”。
+    if previous_hash and current_hash != previous_hash:
+        observed_activity[target] = True
+        unchanged_output_count[target] = 0
+    elif current_hash and current_hash == previous_hash:
+        unchanged_output_count[target] = unchanged_output_count.get(target, 0) + 1
+    else:
+        unchanged_output_count[target] = 0
+
+    last_output_hash[target] = current_hash
+    return unchanged_output_count[target]
+
+
+def build_hash_stopped_event(
+    snapshot: dict[str, object],
+    *,
+    codex_thread_id: str,
+    unchanged_count: int,
+    interval_seconds: float,
+    capture_lines: int,
+) -> dict[str, object]:
+    return build_state_event(
+        snapshot,
+        event_name="pane_stopped",
+        state_label=(
+            "pane 已停止工作"
+            f"（首次采样后按 {interval_seconds:g} 秒间隔连续 {unchanged_count} 次比较无变化，"
+            f"最近 {capture_lines} 行输出未变化）"
+        ),
+        state="pane_stopped",
+        reachable=True,
+        codex_thread_id=codex_thread_id,
+        extra_fields={"stop_reason": "hash_unchanged_threshold"},
+    )
+
+
+def build_unreachable_event(
     target: str,
     *,
     reason: str,
+    codex_thread_id: str,
     cached_snapshot: dict[str, object] | None = None,
 ) -> dict[str, object]:
     cached_snapshot = cached_snapshot or {}
-    session_name = str(cached_snapshot.get("session", "")).strip()
-    window = str(cached_snapshot.get("window", "")).strip()
-    pane_title = str(cached_snapshot.get("pane_title", "")).strip()
     event = {
-        "event": "runtime_blocked",
-        "state_class": "runtime_blocked",
-        "state_label": "恢复",
-        "deliverable": False,
+        "event": "pane_unreachable",
+        "state_class": "pane_unreachable",
+        "state_label": reason,
+        "state": "pane_unreachable",
+        "deliverable": True,
         "detected_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "target": target,
-        "session": session_name or target.partition(":")[0],
-        "window": window or target.partition(":")[2].partition(".")[0],
-        "pane_title": pane_title,
+        "session": str(cached_snapshot.get("session", "")).strip() or target.partition(":")[0],
+        "window": str(cached_snapshot.get("window", "")).strip() or target.partition(":")[2].partition(".")[0],
+        "pane_title": str(cached_snapshot.get("pane_title", "")).strip(),
+        "pane_index": str(cached_snapshot.get("pane_index", "")).strip(),
+        "pane_id": str(cached_snapshot.get("pane_id", "")).strip(),
+        "cwd": str(cached_snapshot.get("cwd", "")).strip(),
         "current_command": str(cached_snapshot.get("current_command", "")).strip(),
-        "reachable": False,
-        "prompt": reason,
-        "prompt_headline": reason,
-        "option_lines": [],
         "recent_output": str(cached_snapshot.get("recent_output", "")).strip(),
-        "signature": signature_for(f"{target}|{reason}"),
+        "reachable": False,
+        "codex_thread_id": codex_thread_id,
+        "signature": signature_for(f"{target}|pane_unreachable|{reason}"),
         "source": "tmux-skills",
     }
     event["event_id"] = event_id_for(event)
     return event
-
-
-def reset_attention_tracking_for_state_change(
-    pane_id: str,
-    state_signature: str,
-    *,
-    seen_attention: dict[str, str],
-    attention_signature: dict[str, str],
-    attention_active: dict[str, bool],
-) -> None:
-    cached_signature = attention_signature.get(pane_id)
-    if cached_signature and cached_signature != state_signature:
-        attention_signature.pop(pane_id, None)
-        seen_attention.pop(pane_id, None)
-        attention_active[pane_id] = False
-
-
-def should_emit_attention_event(
-    pane_id: str,
-    event: dict[str, object],
-    state_signature: str,
-    *,
-    seen_attention: dict[str, str],
-    attention_signature: dict[str, str],
-    attention_active: dict[str, bool],
-) -> bool:
-    signature = str(event["signature"])
-    if attention_active.get(pane_id) and seen_attention.get(pane_id) == signature:
-        return False
-    seen_attention[pane_id] = signature
-    attention_signature[pane_id] = state_signature
-    attention_active[pane_id] = True
-    return True
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Watch tmux panes and emit tmux-skills handoff notifications."
+        description="Watch tmux panes and emit stopped-pane reports."
     )
     parser.add_argument(
         "--target",
@@ -290,32 +289,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--interval",
         type=float,
-        default=0.8,
-        help="polling interval in seconds, defaults to 0.8",
+        default=DEFAULT_POLL_INTERVAL_SECONDS,
+        help=f"polling interval in seconds, defaults to {DEFAULT_POLL_INTERVAL_SECONDS}",
     )
     parser.add_argument(
         "--start",
         type=int,
-        default=-120,
-        help="capture-pane start offset, defaults to -120",
+        default=DEFAULT_CAPTURE_START,
+        help=f"capture-pane start offset, defaults to {DEFAULT_CAPTURE_START}",
     )
-    parser.add_argument(
-        "--max-prompt-lines",
-        type=int,
-        default=10,
-        help="maximum lines kept in the prompt summary block",
-    )
-    parser.add_argument(
-        "--proactive-interval",
-        type=float,
-        default=DEFAULT_PROACTIVE_INTERVAL,
-        help="seconds before an unchanged pane triggers a proactive check-in, defaults to 30",
-    )
-    parser.add_argument(
-        "--once",
-        action="store_true",
-        help="scan once and exit",
-    )
+    parser.add_argument("--once", action="store_true", help="scan once and exit")
     parser.add_argument(
         "--log-file",
         default="/Users/busiji/workbot/workspace/artifacts/tmux-skills/handoff-notifications.jsonl",
@@ -324,7 +307,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--deliver",
         action="store_true",
-        help="deliver each newly detected notification into the current Codex session",
+        help="deliver each newly detected notification into the CODEX_THREAD_ID-bound Codex thread",
     )
     parser.add_argument(
         "--delivery-script",
@@ -341,6 +324,16 @@ def parse_args() -> argparse.Namespace:
         "--deliver-dry-run",
         action="store_true",
         help="run the delivery runner in dry-run mode",
+    )
+    parser.add_argument(
+        "--delivery-queue-dir",
+        default=str(DEFAULT_DELIVERY_QUEUE_DIR),
+        help="directory used to persist queued handoff events for the delivery runner",
+    )
+    parser.add_argument(
+        "--delivery-stdout-log",
+        default=str(DEFAULT_DELIVERY_STDOUT_LOG),
+        help="stdout/stderr capture file for detached delivery runner invocations",
     )
     return parser.parse_args()
 
@@ -366,38 +359,76 @@ def clear_runtime_ledger() -> None:
         return
 
 
-def deliver_event(
+def queue_event(
     event: dict[str, object],
+    *,
+    queue_dir: str,
+) -> Path:
+    if not bool(event.get("deliverable")):
+        raise ValueError("cannot queue a non-deliverable event")
+    queue_path = Path(queue_dir)
+    queue_path.mkdir(parents=True, exist_ok=True)
+    timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    event_id = str(event.get("event_id", "")).strip() or signature_for(
+        json.dumps(event, ensure_ascii=False, sort_keys=True)
+    )
+    path = queue_path / f"{timestamp}-{event_id}.json"
+    path.write_text(json.dumps(event, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def spawn_delivery_runner(
+    event_file: Path,
     *,
     delivery_script: str,
     session_mode: str,
     dry_run: bool,
-) -> None:
-    if not bool(event.get("deliverable")):
-        return
+    stdout_log: str,
+) -> int:
     cmd = [
         sys.executable,
         delivery_script,
         "--session-mode",
         session_mode,
+        "--event-file",
+        str(event_file),
     ]
     if dry_run:
         cmd.append("--dry-run")
-    proc = subprocess.run(
+    stdout_log_path = Path(stdout_log)
+    stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = stdout_log_path.open("a", encoding="utf-8")
+    process = subprocess.Popen(
         cmd,
-        input=json.dumps(event, ensure_ascii=False),
-        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
         text=True,
     )
-    if proc.returncode != 0:
-        sys.stderr.write(proc.stderr or proc.stdout or "tmux-skills handoff delivery failed\n")
-        if not (proc.stderr or proc.stdout):
-            sys.stderr.write("\n")
-        return
-    if proc.stdout.strip():
-        sys.stderr.write(proc.stdout)
-        if not proc.stdout.endswith("\n"):
-            sys.stderr.write("\n")
+    handle.close()
+    return int(process.pid)
+
+
+def handoff_event(
+    event: dict[str, object],
+    *,
+    delivery_script: str,
+    session_mode: str,
+    dry_run: bool,
+    queue_dir: str,
+    stdout_log: str,
+) -> int | None:
+    if not bool(event.get("deliverable")):
+        return None
+    event_file = queue_event(event, queue_dir=queue_dir)
+    return spawn_delivery_runner(
+        event_file,
+        delivery_script=delivery_script,
+        session_mode=session_mode,
+        dry_run=dry_run,
+        stdout_log=stdout_log,
+    )
 
 
 def normalize_targets(args: argparse.Namespace) -> list[str]:
@@ -416,113 +447,118 @@ def main() -> int:
     watched_targets = normalize_targets(args)
     if not watched_targets:
         raise SystemExit("at least one --target is required")
+    bound_codex_thread_id = read_tmux_session_binding()
+    if args.deliver and not bound_codex_thread_id:
+        raise SystemExit("CODEX_THREAD_ID is not bound; refusing to deliver watcher events")
 
-    seen_attention: dict[str, str] = {}
-    attention_signature: dict[str, str] = {}
-    attention_active: dict[str, bool] = {}
-    last_state: dict[str, str] = {}
-    last_state_change: dict[str, float] = {}
-    last_proactive_emit: dict[str, float] = {}
-    last_runtime_blocked: dict[str, str] = {}
+    capture_lines = capture_line_count_from_start(args.start)
+    last_report_signature: dict[str, str] = {}
     cached_snapshots: dict[str, dict[str, object]] = {}
+    last_output_hash: dict[str, str] = {}
+    unchanged_output_count: dict[str, int] = {}
+    observed_activity: dict[str, bool] = {}
 
     while True:
         unavailable_targets = 0
         detached_targets = 0
         for target in watched_targets:
             try:
-                snapshot = capture_snapshot(target, args.start, args.max_prompt_lines)
+                snapshot = capture_snapshot(target, args.start)
                 cached_snapshots[target] = snapshot
-                last_runtime_blocked.pop(target, None)
-            except (subprocess.CalledProcessError, RuntimeError) as exc:
+            except (subprocess.CalledProcessError, RuntimeError):
                 unavailable_targets += 1
-                reason = "target 不可达，进入 runtime 恢复分支"
-                signature = f"runtime_blocked:{reason}"
-                if last_runtime_blocked.get(target) != signature:
-                    blocked_event = build_runtime_blocked_event(
-                        target,
-                        reason=reason,
-                        cached_snapshot=cached_snapshots.get(target),
-                    )
-                    record_event(args.log_file, blocked_event)
-                    emit(blocked_event)
-                    last_runtime_blocked[target] = signature
-                continue
-
-            if int(snapshot.get("session_attached", 0)) <= 0:
-                detached_targets += 1
-                reason = "formal session 已脱离前台，进入 runtime 恢复分支"
-                signature = f"runtime_blocked:{reason}"
-                if last_runtime_blocked.get(target) != signature:
-                    blocked_event = build_runtime_blocked_event(
-                        target,
-                        reason=reason,
-                        cached_snapshot=snapshot,
-                    )
-                    record_event(args.log_file, blocked_event)
-                    emit(blocked_event)
-                    last_runtime_blocked[target] = signature
-                continue
-
-            now = time.monotonic()
-            state_signature = str(snapshot["state_signature"])
-            reset_attention_tracking_for_state_change(
-                target,
-                state_signature,
-                seen_attention=seen_attention,
-                attention_signature=attention_signature,
-                attention_active=attention_active,
-            )
-            if last_state.get(target) != state_signature:
-                last_state[target] = state_signature
-                last_state_change[target] = now
-                last_proactive_emit[target] = 0.0
-            event = build_attention_event(snapshot)
-            if event:
-                if not should_emit_attention_event(
+                reset_output_hash_state(
                     target,
-                    event,
-                    state_signature,
-                    seen_attention=seen_attention,
-                    attention_signature=attention_signature,
-                    attention_active=attention_active,
-                ):
+                    last_output_hash=last_output_hash,
+                    unchanged_output_count=unchanged_output_count,
+                    observed_activity=observed_activity,
+                )
+                event = build_unreachable_event(
+                    target,
+                    reason="pane 不可达",
+                    codex_thread_id=bound_codex_thread_id,
+                    cached_snapshot=cached_snapshots.get(target),
+                )
+                if last_report_signature.get(target) != str(event["signature"]):
+                    last_report_signature[target] = str(event["signature"])
+                    record_event(args.log_file, event)
+                    emit(event)
+                    if args.deliver:
+                        handoff_event(
+                            event,
+                            delivery_script=args.delivery_script,
+                            session_mode=args.session_mode,
+                            dry_run=args.deliver_dry_run,
+                            queue_dir=args.delivery_queue_dir,
+                            stdout_log=args.delivery_stdout_log,
+                        )
+                continue
+
+            classification = classify_snapshot(snapshot)
+            if classification is None:
+                unchanged_count = advance_output_hash_state(
+                    target,
+                    snapshot,
+                    last_output_hash=last_output_hash,
+                    unchanged_output_count=unchanged_output_count,
+                    observed_activity=observed_activity,
+                )
+                if not observed_activity.get(target, False):
+                    last_report_signature.pop(target, None)
                     continue
-                last_proactive_emit[target] = now
-                record_event(args.log_file, event)
-                emit(event)
-                if args.deliver:
-                    deliver_event(
-                        event,
-                        delivery_script=args.delivery_script,
-                        session_mode=args.session_mode,
-                        dry_run=args.deliver_dry_run,
+                if unchanged_count < DEFAULT_UNCHANGED_OUTPUT_THRESHOLD:
+                    last_report_signature.pop(target, None)
+                    continue
+                event = build_hash_stopped_event(
+                    snapshot,
+                    codex_thread_id=bound_codex_thread_id,
+                    unchanged_count=unchanged_count,
+                    interval_seconds=args.interval,
+                    capture_lines=capture_lines,
+                )
+            else:
+                event_name, state_label, state = classification
+                extra_fields: dict[str, object] | None = None
+                if event_name == "session_detached":
+                    detached_targets += 1
+                    reset_output_hash_state(
+                        target,
+                        last_output_hash=last_output_hash,
+                        unchanged_output_count=unchanged_output_count,
+                        observed_activity=observed_activity,
                     )
+                elif event_name == "pane_stopped":
+                    reset_output_hash_state(
+                        target,
+                        last_output_hash=last_output_hash,
+                        unchanged_output_count=unchanged_output_count,
+                        observed_activity=observed_activity,
+                    )
+                    extra_fields = {"stop_reason": "pane_dead"}
+                event = build_state_event(
+                    snapshot,
+                    event_name=event_name,
+                    state_label=state_label,
+                    state=state,
+                    reachable=True,
+                    codex_thread_id=bound_codex_thread_id,
+                    extra_fields=extra_fields,
+                )
+            if last_report_signature.get(target) == str(event["signature"]):
                 continue
-            if attention_active.get(target):
-                attention_active[target] = False
-                seen_attention.pop(target, None)
-            proactive_interval = max(0.0, float(args.proactive_interval))
-            if proactive_interval <= 0:
-                continue
-            state_age = now - last_state_change.get(target, now)
-            since_last_emit = now - last_proactive_emit.get(target, 0.0)
-            if state_age < proactive_interval or since_last_emit < proactive_interval:
-                continue
-            proactive_event = build_proactive_event(
-                snapshot,
-                proactive_interval=proactive_interval,
-            )
-            last_proactive_emit[target] = now
-            record_event(args.log_file, proactive_event)
-            emit(proactive_event)
+            last_report_signature[target] = str(event["signature"])
+            record_event(args.log_file, event)
+            emit(event)
             if args.deliver:
-                deliver_event(
-                    proactive_event,
+                handoff_event(
+                    event,
                     delivery_script=args.delivery_script,
                     session_mode=args.session_mode,
                     dry_run=args.deliver_dry_run,
+                    queue_dir=args.delivery_queue_dir,
+                    stdout_log=args.delivery_stdout_log,
                 )
+
         if detached_targets >= len(watched_targets):
             clear_runtime_ledger()
             sys.stderr.write("formal session is detached; watcher exiting\n")

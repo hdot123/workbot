@@ -76,16 +76,13 @@ status: active
   - `dev-bot`
   - `qa-bot`
   - `doc-bot`
-- tmux-skills stage-role pane 的标题必须使用其在 `tmux-skills` 域内定义的角色名；当前唯一保留的 tmux stage identity 为：
-  - `tmux-runtime-bot`
+- `tmux-skills` 不再定义独立 stage identity；它只负责 tmux pane 生成、标题设置和 pane 停止上报
 
 ### 运行规则
 
 - `dev-bot` pane 中只启动 `dev-bot` 身份的 Claude 会话
 - `qa-bot` pane 中只启动 `qa-bot` 身份的 Claude 会话
 - `doc-bot` pane 中只启动 `doc-bot` 身份的 Claude 会话
-- tmux-skills stage-role pane 中只启动 `tmux-runtime-bot` 身份；env / topology / pane-init / verify 改由脚本能力直接执行
-- bot 会话必须先完成前置准备，形成可供 `tmux-skills` handoff 子流程接管的 pane 上下文
 - 只有在 Claude 界面已经明确显示 `@dev-bot` / `@qa-bot` / `@doc-bot` 后，该 pane 才算正式 bot pane
 - 不允许跳过 `claude` 拉起步骤，直接把 shell pane 或历史会话误判为本次接管成功
 - 不允许在已命名的 pane 内临时切换为其他 bot
@@ -94,13 +91,20 @@ status: active
 - detached session、后台残留 session、无人可见的 tmux 会话不算有效运行面
 - 若当前前台 tmux 已关闭，则当天 `formal-session` 视为未运行
 
-### tmux-skills Pane Handoff 前置流程
+### tmux-skills Pane 生成与监控流程
 
-该流程不是独立 skill 的正式执行阶段，而是把现场准备到可交给 `tmux-skills` handoff 子流程的状态。
+`tmux-skills` 的职责不再是 handoff Claude pane，而是：
+
+- 接收 Codex 提供的 `pane_count`
+- 接收 Codex 提供的 `pane_titles`
+- 在前台 `formal-session` 中生成对应 pane
+- 设置 pane 标题
+- 在后续监控 pane 状态
+- pane 停止后通过 `CODEX_THREAD_ID` 报告给对应的 Codex app thread
 
 #### 阶段 A：启动前清场（只执行一次）
 
-- 收到“开始 pane handoff”指令后，先确认当前工作目录是 `/Users/busiji/workbot`
+- 收到 tmux pane 生成指令后，先确认当前工作目录是 `/Users/busiji/workbot`
 - 先查询是否存在 tmux 会话
 - 若发现后台运行的 tmux（`attached=0`），全部杀掉
 - 若发现前台运行的 tmux（`attached>=1`），先接管该前台会话，不重复创建新会话
@@ -109,48 +113,38 @@ status: active
 
 #### 阶段 B：前台会话准备（必须在可见终端完成）
 
-- 若没有任何 tmux 会话，则在普通可见终端创建前台会话（推荐固定会话名：`workbot-preflight`）
+- 若没有任何 tmux 会话，则在普通可见终端创建前台会话（正式会话名固定为 `formal-session`）
 - When `tbot` is used for bootstrapping, the goal state is temporarily having only the bootstrap pane with `attached=1`; once the single formal runtime session is available, shut down the `tbot` session and switch to `formal-session`.
-- 进入目标 shell pane 后，直接执行 `claude --agent dev-bot`
-- 以界面出现 `@dev-bot` 作为身份切换成功的唯一可见标志
-- 紧接着发送一条固定自我介绍触发语，用于校验输入链路与身份一致性
-- 若自我介绍未出现在上下文中，或 bot 身份与预期不一致，则判定本地接管失败，必须回到阶段 A 重试
-- 只有“身份标签正确 + 自我介绍出现在上下文”100% 同时满足，才允许进入下一阶段
 - 已验证：在 `Terminal.app` 中通过 `do script` 重复裸执行 `tbot` 会让同一个 `tbot` session` 出现 `attached=2`，因此 bootstrap `tbot` 必须在 `formal-session` 就绪后关闭。
 - 一旦 `attached>1`，视为污染，必须回到阶段 A 清场，不得继续。
 
-#### 阶段 C：上下文采集与交接
+#### 阶段 C：Codex 调用 tmux-skills 生成 pane
 
-- 在同一前台 pane 中采集并整理以下字段：
-  - `session name`
-  - `window id`
-  - `window title`
-  - `pane id`
-  - `pane title`
-  - `bound bot`
-  - `prompt`
-  - `recent_output`
-  - `cwd`
-  - `current_command`
-- 若当前 window 只服务该 bot，则应把 `window title` 同步校正为对应 bot 名，例如 `dev-bot`
-- 完成后输出最小交接上下文，交给 `tmux-skills` handoff 子流程
+- Codex 显式传入：
+  - `pane_count`
+  - `pane_titles`
+- `tmux-skills` 只负责：
+  - 生成或收缩 pane 数量
+  - 设置 pane 标题
+  - 输出 pane 的 `target` 与 `pane_title`
+- `tmux-skills` 不负责：
+  - `claude --agent`
+  - 身份切换
+  - prompt 注入
+  - scene 校验
 
-#### tmux-skills Handoff 接入门槛
+#### 阶段 D：停止监控与上报
 
-- 只有在准备工作完成后，才允许把当前 pane 交给 `tmux-skills` handoff 子流程
-- 交给 `tmux-skills` handoff 子流程前，至少必须准备好以下字段：
-  - `pane_id`
+- pane 生成完成后，`tmux-skills` 只监控 pane 状态
+- 监控目标只包含当前 formal session 中由 Codex 要求生成的 pane
+- 任一 pane 停止时，`tmux-skills` 必须把停止事件发送到 `CODEX_THREAD_ID`
+- `CODEX_THREAD_ID` 在 tmux 门铃链路中的语义固定为 Codex app thread id，不再允许复用为本地 CLI session id
+- 停止事件的 delivery 由常驻 app-server bridge 执行；watcher 只负责观察、记录和落队列
+- 停止事件不再通过 `codex exec resume` 投递
+- 停止事件至少包含：
+  - `target`
   - `pane_title`
-  - `prompt`
-  - `recent_output`
-- 若条件允许，应再补齐以下字段：
-  - `session`
-  - `window`
-  - `cwd`
-  - `current_command`
-- 未形成上述最小上下文前，不得声称“已经接入 tmux-skills handoff”
-- 若阶段 B 的身份校验或自我介绍校验失败，必须回到阶段 A，而不是跳过重试
-- `tmux-skills` handoff 子流程接手后，才进入“查看现场、判断动作、必要时发送按键、执行后复查”的正式执行阶段
+  - `state`
 
 ## 每日任务与监控线程规范
 
@@ -173,6 +167,7 @@ status: active
 - 监控线程只承接异常、告警、监控状态，不承接任务本身
 - 监控线程是当天监控事实的唯一线程真源
 - tmux 门铃系统不再维护 monitor 专用 thread 变量；负责监控的 pane / slot 必须在启动时显式注入唯一的 `CODEX_THREAD_ID`
+- 上述 `CODEX_THREAD_ID` 必须是 monitor 对应的 Codex app thread id
 
 ## 每日单 formal tmux 会话规范
 
@@ -180,8 +175,8 @@ status: active
 
 - 每天最多承认一个正式 tmux 会话，默认名为 `formal-session`
 - `formal-session` 只绑定当天正式 runtime，不再拆分为独立 task formal session 与 monitor formal session
-- `task` / `monitor` / `runtime` 与其他工作角色必须作为 `formal-session` 内的 pane / slot 角色存在
-- `dev-bot`、`qa-bot`、`doc-bot` 与 tmux-skills stage-role 只在 `formal-session` 当前拓扑允许的 pane 中执行
+- `task` / `monitor` 与其他工作 pane 必须作为 `formal-session` 内的 pane / slot 角色存在
+- Codex 调用 `tmux-skills` 生成的 pane 只在 `formal-session` 当前拓扑允许的 pane 中执行
 - `formal-session` 必须是当前前台可见会话，不允许在后台长期运行
 - detached session、bootstrap `tbot` 和其他临时会话都不算正式运行面
 
@@ -193,6 +188,7 @@ status: active
 - 不允许把任务执行结果打到监控线程
 - 不允许一个线程同时承担任务流和监控流
 - 对 tmux 门铃链路而言，线程分流通过 monitor pane / slot 启动时注入的 `CODEX_THREAD_ID` 实现，不再依赖多个候选环境变量回退
+- 对 tmux handoff delivery 而言，消息进入监控线程时应当以 app thread / turn 回执作为接收确认
 
 ## 每日启动流程
 
@@ -213,8 +209,8 @@ status: active
 1. 新建当天任务线程
 2. 新建当天监控线程
 3. 创建或接管唯一的 `formal-session`
-4. 在 `formal-session` 内构造 task / monitor / runtime 所需 pane 拓扑
-5. 在 task 相关 pane 中先完成 `tmux-skills` handoff 前置流程：读取 pane 标识、拉起 `claude`、切换 bot 身份、形成最小上下文
+4. 由 Codex 调用 `tmux-skills`，传入当天需要的 `pane_count` 与 `pane_titles`
+5. 由 `tmux-skills` 在 `formal-session` 内生成对应 pane 并设置标题
 6. 在 monitor pane / slot 中启动对 `formal-session` 的监控，并注入当天监控线程的 `CODEX_THREAD_ID`
 7. 后续所有 `tmux-to` 消息按任务流与监控流严格分流
 

@@ -47,6 +47,27 @@ def parse_target(target: str) -> tuple[int, int]:
     return int(window_index), int(pane_index)
 
 
+def layout_policy_for(pane_count: int) -> tuple[str, str] | None:
+    if pane_count <= 1:
+        return None
+    if pane_count == 4:
+        return ("tiled", "2x2")
+    if pane_count == 6:
+        return ("tiled", "3x2")
+    return ("tiled", "grid")
+
+
+def apply_layout(session_name: str, pane_count: int) -> str | None:
+    policy = layout_policy_for(pane_count)
+    if policy is None:
+        return None
+    layout, grid = policy
+    proc = run_tmux("select-layout", "-t", session_name, layout)
+    if proc.returncode != 0:
+        raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to apply tmux layout")
+    return f"select-layout:{layout}:{grid}"
+
+
 def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, Any]:
     if target_pane_count < 1:
         raise SystemExit("target-pane-count must be >= 1")
@@ -71,6 +92,13 @@ def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, A
             if proc.returncode != 0:
                 raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to kill tmux pane")
             actions.append(f"kill-pane:{target}")
+
+    snapshot = inspect_runtime()
+    after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
+    after_targets.sort(key=parse_target)
+    layout_action = apply_layout(session_name, len(after_targets))
+    if layout_action:
+        actions.append(layout_action)
 
     snapshot = inspect_runtime()
     after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]

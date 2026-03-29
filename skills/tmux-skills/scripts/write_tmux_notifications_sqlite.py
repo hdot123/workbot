@@ -94,7 +94,15 @@ def normalize_instructions(payload: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(item, dict) and item.get("channel") == "db_write" and isinstance(item.get("payload"), dict):
                 instructions.append(item["payload"])
         return instructions
-    if payload.get("event") in {"pane_attention", "pane_checkin", "pane_snapshot", "runtime_blocked"}:
+    if payload.get("event") in {
+        "pane_attention",
+        "pane_checkin",
+        "pane_snapshot",
+        "runtime_blocked",
+        "pane_stopped",
+        "pane_unreachable",
+        "session_detached",
+    }:
         record = build_db_record(payload)
         validation = validate_db_record(record)
         return [
