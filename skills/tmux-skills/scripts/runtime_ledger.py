@@ -15,13 +15,6 @@ CURRENT_RUNTIME_LEDGER_PATH = RUNTIME_ARTIFACT_DIR / "current-runtime.json"
 DEFAULT_FORMAL_SESSION_NAME = "formal-session"
 DEFAULT_FORMAL_PANE_COUNT = 4
 DEFAULT_WORKER_CEILING = 3
-WHITE_ROLE_TITLES = ("dev-bot", "qa-bot", "doc-bot")
-DEFAULT_FORMAL_PANE_TITLES = (
-    "dev-bot",
-    "dev-bot",
-    "qa-bot",
-    "doc-bot",
-)
 
 
 def utc_now() -> str:
@@ -45,6 +38,10 @@ def write_current_runtime_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
         encoding="utf-8",
     )
     return ledger
+
+
+def coerce_codex_thread_bound(value: Any) -> bool:
+    return bool(value)
 
 
 def normalize_target(value: Any | None) -> str:
@@ -71,12 +68,8 @@ def is_valid_target(value: str) -> bool:
 
 def build_slot_bindings_from_targets(targets: list[str], pane_titles: list[str]) -> dict[str, dict[str, str]]:
     bindings: dict[str, dict[str, str]] = {}
-    monitor_assigned = False
     for index, (target, role) in enumerate(zip(targets, pane_titles), start=1):
         slot_name = f"pane_{index}"
-        if role == "qa-bot" and not monitor_assigned:
-            slot_name = "monitor"
-            monitor_assigned = True
         bindings[slot_name] = {"role": role, "target": target}
     return bindings
 
@@ -171,7 +164,7 @@ def init_current_runtime_ledger(
         "topology_fingerprint": str(topology_fingerprint or "").strip(),
         "slot_bindings": coerce_slot_bindings(slot_bindings or {}),
         "watcher": coerce_watcher(watcher or {}),
-        "codex_thread_bound": bool(codex_thread_bound),
+        "codex_thread_bound": coerce_codex_thread_bound(codex_thread_bound),
         "worker_ceiling": int(worker_ceiling),
         "created_at": now,
         "updated_at": now,
@@ -194,7 +187,7 @@ def update_current_runtime_ledger(**fields: Any) -> dict[str, Any]:
     if "topology_fingerprint" in fields:
         fields["topology_fingerprint"] = str(fields["topology_fingerprint"] or "").strip()
     if "codex_thread_bound" in fields:
-        fields["codex_thread_bound"] = bool(fields["codex_thread_bound"])
+        fields["codex_thread_bound"] = coerce_codex_thread_bound(fields["codex_thread_bound"])
     if "worker_ceiling" in fields:
         fields["worker_ceiling"] = int(fields["worker_ceiling"])
     ledger.update(fields)
@@ -330,7 +323,7 @@ def evaluate_runtime_ledger_coherence(ledger: dict[str, Any]) -> tuple[list[str]
         for slot_name, binding in slot_bindings.items():
             role = normalize_role(binding.get("role"))
             target = normalize_target(binding.get("target"))
-            if role not in WHITE_ROLE_TITLES:
+            if not role:
                 reasons.append(
                     f"runtime ledger slot_bindings.{slot_name}.role is invalid: {role or '<empty>'}"
                 )
@@ -340,18 +333,5 @@ def evaluate_runtime_ledger_coherence(ledger: dict[str, Any]) -> tuple[list[str]
                 reasons.append(
                     f"runtime ledger slot_bindings.{slot_name}.target is invalid: {target}"
                 )
-        monitor_binding = slot_bindings.get("monitor")
-        if not monitor_binding:
-            reasons.append("runtime ledger slot_bindings.monitor is missing")
-        else:
-            monitor_role = normalize_role(monitor_binding.get("role"))
-            monitor_target = normalize_target(monitor_binding.get("target"))
-            if monitor_role != "qa-bot":
-                warnings.append(
-                    "runtime ledger slot_bindings.monitor.role is not qa-bot; "
-                    f"actual={monitor_role or '<empty>'}"
-                )
-            if not monitor_target:
-                reasons.append("runtime ledger slot_bindings.monitor.target is missing")
 
     return reasons, warnings

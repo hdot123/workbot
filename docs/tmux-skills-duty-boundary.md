@@ -1,54 +1,63 @@
-# tmux-skills 冻结职责分层
+# tmux-skills 冻结职责边界
 
 ## 目的
 
-本文件是 `tmux-skills` 的冻结职责边界真源，单独说明：
+本文件只定义一件事：
 
-- `tmux-skills` 负责什么
-- 人类负责什么
-- Codex 负责什么
-- pane 生成模式是什么
-- 什么情况下才触发 Codex 介入
+- `tmux-skills` 到底负责什么
 
-本文件只讨论 runtime / watcher / bell / verify 边界，不讨论业务任务细节。
+这里采用当前冻结口径：
+
+**`tmux-skills` 是一个前台 tmux pane 生成与停止监控上报技能。**
 
 ## `tmux-skills` 负责
 
-`tmux-skills` 只保留 runtime / watcher / bell / verify 职责，不承担角色注入和业务调度。
+- 接收 Codex 提供的 `pane_count`
+- 接收 Codex 提供的 `pane_titles`
+- 创建或接管前台 attached 的 `formal-session`
+- 按数量生成或收缩 pane
+- 把 pane 标题设置为调用要求的标题
+- 输出 pane 的 `target` 和标题
+- 监控 pane 状态
+- pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
 
-保留职责：
+补充一条基础规则：
 
-- 创建或接管唯一 attached 的 `formal-session`
-- 构造目标 pane 拓扑
-- 生成 pane 基础运行面
-- 修改 pane 标题为白名单角色名
-- 输出 pane 基础定位信息
-- 维护 runtime ledger 的运行面事实
-- 观察 pane 是否进入“可到达但停止推进”的状态
-- 向 Codex 发送固定记忆触发门铃
-- 对正式运行面做 ready-check / verify
+- detached tmux session 不算正式运行面
+- 必须先被前台 client 接管，`session_attached > 0`，才算正式 `formal-session`
 
-不再承担：
+## `tmux-skills` 不负责
 
-- 在 skill 内启动 `claude`
-- 在 skill 内切换角色
-- 在 skill 内注入 system prompt
-- 在 skill 内下发业务任务
-- 在 skill 内替指挥官做业务决策
+- 决定 pane 数量
+- 决定 pane 标题
+- `claude --agent`
+- agent 身份切换
+- system prompt 注入
+- Claude scene 校验
+- 业务任务分发
+
+## Codex 负责
+
+- 决定这次要生成多少 pane
+- 决定每个 pane 的标题
+- 调用 `tmux-skills`
+- 接收 pane 停止后的报告
 
 ## pane 生成模式
 
-当指挥官通过指令要求生成 pane 时，`tmux-skills` 只负责“建车位和贴标签”，不负责“把身份内容塞进去”。
+pane 生成是参数化的，不是写死在技能里。
 
-例如：
+例如，当 Codex 提供：
 
-- `2` 个 `dev-bot`
-- `1` 个 `qa-bot`
-- `1` 个 `doc-bot`
+- `pane_count = 4`
+- `pane_titles = ["dev-bot", "dev-bot", "qa-bot", "doc-bot"]`
 
-则 `tmux-skills` 只负责生成 `4` 个 pane，并把标题改成对应角色名。后续哪个 pane 要注入什么身份内容，由人类自行决定。
+则 `tmux-skills` 只负责：
 
-正式交付给指挥官的 pane 格式固定为：
+- 在前台 tmux 中生成 4 个 pane
+- 把 4 个 pane 标题依次改为 `dev-bot`、`dev-bot`、`qa-bot`、`doc-bot`
+
+正式交付格式固定为：
 
 ```text
 formal-session:1.1 dev-bot
@@ -62,42 +71,20 @@ formal-session:1.4 doc-bot
 - `session:window.pane`
 - `pane_title`
 
-不把 `%0` 这类 `pane_id` 作为对外主展示格式。
+## 触发报告的条件
 
-## 触发 Codex 干预的唯一门槛
+`tmux-skills` 的监控阶段只保留一个正式触发条件：
 
-门铃只在一种情况下触发 Codex 干预：
+- pane 停止了
 
-- pane 仍然活着
-- tmux target 仍可到达
-- pane 已经停止推进
-- Codex 可以进入该 pane 继续处理
+触发后就向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告。
 
-这类状态才属于“窗口 SOP 干预”。
+报告目标使用：
 
-如果 pane 已死、session 不存在或 target 不可达，则不进入窗口 SOP，而进入 runtime 恢复分支。
+- `CODEX_THREAD_ID`
+- `CODEX_THREAD_ID` 在这里表示 Codex app thread id，不是本地 CLI session id
+- delivery 固定经由常驻 app-server bridge，不使用 `codex exec resume`，也不查本地 `session_index.jsonl`
 
-## 人类负责
+## 一句话结论
 
-以下动作全部归人类前置准备，不属于 `tmux-skills`：
-
-- `claude` 进入
-- 白名单角色进入
-- system prompt 注入
-- 决定哪个 pane 注入哪份身份内容
-- 现场准备到“既有白名单 pane 现场”状态
-
-## Codex 负责
-
-Codex 只在收到固定门铃之后介入，不提前代替 runtime 做准备。
-
-Codex 负责：
-
-- 接收门铃
-- 命中固定记忆
-- 进入目标 `formal-session:window.pane`
-- 在 pane 内执行窗口 SOP 动作
-- 动作后立即复查
-- 再回外层汇报
-- 投递业务任务内容
-- 处理收到门铃后的业务逻辑
+`tmux-skills` 的职责不是“管理 Claude pane”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定的 Codex app thread”。

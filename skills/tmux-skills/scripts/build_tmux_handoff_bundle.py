@@ -44,14 +44,18 @@ def load_event(event_file: str | None) -> dict[str, Any]:
 def build_notification_message(event: dict[str, Any]) -> str:
     pane_title = str(event.get("pane_title") or "").strip() or "未知 pane"
     target = str(event.get("target") or "").strip()
-    state_label = str(event.get("state_label") or "").strip() or "巡检"
+    state_label = str(event.get("state_label") or "").strip() or "停止"
+    reason = str(event.get("reason") or "").strip()
     if not target:
         raise ValueError("target is required for tmux-skills handoff notification")
-    return f"{pane_title} 呼叫：去 tmux {target} 窗口{state_label} SOP 状态"
+    if reason:
+        return f"{pane_title} {state_label}：{target}。原因：{reason}"
+    return f"{pane_title} {state_label}：{target}"
 
 
 def build_bundle(event: dict[str, Any], *, table: str, session_mode: str) -> dict[str, Any]:
     event_id = event.get("event_id") or event_id_for(event)
+    codex_thread_id = str(event.get("codex_thread_id") or "").strip()
     record = build_db_record(event)
     validation = validate_db_record(record)
     deliverable = bool(event.get("deliverable"))
@@ -63,12 +67,12 @@ def build_bundle(event: dict[str, Any], *, table: str, session_mode: str) -> dic
     tmux_skills_handoff = {
         "skill": "tmux-skills",
         "event_id": event_id,
-        "identity_id": event_id,
         "target": {
             "session_mode": session_mode,
+            "thread_id": codex_thread_id,
         },
         "delivery": {
-            "transport": "codex_desktop",
+            "transport": "codex_app_server_thread",
             "deliverable": deliverable,
         },
         "notification": notification,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared runtime inspection helpers for tmux-skills."""
+"""Shared tmux runtime inspection helpers for tmux-skills."""
 
 from __future__ import annotations
 
@@ -15,13 +15,11 @@ from runtime_ledger import (
     CURRENT_RUNTIME_LEDGER_PATH,
     DEFAULT_FORMAL_PANE_COUNT,
     DEFAULT_FORMAL_SESSION_NAME,
-    WHITE_ROLE_TITLES,
     coerce_slot_bindings,
     load_current_runtime_ledger,
 )
 
 
-IDENTITY_CATALOG_PATH = Path("/Users/busiji/workbot/skills/tmux-skills/identities/catalog.json")
 WATCHER_SCRIPT_NAME = "watch_tmux_handoff.py"
 
 TMUX_RUNTIME_COMMAND = [
@@ -49,11 +47,6 @@ def run(command: list[str]) -> str:
 
 def normalize_pane_title(value: str) -> str:
     return value.lstrip("✳* ").strip()
-
-
-def is_claude_runtime_command(command: str) -> bool:
-    normalized = str(command or "").strip().lower()
-    return normalized in {"node", "claude", "claude-code"}
 
 
 def resolve_formal_session_name(
@@ -118,7 +111,6 @@ def list_panes(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[d
             pane_active,
         ) = raw.split("\t")
         target = f"{session_name}:{window_index}.{pane_index}"
-        normalized_title = normalize_pane_title(pane_title)
         panes.append(
             {
                 "target": target,
@@ -127,7 +119,7 @@ def list_panes(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[d
                 "pane_index": pane_index,
                 "pane_id": pane_id,
                 "pane_title": pane_title,
-                "pane_title_normalized": normalized_title,
+                "pane_title_normalized": normalize_pane_title(pane_title),
                 "window_name": window_name,
                 "current_command": current_command,
                 "pane_current_command": current_command,
@@ -136,23 +128,21 @@ def list_panes(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[d
                 "pane_active": int(pane_active or 0),
                 "is_bootstrap": session_name == "tbot",
                 "is_formal": session_name == formal_session_name,
-                "is_bot_named": normalized_title in WHITE_ROLE_TITLES,
-                "claude_entered": is_claude_runtime_command(current_command),
             }
         )
     return panes
 
 
-def get_tmux_env(name: str) -> str:
+def get_tmux_env(name: str, *, allow_os_fallback: bool = False) -> str:
     try:
         output = run(["tmux", "show-environment", "-g"])
     except RuntimeError:
-        return os.environ.get(name, "")
+        return os.environ.get(name, "") if allow_os_fallback else ""
     prefix = f"{name}="
     for line in output.splitlines():
         if line.startswith(prefix):
             return line[len(prefix) :]
-    return os.environ.get(name, "")
+    return os.environ.get(name, "") if allow_os_fallback else ""
 
 
 def command_invokes_watcher(command: str) -> bool:
@@ -251,6 +241,7 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
             expected_formal_pane_count = ledger_pane_count
     except (TypeError, ValueError, AttributeError):
         pass
+
     sessions = list_sessions(configured_formal_session_name)
     panes = list_panes(configured_formal_session_name)
     bell_processes = get_bell_processes()
@@ -298,13 +289,9 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         "expected_formal_pane_count": expected_formal_pane_count,
         "expected_formal_targets": expected_targets,
         "bootstrap_pane_count": sum(1 for pane in panes if pane["is_bootstrap"]),
-        "bot_named_pane_count": sum(1 for pane in panes if pane["is_bot_named"]),
-        "claude_entered_pane_count": sum(1 for pane in panes if pane["claude_entered"]),
         "CODEX_THREAD_ID": get_tmux_env("CODEX_THREAD_ID"),
         "bell_processes": bell_processes,
         "bell_armed": bool(bell_processes),
-        "identity_catalog_path": str(IDENTITY_CATALOG_PATH),
-        "identity_catalog_present": IDENTITY_CATALOG_PATH.exists(),
         "runtime_ledger_path": str(CURRENT_RUNTIME_LEDGER_PATH),
         "runtime_ledger_present": bool(runtime_ledger),
         "runtime_ledger": runtime_ledger,

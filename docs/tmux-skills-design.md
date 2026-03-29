@@ -2,257 +2,156 @@
 
 ## 1. 定位
 
-`tmux-skills` 不是业务调度器，不是角色注入器，也不是人格生成器。
+`tmux-skills` 是一个纯 tmux 技能。
 
-它的唯一定位是：
+它的职责只有两段：
 
-**作为 workbot 的 tmux runtime 基础设施层，负责搭 runtime、验 runtime、守 runtime，并把对外出口收口为固定门铃事件。**
+1. Codex 提供 pane 数量和 pane 标题，`tmux-skills` 在前台 tmux 中生成这些 pane
+2. pane 生成完成后，`tmux-skills` 持续监控 pane 状态，并在 pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
 
 一句话定义：
 
-**`tmux-skills = env + topology + ledger + watcher + verify`**
+**`tmux-skills = foreground tmux pane generator + stopped-pane reporter`**
 
-## 2. 冻结边界
+## 2. 输入模型
 
-`tmux-skills` 只负责：
+`tmux-skills` 不自己决定 pane 拓扑，而是由 Codex 调用时提供参数。
 
-- 创建或接管唯一 attached 的 `formal-session`
-- 构造正式 pane 拓扑
-- 给 pane 贴白名单标题
-- 记录 runtime facts 到 ledger
-- 观察“可达但停止推进”的 pane
-- 发送固定格式门铃
-- 做 ready-check / verify
+正式输入为：
 
-`tmux-skills` 不再负责：
-
-- `claude --agent`
-- 角色切换
-- system prompt 注入
-- 身份 payload 注入
-- 业务任务分发
-- “等待身份进入成功”的内部判定
-
-## 3. 正式模型
-
-### 3.1 Formal Session
-
-正式 runtime 只承认一个 attached 的 `formal-session`。
-
-正式 pane 数冻结为 `4`：
-
-- `formal-session:1.1 dev-bot`
-- `formal-session:1.2 dev-bot`
-- `formal-session:1.3 qa-bot`
-- `formal-session:1.4 doc-bot`
-
-`3` 不再表示 pane 数，而是：
-
-- `worker_ceiling = 3`
-
-它只代表并发推进上限。
-
-### 3.2 对外主地址
-
-对外交付和门铃主展示统一使用：
-
-- `target = formal-session:window.pane`
-- `pane_title = dev-bot / qa-bot / doc-bot`
-
-`pane_id` 只保留为内部 tmux 实现与兼容诊断细节，不再进入主展示、门铃模板和正式 CLI 主入口。
-
-### 3.3 Formal Chain
-
-正式链路冻结为：
-
-`env -> topology -> ledger -> watcher -> verify`
-
-其中 `init_tmux_panes.py` 只作为内部 helper，负责：
-
-- pane 标题写入
-- target 校验
-- slot binding 写回
-- 既有现场验证
-
-它不再是正式链条中的独立“角色拉起阶段”。
-
-## 4. Runtime Contract
-
-### 4.1 Ready Gate
-
-READY 只验证 runtime facts：
-
-- 唯一 attached 的 `formal-session`
-- `pane_count = 4`
-- 所有 formal target 标题属于白名单
-- 所有 formal target 已进入 Claude 运行态
-- `CODEX_THREAD_ID` 已绑定
-- watcher 已 armed
-- ledger 与 topology 一致
-- `slot_bindings.monitor.target` 存在且和 watcher 绑定一致
-
-不再把以下内容作为 READY 前提：
-
-- `identity_catalog_present`
-- `identity_injected`
-- `launch_agent`
-- `planned_roles`
-- `active_roles`
-- `queued_roles`
-
-### 4.2 Ledger
-
-runtime ledger 冻结为 runtime-only facts 结构，至少包含：
-
-- `formal_session_name`
 - `pane_count`
-- `topology_fingerprint`
-- `slot_bindings`
-- `watcher`
-- `codex_thread_bound`
-- `worker_ceiling`
-- `runtime_status`
+- `pane_titles`
 
-其中 `slot_bindings.monitor` 必须是带 target 的具体绑定：
+示例：
 
 ```json
 {
-  "role": "qa-bot",
-  "target": "formal-session:1.3"
+  "pane_count": 4,
+  "pane_titles": ["dev-bot", "dev-bot", "qa-bot", "doc-bot"]
 }
 ```
 
-不再接受只有 role 没有 target 的 monitor 绑定。
+这表示：
 
-## 5. Watcher And Bell
+- 在前台 `formal-session` 中生成 4 个 pane
+- 依次把 pane 标题设置为 `dev-bot`、`dev-bot`、`qa-bot`、`doc-bot`
 
-### 5.1 事件字段
+## 3. 运行模型
 
-watcher 对外事件冻结字段为：
+### 3.1 Formal Session
+
+- 正式 tmux 运行面只承认一个前台 attached 的 `formal-session`
+- `tmux-skills` 的目标是维护这个前台 tmux 运行面
+- `tmux-skills` 不负责业务线程编排，只负责 pane 生成与 pane 监控
+- 每次新的 pane 创建前，必须先清掉上一轮 runtime 遗留
+
+这里依赖 tmux 的 attached 机制：
+
+- detached session 只是 tmux server 里的一个会话对象，还不算正式运行面
+- 只有被前台 client 接管后，`session_attached > 0` 才成立
+- 只有 attached 后，窗口真实尺寸、pane 布局和交互输入输出才有正式意义
+
+因此 `tmux-skills` 的“创建 session”实际上指的是：
+
+- 先清理旧 watcher、旧 runtime ledger、旧 issues 文件、旧 handoff 数据和旧 watcher 日志
+- 创建并 attach 一个前台 `formal-session`
+- 或接管一个已经 attached 的 `formal-session`
+
+### 3.2 Pane 生成
+
+pane 生成阶段只关心 tmux 本身：
+
+- session 是否存在
+- pane 数量是否达到调用要求
+- pane 标题是否已按调用要求设置
+- 是否可以输出稳定的 `target`
+
+对外交付格式固定为：
+
+- `formal-session:window.pane`
+- `pane_title`
+
+### 3.3 Pane 监控
+
+pane 监控阶段只关心 pane 是否仍在运行：
+
+- pane 活着
+- pane 停止
+- target 不可达
+- session 不存在
+
+其中最重要的正式动作是：
+
+- pane 停止后向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+
+## 4. Codex 与 tmux-skills 的边界
+
+### 4.1 Codex 负责
+
+- 决定本次要生成多少 pane
+- 决定每个 pane 的标题
+- 调用 `tmux-skills`
+- 接收 pane 停止后的报告
+
+### 4.2 tmux-skills 负责
+
+- 创建或接管前台 attached 的 `formal-session`
+- 在新建 pane 前清理上一轮 runtime 遗留
+- 按调用参数生成或收缩 pane
+- 设置 pane 标题
+- 输出 pane target 与标题
+- 监控 pane 状态
+- pane 停止后向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+
+### 4.3 tmux-skills 不负责
+
+- `claude --agent`
+- agent 身份切换
+- system prompt 注入
+- Claude scene 校验
+- 业务任务分发
+
+## 5. 报告模型
+
+`tmux-skills` 的报告目标固定为 `CODEX_THREAD_ID` 绑定的 Codex app thread。
+
+这里不再使用旧简称，以免误解成某个固定名字的线程或 tmux session。
+
+这里真正指的是 tmux 运行面中注入的那个 `CODEX_THREAD_ID` 唯一指向的正式 Codex app thread。
+
+delivery 路径固定为：
+
+- watcher 发现事件并落 handoff 队列
+- delivery runner 只负责排队并确保 bridge 常驻
+- app-server bridge 通过 `thread/resume` 和 `turn/start` 把消息送进目标 app thread
+
+这里明确排除：
+
+- 把 `CODEX_THREAD_ID` 当成本地 CLI session id
+- 用 `codex exec resume` 作为最终投递方式
+- 用本地 `session_index.jsonl` 解释 `CODEX_THREAD_ID`
+
+交付目标字段：
+
+- `CODEX_THREAD_ID`
+
+最小报告字段：
 
 - `target`
 - `pane_title`
 - `state_class`
-- `state_label`
+
+推荐补充字段：
+
 - `session`
 - `window`
-- `current_command`
 - `reachable`
-- `deliverable`
 
-可选内部字段允许保留：
+## 6. 成功标准
 
-- `pane_id`
-- `recent_output`
-- `prompt`
+`tmux-skills` 的完成标准只有两条：
 
-### 5.2 固定门铃模板
+1. 已按 Codex 提供的数量和标题，在前台 tmux 中生成目标 pane
+2. 已开始监控这些 pane，并能在 pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
 
-门铃文案冻结为：
-
-```text
-<pane标题> 呼叫：去 tmux <target> 窗口<状态名> SOP 状态
-```
-
-状态映射冻结为：
-
-- `sop_approval -> 审批`
-- `pane_checkin -> 巡检`
-- `runtime_blocked -> 恢复`
-
-### 5.3 触发规则
-
-只有在以下条件同时满足时，watcher 才会发出可投递门铃：
-
-- pane 活着
-- target 可达
-- pane 停止推进
-- Codex 仍可进入继续处理
-
-这时才属于窗口 SOP 事件。
-
-如果出现以下情况：
-
-- pane 已死
-- session detached
-- target 不可达
-
-则只进入 `runtime_blocked` 恢复分支，不投递窗口 SOP 门铃。
-
-## 6. 角色分工
-
-### 6.1 人类负责
-
-- 进入 `claude`
-- 决定哪个 pane 放什么身份内容
-- 让 pane 进入既有白名单 Claude 现场
-- 注入或确认 system prompt
-
-### 6.2 Codex 负责
-
-- 接收固定门铃
-- 命中固定记忆
-- 进入目标 `formal-session:window.pane`
-- 执行窗口 SOP
-- 复查并汇报
-- 投递业务任务内容
-
-### 6.3 tmux-skills 负责
-
-- 维护 runtime
-- 维护 ledger
-- 维护 watcher
-- 输出门铃
-- 执行 verify
-
-## 7. 操作入口
-
-读取现场：
-
-```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/inspect_tmux_runtime.py --pretty
-```
-
-做 ready-check：
-
-```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/check_tmux_ready.py \
-  --pretty \
-  --expected-pane-count 4 \
-  --require-formal \
-  --require-bell
-```
-
-挂 watcher：
-
-```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/arm_tmux_handoff_watcher.py \
-  --formal-session-name formal-session \
-  --target formal-session:1.1 --target formal-session:1.2 --target formal-session:1.3 \
-  --target formal-session:1.4
-```
-
-构造单 target 通知：
-
-```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/build_tmux_handoff_notification.py \
-  --target formal-session:1.3
-```
-
-持续观察 target：
-
-```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/watch_tmux_handoff.py \
-  --target formal-session:1.3 --deliver
-```
-
-## 8. 结论
-
-`tmux-skills` 的正式完成标准不再是“已经成功注入角色”，而是：
-
-- runtime facts 正确
-- formal topology 正确
-- watcher 正确
-- verify 返回 `READY`
-
-所有后续实现、测试和文档都必须围绕这套 runtime-only contract 演进。
+只要满足这两条，就算 `ok`。
