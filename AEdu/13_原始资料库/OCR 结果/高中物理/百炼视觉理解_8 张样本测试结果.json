@@ -1,0 +1,65 @@
+{
+  "test_name": "百炼视觉理解 - 高中物理必修第一册 8 张样本截图测试",
+  "timestamp": "2026-03-26T19:22:30.347649",
+  "model": "qwen2.5-vl-72b-instruct",
+  "api_provider": "百炼 (DashScope)",
+  "sample_count": 8,
+  "pages": [
+    {
+      "page_name": "01_封面",
+      "page_type_hint": "封面页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "02_版权页",
+      "page_type_hint": "版权信息页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "03_目录",
+      "page_type_hint": "目录页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "04_序言",
+      "page_type_hint": "序言/前言页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "05_第一章开头",
+      "page_type_hint": "章节起始页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "06_正文概念",
+      "page_type_hint": "正文（概念讲解）",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "07_正文公式",
+      "page_type_hint": "正文（公式推导）",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    },
+    {
+      "page_name": "08_习题页",
+      "page_type_hint": "练习/习题页",
+      "status": "failed",
+      "error": "HTTP Error 401: Unauthorized"
+    }
+  ],
+  "summary": {
+    "success_count": 0,
+    "book_title_detected": 0,
+    "page_number_detected": 0,
+    "page_type_detected": 0,
+    "main_title_detected": 0,
+    "structure_info_detected": 0
+  }
+}

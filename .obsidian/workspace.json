@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "7250c4068423fbed",
+    "type": "split",
+    "children": [
+      {
+        "id": "d966151de9c7af9f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "650bf5b6b0770512",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "workspace/memory/log/2026-03-26.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "2026-03-26"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ee5b23a6ddfb468d",
+    "type": "split",
+    "children": [
+      {
+        "id": "072233659d376649",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f545885b5ddff099",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "612bdaf325a09a40",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "7fa54e401a18ccbd",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "a68bbb7490725f58",
+    "type": "split",
+    "children": [
+      {
+        "id": "93dc3d7d8c6c4d80",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "64966c8d58565422",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "反向链接"
+            }
+          },
+          {
+            "id": "21f8e234b46f73b8",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "出链"
+            }
+          },
+          {
+            "id": "4511788a1d2b9773",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "9cf84e11c406e57f",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "1dcc96626d62d0de",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false,
+      "workspaces:管理工作区布局": false
+    }
+  },
+  "active": "650bf5b6b0770512",
+  "lastOpenFiles": [
+    "docs/tmux-skills-duty-boundary.md",
+    "AEdu/13_原始资料库/OCR/高中物理/样本截图/03_目录.png",
+    "workspace/artifacts/tmux-runtime/current-runtime.json",
+    "skills/tmux-skills/scripts/tmux_runtime_ledger.py",
+    "skills/tmux-skills/scripts/__pycache__/start_formal_runtime_chain.cpython-314.pyc",
+    "skills/tmux-skills/scripts/start_formal_runtime_chain.py",
+    "workspace/artifacts/tmux-skills/acceptance-handoff.jsonl",
+    "workspace/artifacts/tmux-skills/acceptance-watch.stdout.log",
+    "workspace/artifacts/tmux-skills/real-delivery.jsonl",
+    "workspace/artifacts/tmux-skills/real-delivery.stdout.log",
+    "workspace/artifacts/tmux-skills/blackbox-handoff.jsonl",
+    "workspace/artifacts/tmux-skills/blackbox-watch.stdout.log",
+    "workspace/memory/kb/decisions/2026-03-25-workbot-project-agents-and-runtime-surfaces.md",
+    "workspace/artifacts/tmux-skills/legacy-codex-skill-tmux-goto-20260328-172450/SKILL.md",
+    "skills/tmux-goto/SKILL.md",
+    "skills/tmux-skills/agents/tmux-verify-bot.md",
+    "skills/tmux-skills/agents/tmux-pane-init-bot.md",
+    "skills/tmux-skills/agents/tmux-topology-bot.md",
+    "skills/tmux-skills/agents/tmux-env-bot.md",
+    "skills/tmux-skills/agents/tmux-runtime-bot.md",
+    "docs/tmux-skills-progress.md",
+    "AEdu/13_原始资料库/OCR/高中物理/样本截图/01_封面.png",
+    "文档结构书目录.md",
+    "docs/tmux-skills-design.md",
+    "skills/tmux-skills/SKILL.md",
+    "skills/tmux-runtime/references/doorbell.md",
+    "skills/tmux-runtime/references/phases.md",
+    "skills/tmux-runtime/SKILL.md",
+    "AEdu/backups/20260318_234922/04_教材与学科库/高中物理/章节树/高中物理必修一知识树_V1.md",
+    "AEdu/backups/20260319_004225/04_教材与学科库/高中物理/章节树/高中物理必修一知识树_V1.md",
+    "AEdu/backups/20260319_003437/04_教材与学科库/高中物理/章节树/高中物理必修一知识树_V1.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/08_试点阶段问题库.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/07_运营指标与复盘机制.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/06_试点反馈与优化闭环.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/05_家长使用引导.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/04_老师培训与操作手册.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/03_硬件部署与绑定流程.md",
+    "AEdu/backups/20260319_004225/12_实施与试点运营/02_试点学校实施方案.md",
+    "archive-memory/raw/openclaw-molt/11.jpg",
+    "workspace/memory/kb/decisions/image.png",
+    "tests/autoresearch/progress.png",
+    "opencli/extension/store-assets/screenshot-1280x800.png",
+    "opencli/extension/icons/icon-48.png",
+    "opencli/extension/icons/icon-32.png",
+    "opencli/extension/icons/icon-16.png",
+    "opencli/extension/icons/icon-128.png",
+    "未命名.canvas"
+  ]
+}

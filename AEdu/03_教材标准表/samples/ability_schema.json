@@ -1,0 +1,166 @@
+{
+  "$schema": "http://json-schema.org/draft-2020-12/schema#",
+  "$id": "aedu://schema/ability/v1.0.0",
+  "title": "能力点表 Schema",
+  "description": "教育孪生项目能力点表结构定义 - 首发版本 (安徽省/高中/高一/物理/PEP_G1_V1)",
+  "version": "1.0.0",
+  "type": "object",
+  "definitions": {
+    "ability_level": {
+      "type": "string",
+      "enum": ["general", "subject", "applied"],
+      "description": "能力层级：通用/学科/应用"
+    },
+    "ability_type": {
+      "type": "string",
+      "enum": ["comprehension", "analysis", "modeling", "reasoning", "calculation", "representation", "experiment", "application"],
+      "description": "能力类型枚举"
+    },
+    "importance_level": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "重要程度"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated"],
+      "description": "状态"
+    },
+    "ability_point": {
+      "type": "object",
+      "required": [
+        "ability_id",
+        "region_id",
+        "subject",
+        "ability_name",
+        "ability_definition",
+        "ability_level",
+        "ability_type",
+        "importance_level",
+        "status",
+        "version"
+      ],
+      "properties": {
+        "ability_id": {
+          "type": "string",
+          "pattern": "^PHY_AP_[0-9]{3}$",
+          "description": "能力点唯一标识"
+        },
+        "region_id": {
+          "type": "string",
+          "const": "CN_AH",
+          "description": "地区标识（冻结值：安徽省）"
+        },
+        "subject": {
+          "type": "string",
+          "const": "物理",
+          "description": "学科"
+        },
+        "curriculum_version_id": {
+          "type": ["string", "null"],
+          "const": "PHY_PEP_G1_V1",
+          "description": "教材版本标识（可选绑定）"
+        },
+        "ability_name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "能力点名称"
+        },
+        "ability_definition": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 300,
+          "description": "能力点定义"
+        },
+        "ability_level": {
+          "$ref": "#/definitions/ability_level"
+        },
+        "ability_type": {
+          "$ref": "#/definitions/ability_type"
+        },
+        "knowledge_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "关联知识点 ID 列表（可选）"
+        },
+        "chapter_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "关联章节 ID 列表（可选）"
+        },
+        "observable_signals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "可观察信号（可选）"
+        },
+        "importance_level": {
+          "$ref": "#/definitions/importance_level"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source_ref": {
+          "type": ["string", "null"],
+          "description": "来源引用"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "knowledge_ability_mapping": {
+      "type": "object",
+      "required": ["knowledge_id", "ability_id", "mapping_type", "version"],
+      "properties": {
+        "knowledge_id": {
+          "type": "string",
+          "pattern": "^PHY_PEP_G1_V1_KP_[0-9]{3}$",
+          "description": "知识点 ID"
+        },
+        "ability_id": {
+          "type": "string",
+          "pattern": "^PHY_AP_[0-9]{3}$",
+          "description": "能力点 ID"
+        },
+        "mapping_type": {
+          "type": "string",
+          "enum": ["primary", "secondary"],
+          "description": "映射类型：primary=主要能力，secondary=次要能力"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    }
+  },
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["version", "region_id", "subject", "created_at", "updated_at"],
+      "properties": {
+        "version": { "type": "string" },
+        "region_id": { "type": "string", "const": "CN_AH" },
+        "subject": { "type": "string", "const": "物理" },
+        "grade_level": { "type": "string", "const": "高一" },
+        "curriculum_version_id": { "type": "string", "const": "PHY_PEP_G1_V1" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ability_points": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ability_point" },
+      "minItems": 1
+    },
+    "knowledge_ability_mappings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/knowledge_ability_mapping" },
+      "minItems": 1,
+      "description": "知识点 - 能力点映射表"
+    }
+  },
+  "required": ["metadata", "ability_points", "knowledge_ability_mappings"]
+}

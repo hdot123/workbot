@@ -1,0 +1,428 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "region_id": "CN_AH",
+    "curriculum_version_id": "PHY_PEP_G1_V1",
+    "subject": "物理",
+    "grade_level": "高一",
+    "created_at": "2026-03-24T00:00:00Z",
+    "updated_at": "2026-03-24T08:30:00Z"
+  },
+  "ability_points": [
+    {
+      "ability_id": "PHY_AP_001",
+      "region_id": "CN_AH",
+      "subject": "物理",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "ability_name": "理解概念的能力",
+      "ability_definition": "能够准确理解物理概念、规律与实验结论的定义、内涵和适用条件，并能用自己的语言复述和解释。",
+      "ability_level": "subject",
+      "ability_type": "comprehension",
+      "knowledge_refs": [
+        "PHY_PEP_G1_V1_KP_001",
+        "PHY_PEP_G1_V1_KP_002",
+        "PHY_PEP_G1_V1_KP_003",
+        "PHY_PEP_G1_V1_KP_004",
+        "PHY_PEP_G1_V1_KP_005",
+        "PHY_PEP_G1_V1_KP_006",
+        "PHY_PEP_G1_V1_KP_007",
+        "PHY_PEP_G1_V1_KP_008",
+        "PHY_PEP_G1_V1_KP_009",
+        "PHY_PEP_G1_V1_KP_010",
+        "PHY_PEP_G1_V1_KP_011",
+        "PHY_PEP_G1_V1_KP_012",
+        "PHY_PEP_G1_V1_KP_013",
+        "PHY_PEP_G1_V1_KP_014",
+        "PHY_PEP_G1_V1_KP_015",
+        "PHY_PEP_G1_V1_KP_016",
+        "PHY_PEP_G1_V1_KP_017",
+        "PHY_PEP_G1_V1_KP_018",
+        "PHY_PEP_G1_V1_KP_019",
+        "PHY_PEP_G1_V1_KP_020",
+        "PHY_PEP_G1_V1_KP_021",
+        "PHY_PEP_G1_V1_KP_022"
+      ],
+      "observable_signals": [
+        "能准确说出概念或规律",
+        "能识别条件与结论",
+        "能用规范语言解释物理含义"
+      ],
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_STRUCTURED_V1",
+      "version": "1.0.0"
+    },
+    {
+      "ability_id": "PHY_AP_002",
+      "region_id": "CN_AH",
+      "subject": "物理",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "ability_name": "分析比较的能力",
+      "ability_definition": "能够对相关物理概念、规律和情境进行比较分析，识别异同点、联系与边界条件。",
+      "ability_level": "subject",
+      "ability_type": "analysis",
+      "knowledge_refs": [
+        "PHY_PEP_G1_V1_KP_002",
+        "PHY_PEP_G1_V1_KP_004",
+        "PHY_PEP_G1_V1_KP_006",
+        "PHY_PEP_G1_V1_KP_010",
+        "PHY_PEP_G1_V1_KP_013",
+        "PHY_PEP_G1_V1_KP_015",
+        "PHY_PEP_G1_V1_KP_016",
+        "PHY_PEP_G1_V1_KP_017",
+        "PHY_PEP_G1_V1_KP_021",
+        "PHY_PEP_G1_V1_KP_022"
+      ],
+      "observable_signals": [
+        "能区分相近概念",
+        "能比较不同物理过程",
+        "能结合情境作出判断"
+      ],
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_STRUCTURED_V1",
+      "version": "1.0.0"
+    },
+    {
+      "ability_id": "PHY_AP_003",
+      "region_id": "CN_AH",
+      "subject": "物理",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "ability_name": "建立模型的能力",
+      "ability_definition": "能够根据研究对象和问题情境抽象出合适的物理模型，选择实验或受力分析中的关键因素。",
+      "ability_level": "subject",
+      "ability_type": "modeling",
+      "knowledge_refs": [
+        "PHY_PEP_G1_V1_KP_001",
+        "PHY_PEP_G1_V1_KP_008",
+        "PHY_PEP_G1_V1_KP_011",
+        "PHY_PEP_G1_V1_KP_015",
+        "PHY_PEP_G1_V1_KP_016",
+        "PHY_PEP_G1_V1_KP_018"
+      ],
+      "observable_signals": [
+        "能建立质点模型",
+        "能抽象受力或运动模型",
+        "能从实验中提取关键变量"
+      ],
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_STRUCTURED_V1",
+      "version": "1.0.0"
+    },
+    {
+      "ability_id": "PHY_AP_004",
+      "region_id": "CN_AH",
+      "subject": "物理",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "ability_name": "公式应用的能力",
+      "ability_definition": "能够正确理解和运用物理公式进行推导、计算和结果解释，并用标准 LaTeX 形式表达核心关系式。",
+      "ability_level": "applied",
+      "ability_type": "application",
+      "knowledge_refs": [
+        "PHY_PEP_G1_V1_KP_005",
+        "PHY_PEP_G1_V1_KP_007",
+        "PHY_PEP_G1_V1_KP_009",
+        "PHY_PEP_G1_V1_KP_010",
+        "PHY_PEP_G1_V1_KP_011",
+        "PHY_PEP_G1_V1_KP_014",
+        "PHY_PEP_G1_V1_KP_019",
+        "PHY_PEP_G1_V1_KP_020",
+        "PHY_PEP_G1_V1_KP_021"
+      ],
+      "observable_signals": [
+        "能正确写出公式",
+        "能代入量并计算",
+        "能解释计算结果的物理意义"
+      ],
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_STRUCTURED_V1",
+      "version": "1.0.0"
+    }
+  ],
+  "knowledge_ability_mappings": [
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_001",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_002",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_003",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_004",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_005",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_006",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_007",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_008",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_009",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_010",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_011",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_012",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_013",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_014",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_015",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_016",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_017",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_018",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_019",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_020",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_021",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_022",
+      "ability_id": "PHY_AP_001",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_002",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_004",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_006",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_010",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_013",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_015",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_016",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_017",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_021",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_022",
+      "ability_id": "PHY_AP_002",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_001",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_008",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_011",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_015",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_016",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_018",
+      "ability_id": "PHY_AP_003",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_005",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "primary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_007",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_009",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_010",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_011",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_014",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_019",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_020",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_021",
+      "ability_id": "PHY_AP_004",
+      "mapping_type": "secondary",
+      "version": "1.0.0"
+    }
+  ]
+}

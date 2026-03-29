@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-2020-12/schema#",
+  "$id": "aedu://schema/anchor/v1.0.0",
+  "title": "教材锚点表 Schema",
+  "description": "教育孪生项目教材锚点表结构定义 - 首发版本 (安徽省/高中/高一/物理/PEP_G1_V1)",
+  "version": "1.0.0",
+  "type": "object",
+  "definitions": {
+    "anchor_type": {
+      "type": "string",
+      "enum": ["chapter_title", "paragraph_block", "formula", "figure", "example", "exercise", "experiment", "reading_note"],
+      "description": "锚点类型枚举"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated"],
+      "description": "状态"
+    },
+    "anchor_point": {
+      "type": "object",
+      "required": [
+        "anchor_id",
+        "region_id",
+        "curriculum_version_id",
+        "subject",
+        "grade_level",
+        "volume_no",
+        "anchor_type",
+        "page_no",
+        "chapter_node_id",
+        "status",
+        "version"
+      ],
+      "properties": {
+        "anchor_id": {
+          "type": "string",
+          "pattern": "^PHY_ANCHOR_[0-9]{3}$",
+          "description": "锚点唯一标识"
+        },
+        "region_id": {
+          "type": "string",
+          "const": "CN_AH",
+          "description": "地区标识（冻结值：安徽省）"
+        },
+        "curriculum_version_id": {
+          "type": "string",
+          "const": "PHY_PEP_G1_V1",
+          "description": "教材版本标识"
+        },
+        "subject": {
+          "type": "string",
+          "const": "物理",
+          "description": "学科"
+        },
+        "grade_level": {
+          "type": "string",
+          "const": "高一",
+          "description": "年级"
+        },
+        "volume_no": {
+          "type": "string",
+          "const": "必修一",
+          "description": "册别"
+        },
+        "anchor_type": {
+          "$ref": "#/definitions/anchor_type"
+        },
+        "page_no": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "所在页码"
+        },
+        "page_range_start": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "起始页（可选）"
+        },
+        "page_range_end": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "结束页（可选）"
+        },
+        "block_code": {
+          "type": ["string", "null"],
+          "pattern": "^P[0-9]{3}_B[0-9]{2}$",
+          "description": "页内区块编码（可选）"
+        },
+        "object_code": {
+          "type": ["string", "null"],
+          "description": "对象编码（可选，如 FIG01/FORMULA01）"
+        },
+        "chapter_node_id": {
+          "type": "string",
+          "pattern": "^PHY_PEP_G1_V1_(CH|SEC|SUBSEC)_[0-9]{2}(_[0-9]{2})*$",
+          "description": "所属章节节点 ID"
+        },
+        "knowledge_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "关联知识点 ID 列表（可选）"
+        },
+        "ability_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "关联能力点 ID 列表（可选）"
+        },
+        "anchor_title": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "锚点标题（可选）"
+        },
+        "anchor_text_excerpt": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "摘要文本（可选）"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "来源引用"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "knowledge_anchor_mapping": {
+      "type": "object",
+      "required": ["knowledge_id", "anchor_id", "mapping_type", "version"],
+      "properties": {
+        "knowledge_id": {
+          "type": "string",
+          "pattern": "^PHY_PEP_G1_V1_KP_[0-9]{3}$",
+          "description": "知识点 ID"
+        },
+        "anchor_id": {
+          "type": "string",
+          "pattern": "^PHY_ANCHOR_[0-9]{3}$",
+          "description": "锚点 ID"
+        },
+        "mapping_type": {
+          "type": "string",
+          "enum": ["primary", "secondary"],
+          "description": "映射类型：primary=主锚点，secondary=辅锚点"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    }
+  },
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["version", "region_id", "curriculum_version_id", "created_at", "updated_at"],
+      "properties": {
+        "version": { "type": "string" },
+        "region_id": { "type": "string", "const": "CN_AH" },
+        "curriculum_version_id": { "type": "string", "const": "PHY_PEP_G1_V1" },
+        "subject": { "type": "string", "const": "物理" },
+        "grade_level": { "type": "string", "const": "高一" },
+        "volume_no": { "type": "string", "const": "必修一" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "anchor_points": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/anchor_point" },
+      "minItems": 1
+    },
+    "knowledge_anchor_mappings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/knowledge_anchor_mapping" },
+      "minItems": 1,
+      "description": "知识点 - 锚点映射表"
+    }
+  },
+  "required": ["metadata", "anchor_points", "knowledge_anchor_mappings"]
+}

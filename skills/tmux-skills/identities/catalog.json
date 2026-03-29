@@ -1,0 +1,65 @@
+{
+  "catalog_version": "v1-local",
+  "identities": [
+    {
+      "identity_id": "dev-bot",
+      "identity_name": "dev-bot",
+      "identity_version": "local-2026-03-28",
+      "role_type": "implementation",
+      "model": "qwen3.5-plus",
+      "source_file": "/Users/busiji/workbot/.claude/agents/dev-bot.md",
+      "constraints": [
+        "local-fixed-identity",
+        "no-remote-identity-service",
+        "task-scoped-instance"
+      ],
+      "output_contract": "## Diff 摘要 / ## 测试结果 / ## 剩余风险",
+      "status": "active"
+    },
+    {
+      "identity_id": "qa-bot",
+      "identity_name": "qa-bot",
+      "identity_version": "local-2026-03-28",
+      "role_type": "quality",
+      "model": "qwen3.5-plus",
+      "source_file": "/Users/busiji/workbot/.claude/agents/qa-bot.md",
+      "constraints": [
+        "local-fixed-identity",
+        "no-remote-identity-service",
+        "task-scoped-instance"
+      ],
+      "output_contract": "## Findings / ## Coverage Gaps / ## Acceptance / Release View / ## Conclusion",
+      "status": "active"
+    },
+    {
+      "identity_id": "doc-bot",
+      "identity_name": "doc-bot",
+      "identity_version": "local-2026-03-28",
+      "role_type": "documentation",
+      "model": "qwen3.5-plus",
+      "source_file": "/Users/busiji/workbot/.claude/agents/doc-bot.md",
+      "constraints": [
+        "local-fixed-identity",
+        "no-remote-identity-service",
+        "task-scoped-instance"
+      ],
+      "output_contract": "## Diff 摘要 / ## 一致性检查 / ## 待确认项",
+      "status": "active"
+    },
+    {
+      "identity_id": "tmux-runtime-bot",
+      "identity_name": "tmux-runtime-bot",
+      "identity_version": "local-2026-03-28",
+      "role_type": "runtime-control",
+      "model": "qwen3.5-plus",
+      "source_file": "/Users/busiji/workbot/skills/tmux-skills/agents/tmux-runtime-bot.md",
+      "constraints": [
+        "local-fixed-identity",
+        "runtime-only",
+        "bell-only-external-output"
+      ],
+      "output_contract": "## Runtime 状态 / ## 当前阶段 / ## 下一动作",
+      "status": "active"
+    }
+  ]
+}

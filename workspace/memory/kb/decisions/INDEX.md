@@ -5,6 +5,8 @@
 - 当某个结论需要被长期引用且具有裁决意义时，应进入这里
 
 ## Current Decisions
+- `2026-03-25-ce-task-governance.md`
+- `2026-03-25-workbot-project-agents-and-runtime-surfaces.md`
 - `2026-03-04-4-bot-workflow-planning.md`
 - `2026-03-01-brain-system-phase1.md`
 - `2026-03-02-node-11-bailian-models.md`

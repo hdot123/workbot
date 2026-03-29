@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-2020-12/schema#",
+  "$id": "aedu://schema/knowledge/v1.0.0",
+  "title": "知识点表 Schema",
+  "description": "教育孪生项目知识点表结构定义 - 首发版本 (安徽省/高中/高一/物理/PEP_G1_V1)",
+  "version": "1.0.0",
+  "type": "object",
+  "definitions": {
+    "knowledge_type": {
+      "type": "string",
+      "enum": ["concept", "law", "method", "model", "procedure", "experiment", "representation"],
+      "description": "知识点类型枚举"
+    },
+    "granularity_level": {
+      "type": "string",
+      "enum": ["knowledge_point"],
+      "description": "粒度级别 - MVP 仅支持知识点级"
+    },
+    "importance_level": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "重要程度"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "deprecated"],
+      "description": "状态"
+    },
+    "knowledge_point": {
+      "type": "object",
+      "required": [
+        "knowledge_id",
+        "region_id",
+        "curriculum_version_id",
+        "subject",
+        "grade_level",
+        "chapter_node_id",
+        "knowledge_name",
+        "knowledge_definition",
+        "knowledge_type",
+        "granularity_level",
+        "measurable_flag",
+        "importance_level",
+        "status",
+        "version"
+      ],
+      "properties": {
+        "knowledge_id": {
+          "type": "string",
+          "pattern": "^PHY_PEP_G1_V1_KP_[0-9]{3}$",
+          "description": "知识点唯一标识"
+        },
+        "region_id": {
+          "type": "string",
+          "const": "CN_AH",
+          "description": "地区标识（冻结值：安徽省）"
+        },
+        "curriculum_version_id": {
+          "type": "string",
+          "const": "PHY_PEP_G1_V1",
+          "description": "教材版本标识"
+        },
+        "subject": {
+          "type": "string",
+          "const": "物理",
+          "description": "学科"
+        },
+        "grade_level": {
+          "type": "string",
+          "const": "高一",
+          "description": "年级"
+        },
+        "chapter_node_id": {
+          "type": "string",
+          "pattern": "^PHY_PEP_G1_V1_(CH|SEC|SUBSEC)_[0-9]{2}(_[0-9]{2})*$",
+          "description": "主挂载章节节点 ID"
+        },
+        "secondary_chapter_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "次挂载章节（可选）"
+        },
+        "knowledge_name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "知识点名称"
+        },
+        "knowledge_aliases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "别名/同义表达（可选）"
+        },
+        "knowledge_definition": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "description": "知识点定义（简明准确）"
+        },
+        "knowledge_type": {
+          "$ref": "#/definitions/knowledge_type"
+        },
+        "granularity_level": {
+          "$ref": "#/definitions/granularity_level"
+        },
+        "prerequisite_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "前置知识点 ID 列表（可选）"
+        },
+        "successor_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "后继知识点 ID 列表（可选）"
+        },
+        "ability_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "关联能力点 ID 列表（可选）"
+        },
+        "anchor_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "教材锚点引用（可选）"
+        },
+        "measurable_flag": {
+          "type": "boolean",
+          "description": "是否可直接测评"
+        },
+        "importance_level": {
+          "$ref": "#/definitions/importance_level"
+        },
+        "status": {
+          "$ref": "#/definitions/status"
+        },
+        "source_ref": {
+          "type": ["string", "null"],
+          "description": "来源引用"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    }
+  },
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["version", "region_id", "curriculum_version_id", "created_at", "updated_at"],
+      "properties": {
+        "version": { "type": "string" },
+        "region_id": { "type": "string", "const": "CN_AH" },
+        "curriculum_version_id": { "type": "string", "const": "PHY_PEP_G1_V1" },
+        "subject": { "type": "string", "const": "物理" },
+        "grade_level": { "type": "string", "const": "高一" },
+        "volume_no": { "type": "string", "const": "必修一" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "knowledge_points": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/knowledge_point" },
+      "minItems": 1
+    }
+  },
+  "required": ["metadata", "knowledge_points"]
+}

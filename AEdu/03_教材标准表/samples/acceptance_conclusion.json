@@ -1,0 +1,99 @@
+{
+  "acceptance_id": "ACC_KB_VOLUME1_001",
+  "acceptance_type": "kb_volume1_structured",
+  "created_at": "2026-03-24T16:17:36.273941",
+  "frozen_scope": {
+    "region_id": "CN_AH",
+    "region_name": "安徽省",
+    "stage": "高中",
+    "grade_level": "高一",
+    "subject": "物理",
+    "curriculum_version_id": "PHY_PEP_G1_V1",
+    "curriculum_version_name": "人教版高中物理必修第一册",
+    "chapter_scope": "全册（序言、第 1-4 章、课题研究、学生实验、索引）"
+  },
+  "deliverables": {
+    "schemas": [
+      "chapter_tree_schema.json",
+      "knowledge_schema.json",
+      "ability_schema.json",
+      "anchor_schema.json"
+    ],
+    "sample_data": [
+      "chapter_tree_sample.json",
+      "knowledge_sample.json",
+      "ability_sample.json",
+      "anchor_sample.json",
+      "dependency_sample.json"
+    ],
+    "validation_script": [
+      "validate_kb_closure.py"
+    ],
+    "validation_report": [
+      "validation_report.json"
+    ]
+  },
+  "validation_summary": {
+    "validation_id": "VAL_KB_20260324_161736",
+    "validated_at": "2026-03-24T16:17:36.273941",
+    "result": "pass",
+    "chapter_tree_nodes": 29,
+    "knowledge_points": 22,
+    "ability_points": 4,
+    "anchor_points": 28,
+    "dependencies": 22,
+    "p0_issues": 0,
+    "p1_issues": 0,
+    "p2_issues": 0
+  },
+  "closure_checklist": {
+    "chapter_tree": {
+      "status": "complete",
+      "description": "第一册整册章节树已按目录补齐并修正第一页旧标题与页码错误"
+    },
+    "knowledge_points": {
+      "status": "complete",
+      "description": "第一册已形成节级知识骨架，共 22 个知识点；第一章保留更细粒度定义"
+    },
+    "ability_mapping": {
+      "status": "complete",
+      "description": "4 个通用能力点已映射到整册知识骨架"
+    },
+    "anchors": {
+      "status": "complete",
+      "description": "整册节级锚点与第一章增强锚点已挂接，关键公式以 LaTeX 片段保留"
+    },
+    "validation": {
+      "status": "complete",
+      "description": "闭环校验 PASS，无 P0/P1/P2 问题"
+    }
+  },
+  "coverage_notes": {
+    "done": [
+      "目录级结构覆盖整册",
+      "节级知识骨架覆盖整册",
+      "关键公式采用 LaTeX 片段写入锚点摘要",
+      "第一章保留更细粒度锚点"
+    ],
+    "not_yet_deepened": [
+      "全册逐页正文摘录",
+      "全册图像/图表锚点",
+      "全册实验步骤细分"
+    ]
+  },
+  "acceptance_conclusion": {
+    "conclusion": "pass",
+    "conclusion_type": "allow",
+    "rationale": "第一册结构化样例已扩展为整册节级骨架并通过闭环校验，可作为后续逐页 OCR 深化的稳定基础。",
+    "entry_gate_status": "满足",
+    "exit_gate_status": "满足",
+    "blocking_issues": [],
+    "follow_up_actions": [
+      "继续逐页 OCR 深化第二章到第四章的正文锚点",
+      "补充图像、图表、实验步骤级锚点",
+      "按同样流程处理后续教材册次"
+    ]
+  },
+  "approved_by": "pending",
+  "approved_at": null
+}

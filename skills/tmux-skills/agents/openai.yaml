@@ -1,0 +1,7 @@
+interface:
+  display_name: "tmux-skills"
+  short_description: "Operate and verify the full Workbot tmux runtime lifecycle"
+  default_prompt: "When a request involves tmux runtime setup, pane topology, pane-level identity initialization, pane handoff, readiness checks, or bell arming, use $tmux-skills as the canonical and only public entrypoint. Honor the first-phase local identity workflow by reading the fixed local identity definitions before acting, treat topology changes as initialization invalidation, and do not assume bootstrap is ready."
+
+policy:
+  allow_implicit_invocation: true
