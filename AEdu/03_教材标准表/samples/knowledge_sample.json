@@ -1,0 +1,769 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "region_id": "CN_AH",
+    "curriculum_version_id": "PHY_PEP_G1_V1",
+    "subject": "物理",
+    "grade_level": "高一",
+    "volume_no": "必修一",
+    "created_at": "2026-03-24T00:00:00Z",
+    "updated_at": "2026-03-24T08:30:00Z"
+  },
+  "knowledge_points": [
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_001",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_01",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "质点的概念",
+      "knowledge_aliases": [
+        "质点模型"
+      ],
+      "knowledge_definition": "用来代替物体的有质量的点，是一种理想化物理模型。当物体的形状和大小对研究问题的影响可以忽略时，可将物体视为质点。",
+      "knowledge_type": "model",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_002"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_003"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_001",
+        "PHY_ANCHOR_023"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P010_P012",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_002",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_01",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "参考系的选择",
+      "knowledge_aliases": [
+        "参照系"
+      ],
+      "knowledge_definition": "描述物体运动时所选定的作为参考标准的物体或物体系。同一物体的运动，在不同参考系中观察结果可能不同。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_001"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_003"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_002"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P012_P013",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_003",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_02",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "时间和时刻的区别",
+      "knowledge_aliases": [
+        "时间间隔与时刻"
+      ],
+      "knowledge_definition": "时刻是时间轴上的一个点，表示某一瞬间；时间是两个时刻之间的间隔，表示一段持续的过程。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_002"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_004"
+      ],
+      "ability_refs": [
+        "PHY_AP_001"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_003",
+        "PHY_ANCHOR_024"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P014_P016",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_004",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_02",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "位移与路程的区别",
+      "knowledge_aliases": [
+        "位置变化与路径长度"
+      ],
+      "knowledge_definition": "位移是描述物体位置变化的物理量，是从初位置指向末位置的有向线段，是矢量；路程是物体运动轨迹的长度，是标量。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_003"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_005"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_004",
+        "PHY_ANCHOR_025"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P016_P019",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_005",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_03",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "速度的定义",
+      "knowledge_aliases": [
+        "平均速度"
+      ],
+      "knowledge_definition": "位移与发生这段位移所用时间的比值叫做速度。速度是矢量，既有大小又有方向，公式为 $v = \frac{\\Delta x}{\\Delta t}$。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_004"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_006"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_005",
+        "PHY_ANCHOR_026"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P020_P022",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_006",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_03",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "瞬时速度的概念",
+      "knowledge_aliases": [
+        "瞬时速率"
+      ],
+      "knowledge_definition": "运动物体在某一时刻或某一位置的速度叫做瞬时速度。瞬时速度的大小叫做速率。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_005"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_007"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_006",
+        "PHY_ANCHOR_027"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P022_P025",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_007",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_01_04",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "加速度的概念",
+      "knowledge_aliases": [
+        "速度变化率"
+      ],
+      "knowledge_definition": "加速度用于描述速度变化快慢，是速度变化量与发生这一变化所用时间的比值，公式为 $a = \frac{\\Delta v}{\\Delta t}$。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_006"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_008"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_007",
+        "PHY_ANCHOR_028"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P026_P029",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_008",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_02_01",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "探究小车速度随时间变化的规律",
+      "knowledge_aliases": [
+        "速度-时间实验"
+      ],
+      "knowledge_definition": "通过打点计时或数据记录研究小车速度随时间的变化规律，并从实验数据中提取速度与时间的关系。",
+      "knowledge_type": "experiment",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_007"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_009"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_003"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_008"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P035_P037",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_009",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_02_02",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "匀变速直线运动的速度公式",
+      "knowledge_aliases": [
+        "速度与时间关系"
+      ],
+      "knowledge_definition": "匀变速直线运动中速度随时间均匀变化，其速度与时间关系可表示为 $v = v_0 + at$。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_008"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_010"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_009"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P038_P040",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_010",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_02_03",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "匀变速直线运动的位移公式",
+      "knowledge_aliases": [
+        "位移与时间关系"
+      ],
+      "knowledge_definition": "匀变速直线运动中位移与时间满足确定关系，常用表达式为 $x = v_0 t + \frac{1}{2} a t^2$。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_009"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_011"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_010"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P041_P045",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_011",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_02_04",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "自由落体运动",
+      "knowledge_aliases": [
+        "自由落体"
+      ],
+      "knowledge_definition": "自由落体运动是在仅受重力作用下从静止开始下落的运动，可视为初速度为零的匀加速直线运动。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_010"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_012"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_003",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_011"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P046_P055",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_012",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_03_01",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "重力与弹力",
+      "knowledge_aliases": [
+        "常见性质力"
+      ],
+      "knowledge_definition": "重力是由于地球吸引而使物体受到的力；弹力是接触物体发生弹性形变时产生的力。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_011"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_013"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_012"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P056_P061",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_013",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_03_02",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "摩擦力",
+      "knowledge_aliases": [
+        "静摩擦与滑动摩擦"
+      ],
+      "knowledge_definition": "摩擦力是接触面间阻碍相对运动或相对运动趋势的力，其方向与相对运动或相对运动趋势相反。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_012"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_014"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_013"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P062_P066",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_014",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_03_03",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "牛顿第三定律",
+      "knowledge_aliases": [
+        "作用力与反作用力"
+      ],
+      "knowledge_definition": "两个物体之间的作用力和反作用力总是大小相等、方向相反，作用在同一直线上。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_013"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_015"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_014"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P067_P070",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_015",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_03_04",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "力的合成和分解",
+      "knowledge_aliases": [
+        "合力与分力"
+      ],
+      "knowledge_definition": "几个力共同作用的效果可以用一个合力等效表示，也可以把一个力分解为若干分力。",
+      "knowledge_type": "method",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_014"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_016"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002",
+        "PHY_AP_003"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_015"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P071_P074",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_016",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_03_05",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "共点力的平衡",
+      "knowledge_aliases": [
+        "平衡条件"
+      ],
+      "knowledge_definition": "当物体受到的共点力合力为零时，物体处于平衡状态。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_015"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_017"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002",
+        "PHY_AP_003"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_016"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P075_P081",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_017",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_01",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "牛顿第一定律",
+      "knowledge_aliases": [
+        "惯性定律"
+      ],
+      "knowledge_definition": "一切物体总保持匀速直线运动状态或静止状态，直到有外力迫使它改变这种状态。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_016"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_018"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_017"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P082_P086",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_018",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_02",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "加速度与力、质量关系实验",
+      "knowledge_aliases": [
+        "牛顿第二定律实验基础"
+      ],
+      "knowledge_definition": "通过控制变量实验探究加速度与力、质量的关系，为建立牛顿第二定律提供实验依据。",
+      "knowledge_type": "experiment",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_017"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_019"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_003"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_018"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P087_P092",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_019",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_03",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "牛顿第二定律",
+      "knowledge_aliases": [
+        "运动和力关系核心定律"
+      ],
+      "knowledge_definition": "物体的加速度跟所受合力成正比、跟质量成反比，方向与合力方向相同，可表示为 $F = ma$。",
+      "knowledge_type": "law",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_018"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_020"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_019"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P093_P097",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_020",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_04",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "力学单位制",
+      "knowledge_aliases": [
+        "国际单位制"
+      ],
+      "knowledge_definition": "力学问题中常用国际单位制统一表示物理量，力的单位是牛顿，质量单位是千克，加速度单位是米每二次方秒。",
+      "knowledge_type": "representation",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_019"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_021"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_020"
+      ],
+      "measurable_flag": true,
+      "importance_level": "high",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P098_P102",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_021",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_05",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "牛顿运动定律的应用",
+      "knowledge_aliases": [
+        "动力学应用"
+      ],
+      "knowledge_definition": "利用牛顿运动定律可以把受力分析与运动分析结合起来，求解加速度、力和运动状态变化。",
+      "knowledge_type": "method",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_020"
+      ],
+      "successor_refs": [
+        "PHY_PEP_G1_V1_KP_022"
+      ],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_021"
+      ],
+      "measurable_flag": true,
+      "importance_level": "medium",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P103_P107",
+      "version": "1.0.0"
+    },
+    {
+      "knowledge_id": "PHY_PEP_G1_V1_KP_022",
+      "region_id": "CN_AH",
+      "curriculum_version_id": "PHY_PEP_G1_V1",
+      "subject": "物理",
+      "grade_level": "高一",
+      "chapter_node_id": "PHY_PEP_G1_V1_SEC_04_06",
+      "secondary_chapter_refs": [],
+      "knowledge_name": "超重和失重",
+      "knowledge_aliases": [
+        "非平衡支持力现象"
+      ],
+      "knowledge_definition": "当物体或系统的加速度方向使支持力大于重力时出现超重，小于重力时出现失重。",
+      "knowledge_type": "concept",
+      "granularity_level": "knowledge_point",
+      "prerequisite_refs": [
+        "PHY_PEP_G1_V1_KP_021"
+      ],
+      "successor_refs": [],
+      "ability_refs": [
+        "PHY_AP_001",
+        "PHY_AP_002",
+        "PHY_AP_004"
+      ],
+      "anchor_refs": [
+        "PHY_ANCHOR_022"
+      ],
+      "measurable_flag": true,
+      "importance_level": "medium",
+      "status": "active",
+      "source_ref": "TEXTBOOK_PEP_G1_V1_P108_P114",
+      "version": "1.0.0"
+    }
+  ]
+}

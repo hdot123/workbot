@@ -1,0 +1,23 @@
+{
+  "task_id": "acceptance-main",
+  "runtime_status": "INIT_IN_PROGRESS",
+  "pane_count": 3,
+  "topology_fingerprint": "11a26a621c5f67ad13383a92570acc0af4fb04ca",
+  "formal_session_name": "formal-session",
+  "formal_pane_limit": 3,
+  "max_active_workers": 3,
+  "planned_roles": [
+    "dev-bot",
+    "qa-bot",
+    "doc-bot"
+  ],
+  "active_roles": [
+    "dev-bot",
+    "qa-bot",
+    "doc-bot"
+  ],
+  "queued_roles": [],
+  "slot_assignment": {},
+  "created_at": "2026-03-28T16:15:24Z",
+  "updated_at": "2026-03-28T16:15:24Z"
+}

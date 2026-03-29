@@ -16,6 +16,7 @@
 
 ## Delivery / Workflow Support
 - `../chatgpt-library/chatgpt-库管会话整理-GitLab CE 部署方案.md`
+- `../chatgpt-library/chatgpt-库管会话整理-GitLab CE API 与任务系统使用说明.md`
 - `../chatgpt-library/chatgpt-库管会话整理-GitLab 进阶配置清单.md`
 - `../chatgpt-library/chatgpt-库管会话整理-GitLab 录入模板.md`
 

@@ -1,7 +1,0 @@
-interface:
-  display_name: "tmux-goto"
-  short_description: "Inspect a tmux pane on notification before deciding"
-  default_prompt: "When a tmux pane notification arrives, use $tmux-goto to inspect that pane first, recover the real context, and only then decide whether to act. Treat tmux-goto as the only public handoff interface."
-
-policy:
-  allow_implicit_invocation: true

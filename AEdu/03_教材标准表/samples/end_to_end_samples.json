@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-2020-12/schema#",
+  "$id": "aedu://schema/end-to-end-samples/v1.0.0",
+  "title": "端到端样例集",
+  "description": "KB+INGEST 第一阶段端到端流程样例集 - 验证完整数据链路",
+  "version": "1.0.0",
+  "metadata": {
+    "region_id": "CN_AH",
+    "curriculum_version_id": "PHY_PEP_G1_V1",
+    "subject": "物理",
+    "grade_level": "高一",
+    "volume_no": "必修一",
+    "created_at": "2026-03-25T00:00:00Z",
+    "updated_at": "2026-03-25T00:00:00Z"
+  },
+  "end_to_end_scenarios": [
+    {
+      "scenario_id": "E2E_001",
+      "scenario_name": "章节树→知识点→锚点完整链路",
+      "description": "验证从章节树节点到知识点再到教材锚点的完整引用链路",
+      "input": {
+        "chapter_node_id": "PHY_PEP_G1_V1_CH_01",
+        "expected_knowledge_count": 5,
+        "expected_anchor_count": 10
+      },
+      "expected_output": {
+        "knowledge_ids": [
+          "PHY_PEP_G1_V1_KP_001",
+          "PHY_PEP_G1_V1_KP_002",
+          "PHY_PEP_G1_V1_KP_003",
+          "PHY_PEP_G1_V1_KP_004",
+          "PHY_PEP_G1_V1_KP_005"
+        ],
+        "anchor_ids": [
+          "PHY_ANCHOR_001",
+          "PHY_ANCHOR_002",
+          "PHY_ANCHOR_003",
+          "PHY_ANCHOR_004",
+          "PHY_ANCHOR_005",
+          "PHY_ANCHOR_006",
+          "PHY_ANCHOR_007",
+          "PHY_ANCHOR_008",
+          "PHY_ANCHOR_009",
+          "PHY_ANCHOR_010"
+        ]
+      },
+      "validation_rules": [
+        "所有知识点必须挂载到正确的章节节点",
+        "所有锚点必须关联到至少一个知识点",
+        "引用链路必须无断点"
+      ]
+    },
+    {
+      "scenario_id": "E2E_002",
+      "scenario_name": "依赖关系传递验证",
+      "description": "验证知识点依赖关系的传递性",
+      "input": {
+        "knowledge_id": "PHY_PEP_G1_V1_KP_001",
+        "traverse_direction": "forward"
+      },
+      "expected_output": {
+        "reachable_knowledge_ids": [
+          "PHY_PEP_G1_V1_KP_002",
+          "PHY_PEP_G1_V1_KP_003"
+        ],
+        "max_depth": 3
+      },
+      "validation_rules": [
+        "依赖关系必须无环",
+        "依赖链必须有明确的起点和终点"
+      ]
+    },
+    {
+      "scenario_id": "E2E_003",
+      "scenario_name": "冻结值一致性验证",
+      "description": "验证所有数据实体的冻结值一致性",
+      "input": {
+        "frozen_values": {
+          "region_id": "CN_AH",
+          "curriculum_version_id": "PHY_PEP_G1_V1",
+          "subject": "物理",
+          "grade_level": "高一",
+          "volume_no": "必修一"
+        }
+      },
+      "expected_output": {
+        "chapter_tree_metadata": {
+          "region_id": "CN_AH",
+          "curriculum_version_id": "PHY_PEP_G1_V1",
+          "subject": "物理",
+          "grade_level": "高一",
+          "volume_no": "必修一"
+        },
+        "knowledge_metadata": {
+          "region_id": "CN_AH",
+          "curriculum_version_id": "PHY_PEP_G1_V1",
+          "subject": "物理",
+          "grade_level": "高一",
+          "volume_no": "必修一"
+        },
+        "anchor_metadata": {
+          "region_id": "CN_AH",
+          "curriculum_version_id": "PHY_PEP_G1_V1",
+          "subject": "物理",
+          "grade_level": "高一",
+          "volume_no": "必修一"
+        }
+      },
+      "validation_rules": [
+        "所有实体的冻结值必须完全一致",
+        "不允许出现地区冻结值不一致（深圳 vs 安徽）"
+      ]
+    }
+  ],
+  "audit_trail": {
+    "created_by": "dev-bot",
+    "created_at": "2026-03-25T00:00:00Z",
+    "updated_by": "dev-bot",
+    "updated_at": "2026-03-25T00:00:00Z",
+    "review_ticket_ref": "REV-KB-001",
+    "kb_ref": "KB-001"
+  }
+}

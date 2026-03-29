@@ -1,0 +1,151 @@
+{
+  "test_name": "高中物理必修第一册_8 张样本截图识别测试",
+  "timestamp": "2026-03-26T18:31:26.465217",
+  "sample_count": 8,
+  "pages": [
+    {
+      "page_name": "01_封面",
+      "book_title": "普通高中教科书",
+      "page_number": null,
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "普通高中教科书\n\n物理\n\n必修\n\n第一册\n\n人民教育出版社 课程教材研究所\n物理课程教材研究开发中心\n\n编著\n\n人民教育出版社\n·北京·",
+      "page_type_hint": "封面页",
+      "status": "success",
+      "ocr_confidence": 0.8999999999999999,
+      "extracted_text_length": 68
+    },
+    {
+      "page_name": "02_版权页",
+      "book_title": "普通高中教科书 物理 必修 第一册",
+      "page_number": "5",
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [],
+      "figure_captions": [
+        "定价批号：××号 审图号：GS（××××）××××"
+      ],
+      "exercise_sections": [],
+      "raw_text_preview": "总主编：彭前程 黄恕伯\n本册主编：彭前程 秦建云\n\n编写人员：（以姓氏笔画为序）\n秦建云 黄恕伯 彭前程\n\n责任编辑：孙 新 彭 征\n美术编辑：王 艾\n\n普通高中教科书 物理 必修 第一册\n人民教育出版社 课程教材研究所 编著\n物理课程教材研究开发中心\n\n出 版 人民教育出版社\n（北京市海淀区中关村南大街17号院1号楼 邮编：100081）\n网 址 http://www.pep.com.cn\n重 印 ××× 出版社\n发 行 ××× 新华书店\n印 刷 ××× 印刷厂\n版 次 年 月第 版\n印 次 年 月第 次印刷\n开 本 890毫米×1240毫米 1/16\n印 张 7.5\n字 数 160千字\n印 数 册\n书 号 ISBN 978-7-107-33576-1\n定 价 元\n定价批号：××号 审图号：GS（××××）××××\n\n版权所有·未经许可不得采用任何方式擅自复制或使用本产品任何部分·违者必究\n如发现内容质量问题，请登录中小学教材意见反馈平台：jcyjfk.pep.com.cn\n如发现印、装质量问题，影响阅读，请与×××联系调换。电话：×××-×××××××",
+      "page_type_hint": "版权信息页",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 485
+    },
+    {
+      "page_name": "03_目录",
+      "book_title": null,
+      "page_number": "1",
+      "page_type": "序言页",
+      "main_title": "致同学们 1",
+      "subtitles": [
+        "1. 实验：探究小车速度随时间变化的规律 34",
+        "2. 实验：探究加速度与力、质量的关系 83",
+        "学生实验 112"
+      ],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "目 录\n\n致同学们 1\n\n序言 物理学：研究物质及其运动规律的科学 2\n\n第一章 运动的描述 10\n1. 质点 参考系 11\n2. 时间 位移 14\n3. 位置变化快慢的描述——速度 19\n4. 速度变化快慢的描述——加速度 25\n\n第二章 匀变速直线运动的研究 33\n1. 实验：探究小车速度随时间变化的规律 34\n2. 匀变速直线运动的速度与时间的关系 37\n3. 匀变速直线运动的位移与时间的关系 40\n4. 自由落体运动 45\n\n第三章 相互作用——力 54\n1. 重力与弹力 55\n2. 摩擦力 60\n3. 牛顿第三定律 64\n4. 力的合成和分解 68\n5. 共点力的平衡 72\n\n第四章 运动和力的关系 78\n1. 牛顿第一定律 79\n2. 实验：探究加速度与力、质量的关系 83\n3. 牛顿第二定律 88\n4. 力学单位制 93\n5. 牛顿运动定律的应用 97\n6. 超重和失重 101\n\n课题研究 108\n学生实验 112\n索引 116",
+      "page_type_hint": "目录页",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 427
+    },
+    {
+      "page_name": "04_序言",
+      "book_title": null,
+      "page_number": null,
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "```markdown\n\n```",
+      "page_type_hint": "序言/前言页",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 16
+    },
+    {
+      "page_name": "05_第一章开头",
+      "book_title": null,
+      "page_number": null,
+      "page_type": "序言页",
+      "main_title": "致同学们",
+      "subtitles": [
+        "实验 同学们自己动脑、动手操作的实践活动。",
+        "思考与讨论 用于引发思考、展开交流等而设计的问题。"
+      ],
+      "figure_captions": [],
+      "exercise_sections": [
+        "练习与应用",
+        "复习与提高"
+      ],
+      "raw_text_preview": "致同学们\n\n同学们好！从这学期开始，本套书将陪伴大家一起学习高中物理。\n中学物理是科学课程中非常重要的一门课，它对我们了解客观世界、学习探索世界的方法、培养科学的思维、形成科学的态度与责任等都有非常重要的作用。在今后的学习中，同学们既要注意概念、规律的确切含义，同时也要注意体会、思考在建立概念和探索规律时，所涉及的一些科学思维和方法，培养自己理性思考、敢于质疑、不断创新的科学素养。为了使大家能更好地学习、探索浩瀚的物理世界，本书设计了以下栏目。\n\n问题 每节开始创设的一个情境问题，以引发同学们对所要学习的内容主动思考，培养大家的问题意识及提出问题的能力。\n实验 同学们自己动脑、动手操作的实践活动。\n演示 主要是老师展示、供大家观察的实践活动。\n思考与讨论 用于引发思考、展开交流等而设计的问题。\n做一做 小型的动手操作类活动，目的是引发思考、体验和感悟。\n科学方法 物理学中常用和重要的科学思想、方法。应注意的是，更多的科学思想及方法在相应的正文和旁批中体现。\n拓展学习 体现弹性，属于选学、选做的内容。主要内容是知识的拓展、延伸，或者是用传感器、计算机等设备自动记录和处理数据的实验，供有条",
+      "page_type_hint": "章节起始页",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 704
+    },
+    {
+      "page_name": "06_正文概念",
+      "book_title": null,
+      "page_number": null,
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "生活方式。技术的进步又为物理学的研究提供了更为强大的手段，并引发人们对物理问题进行更深入的思考，从而反过来促进物理学的发展。\n\n创立于17世纪的牛顿力学，被广泛地应用于工程技术，大大推动了社会发展。18～19世纪，工程上对蒸汽机等热机的改进需求，又迫使人们对热的问题进行深入研究，引发了热力学的巨大进步（图0-3）。\n\n19～20世纪初，电磁学的发展，直接导致发电机和无线电通信的诞生，使电能被广泛利用。电走进了千家万户，世界被电灯点亮，电话和电报把各地的人们连接起来，人类从此进入了电气时代。\n\n进入20世纪以后，物理学的研究范围更加广阔。人们掌握了微观世界的规律，这更为有力地推动了技术的进步和社会的变革。对原子核的认识，使人们掌握了核能，建造了核电站并发展了治疗肿瘤的放疗等技术；对固体中电子运动的研究，引发了半导体工业的诞生，导致了晶体管、集成电路和大容量电子存储技术的发明，从而使人们可以制造半导体芯片（图0-4）；对原子、分子物理和光学的深入研究，引发了原子钟、激光和光纤通信等技术的诞生。原子钟是卫星定位系统的核心，激光被广泛用于工业、通信、医疗和国防，而遍布全球的光纤网是互联网的物理",
+      "page_type_hint": "正文（概念讲解）",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 657
+    },
+    {
+      "page_name": "07_正文公式",
+      "book_title": null,
+      "page_number": null,
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [
+        "思考与讨论"
+      ],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "人类居住的地球在绕太阳公转，同时又在自转。因此，地球各部分离太阳的距离不断变化。但是，如果考虑到地球的直径（约 $1.3 \\times 10^4 \\text{ km}$）还不到地日距离（约 $1.5 \\times 10^8 \\text{ km}$）的万分之一，在研究地球公转引起的位置变化问题时，由地球的大小引起的运动差异很小，因此，可以忽略地球的大小和形状而把它视为点。\n\n有些物体上各点的运动差异虽然不小，但如果我们不研究各点的运动差异，而只关注物体整体的运动时，同样可以把物体看作一个点。例如，列车在平直轨道上行驶（图1.1-1），尽管它的传动机构及车轮的运动很复杂，但是，当我们只关心列车整体的运动情况时，就可以不考虑上述各部分的运动差异，而用一个点的运动代替整列列车的运动。\n\n看来，在某些情况下，确实可以忽略物体的大小和形状，把它简化为一个具有质量的点，这样的点叫作质点$\\textcircled{1}$（mass point）。还有一种情况，虽然不能忽略物体的大小和形状，但是，物体上各点的运动情况完全相同。从描述运动的角度看，物体上任意一点的运动完全能反映整个物体的运动，于是，整个物",
+      "page_type_hint": "正文（公式推导）",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 806
+    },
+    {
+      "page_name": "08_习题页",
+      "book_title": null,
+      "page_number": null,
+      "page_type": "正文页",
+      "main_title": null,
+      "subtitles": [],
+      "figure_captions": [],
+      "exercise_sections": [],
+      "raw_text_preview": "4. 根据 $\\Delta x$ 和 $\\Delta t$ 算出的速度值就可以代表在 $\\Delta x$ 这一区间内任意一点的瞬时速度。将算出的各计数点的速度值记录在表2中。\n\n表2 手拉纸带各计数点的瞬时速度\n\n| 位置 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | … |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| $x/\\text{m}$ | | | | | | | | |\n| $\\Delta x/\\text{m}$ | | | | | | | | |\n| $\\Delta t/\\text{s}$ | | | | | | | | |\n| $v/(\\text{m} \\cdot \\text{s}^{-1})$ | | | | | | | | |\n\n速度一时间图像\n\n物体运动的速度随时间变化的情况可以用图像来直观表示。以时间 $t$ 为横轴，速度 $v$ 为纵轴，坐标系中的图像即为速度一时间图像或 $v-t$ 图像。\n\n在方格纸上建立直角坐标系，根据自己算出的手拉纸带的 $v$、$t",
+      "page_type_hint": "练习/习题页",
+      "status": "success",
+      "ocr_confidence": 0.9,
+      "extracted_text_length": 712
+    }
+  ],
+  "summary": {
+    "book_title_detected": true,
+    "page_numbers_detected": 2,
+    "page_types_detected": [
+      "正文页",
+      "序言页"
+    ],
+    "main_titles_detected": 2,
+    "structure_info_detected": 4
+  }
+}

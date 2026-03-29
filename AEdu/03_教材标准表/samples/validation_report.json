@@ -1,0 +1,29 @@
+{
+  "validation_id": "VAL_KB_20260326_095043",
+  "validation_type": "kb_closure",
+  "validated_at": "2026-03-26T09:50:43.627387",
+  "frozen_values": {
+    "region_id": "CN_AH",
+    "curriculum_version_id": "PHY_PEP_G1_V1",
+    "subject": "物理",
+    "grade_level": "高一",
+    "volume_no": "必修一",
+    "root_node_id": "PHY_PEP_G1_V1_ROOT"
+  },
+  "result": "pass",
+  "summary": {
+    "chapter_tree_nodes": 29,
+    "knowledge_points": 22,
+    "ability_points": 4,
+    "anchor_points": 28,
+    "dependencies": 22
+  },
+  "issues": {
+    "p0_count": 0,
+    "p1_count": 0,
+    "p2_count": 0,
+    "p0_issues": [],
+    "p1_issues": [],
+    "p2_issues": []
+  }
+}

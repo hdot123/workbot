@@ -5,7 +5,6 @@
 
 ## Today
 - ✅ 根级 `workspace/` 已建立为新的总控工作区
-- ✅ `molt` 工作区核心内容已吸收到根级 `workspace/`
 - ✅ `memory/docs/` 已按 `research / external / inbox / legacy / references` 重组
 - ✅ `memory/kb/projects/` 已建立总项目 canonical 入口
 - ✅ 活跃入口链已收缩到最小口径，旧项目文档统一降级为 source material
@@ -19,7 +18,6 @@
 - 无硬阻塞
 
 ## Memory Health
-- `workspace/` 已是实际目录，不再依赖 `molt` symlink
 - `memory/docs/research/projects/` 已完成分组
 - `memory/kb/projects/` 已具备总控项目入口
 - 长期记忆层骨架已建立，当前未引入旧内容

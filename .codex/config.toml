@@ -1,0 +1,16 @@
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[sandbox_workspace_write]
+network_access = true
+
+[mcp_servers.claude-code]
+command = "/opt/homebrew/bin/claude"
+args = ["mcp", "serve"]
+
+[mcp_servers.notebooklm]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "notebooklm-mcp-server"]
