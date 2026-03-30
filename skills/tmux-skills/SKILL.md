@@ -28,7 +28,7 @@ description: |
 - `CODEX_THREAD_ID` 的语义是 Codex app thread id，不是本地 CLI session id
 - tmux handoff 的 delivery 通过常驻 window IPC bridge 投递到当前 Codex 窗口，不再使用 `codex exec resume`
 - 每次新的 pane 创建前，必须先清理上一轮遗留的 watcher、runtime ledger、issues 文件和 watcher 日志
-- 每次收到新的 pane 创建指令，第一步必须先审计 tmux 历史残留；如果发现不是“当前可见 formal client”的旧 `formal-session`，必须先清掉，再决定是否创建或接管
+- 每次收到新的 pane 创建指令，第一步必须先审计 tmux 历史残留；如果发现不是“当前可见 formal client”的旧 `formal-session`，或者发现 `tbot` 之类无关 bootstrap session，必须先清掉，再决定是否创建或接管
 - 禁止用伪造前台的方式启动 tmux，例如 `env TERM_PROGRAM=Ghostty ... zsh -i`、手动先跑 `tmux new-session -A` 再补做验收
 
 ## Attached 机制

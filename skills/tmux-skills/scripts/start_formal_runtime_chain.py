@@ -288,9 +288,19 @@ def preflight_formal_session_cleanup(formal_session: str) -> dict[str, Any]:
         return {"attempted": False, "reason": f"inspect_failed: {exc}"}
 
     current_client = snapshot.get("current_client") or {}
+    current_inside_tmux = bool(current_client.get("inside_tmux"))
+    current_session_name = (
+        str(current_client.get("session_name", "")).strip() if current_inside_tmux else ""
+    )
+    current_visible_terminal_client = bool(current_client.get("visible_terminal_client"))
     formal_sessions = [
         str(name).strip()
         for name in snapshot.get("formal_sessions", [])
+        if str(name).strip()
+    ]
+    bootstrap_sessions = [
+        str(name).strip()
+        for name in snapshot.get("bootstrap_sessions", [])
         if str(name).strip()
     ]
     formal_exists = formal_session in formal_sessions
@@ -298,26 +308,81 @@ def preflight_formal_session_cleanup(formal_session: str) -> dict[str, Any]:
         current_client.get("inside_tmux") and current_client.get("session_name") == formal_session
     )
     stale_formal_session = formal_exists and not bool(snapshot.get("current_visible_formal_client"))
+    cleanup_targets: list[str] = []
+    pending_cleanup_targets: list[str] = []
     result: dict[str, Any] = {
         "attempted": False,
         "formal_session": formal_session,
         "formal_exists": formal_exists,
+        "bootstrap_sessions": bootstrap_sessions,
         "current_visible_formal_client": bool(snapshot.get("current_visible_formal_client")),
         "current_in_formal": current_in_formal,
+        "current_session_name": current_session_name,
     }
-    if not stale_formal_session:
-        result["reason"] = "no_stale_formal_session"
-        return result
-    if current_in_formal:
-        result["reason"] = "defer_current_formal_cleanup"
+    if stale_formal_session:
+        if current_in_formal:
+            pending_cleanup_targets.append(formal_session)
+        else:
+            cleanup_targets.append(formal_session)
+
+    for session_name in bootstrap_sessions:
+        protected_current_bootstrap = (
+            session_name == current_session_name and current_visible_terminal_client
+        )
+        if protected_current_bootstrap:
+            pending_cleanup_targets.append(session_name)
+            continue
+        cleanup_targets.append(session_name)
+
+    ordered_cleanup_targets: list[str] = []
+    for session_name in cleanup_targets:
+        if session_name and session_name not in ordered_cleanup_targets:
+            ordered_cleanup_targets.append(session_name)
+
+    ordered_pending_targets: list[str] = []
+    for session_name in pending_cleanup_targets:
+        if session_name and session_name not in ordered_pending_targets:
+            ordered_pending_targets.append(session_name)
+
+    result["cleanup_targets"] = ordered_cleanup_targets
+    if ordered_pending_targets:
+        result["pending_cleanup_targets"] = ordered_pending_targets
         result["pending_cleanup"] = True
+
+    if not ordered_cleanup_targets:
+        if current_in_formal and stale_formal_session:
+            result["reason"] = "defer_current_formal_cleanup"
+        elif ordered_pending_targets:
+            result["reason"] = "defer_current_bootstrap_cleanup"
+        else:
+            result["reason"] = "no_stale_tmux_sessions"
         return result
 
-    kill_proc = run(["tmux", "kill-session", "-t", formal_session])
+    kill_results: list[dict[str, Any]] = []
+    cleaned = True
+    for session_name in ordered_cleanup_targets:
+        kill_proc = run(["tmux", "kill-session", "-t", session_name])
+        detail = (kill_proc.stderr or kill_proc.stdout or "").strip()
+        kill_results.append(
+            {
+                "session_name": session_name,
+                "returncode": kill_proc.returncode,
+                "detail": detail,
+            }
+        )
+        if kill_proc.returncode != 0:
+            cleaned = False
+
     result["attempted"] = True
-    result["kill_returncode"] = kill_proc.returncode
-    result["kill_detail"] = (kill_proc.stderr or kill_proc.stdout or "").strip()
-    result["cleaned"] = kill_proc.returncode == 0
+    result["cleaned"] = cleaned
+    result["killed_sessions"] = [item["session_name"] for item in kill_results]
+    result["kill_results"] = kill_results
+    if kill_results:
+        result["kill_returncode"] = kill_results[-1]["returncode"]
+        result["kill_detail"] = "; ".join(
+            f"{item['session_name']}: {item['detail'] or item['returncode']}"
+            for item in kill_results
+        )
     return result
 
 
@@ -382,6 +447,7 @@ def main() -> int:
                 "--formal-cwd",
                 str(ROOT),
                 "--create-formal-session",
+                "--cleanup-bootstrap",
                 "--kill-detached",
                 "--initialize-formal-surfaces",
                 "--formal-window-title",
@@ -396,9 +462,15 @@ def main() -> int:
             step="inspect_after_env",
         )
         ensure_attached_formal_session(inspect_after_env, args.formal_session)
+        if inspect_after_env.get("bootstrap_sessions"):
+            raise RuntimeError(
+                "bootstrap tmux residue remains after formal env setup: "
+                + ", ".join(str(name) for name in inspect_after_env["bootstrap_sessions"])
+            )
         steps["inspect_after_env"] = {
             "formal_session_count": inspect_after_env.get("formal_session_count"),
             "attached_formal": True,
+            "bootstrap_sessions": inspect_after_env.get("bootstrap_sessions", []),
         }
 
         set_env_proc = run(["tmux", "set-environment", "-g", "CODEX_THREAD_ID", args.codex_thread_id])

@@ -428,6 +428,22 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertTrue(result["cleaned"])
         mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "formal-session"])
 
+    def test_preflight_formal_session_cleanup_kills_stale_bootstrap_session(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "tbot", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "tbot", "client_tty": "/dev/ttys044"}],
+            current_client={"inside_tmux": False, "session_name": "", "client_tty": ""},
+            visible_terminal_client=False,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                result = start_formal_runtime_chain.preflight_formal_session_cleanup("formal-session")
+        self.assertTrue(result["attempted"])
+        self.assertTrue(result["cleaned"])
+        self.assertEqual(["tbot"], result["killed_sessions"])
+        mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "tbot"])
+
     def test_preflight_formal_session_cleanup_defers_when_current_session_is_stale_formal(self) -> None:
         snapshot = runtime_snapshot(
             sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
@@ -446,6 +462,26 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertFalse(result["attempted"])
         self.assertTrue(result["pending_cleanup"])
         self.assertEqual("defer_current_formal_cleanup", result["reason"])
+        mock_run.assert_not_called()
+
+    def test_preflight_formal_session_cleanup_defers_current_visible_bootstrap_session(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "tbot", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "tbot", "client_tty": "/dev/ttys044"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "tbot",
+                "client_tty": "/dev/ttys044",
+            },
+            visible_terminal_client=True,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                result = start_formal_runtime_chain.preflight_formal_session_cleanup("formal-session")
+        self.assertFalse(result["attempted"])
+        self.assertTrue(result["pending_cleanup"])
+        self.assertEqual("defer_current_bootstrap_cleanup", result["reason"])
+        self.assertEqual(["tbot"], result["pending_cleanup_targets"])
         mock_run.assert_not_called()
 
     def test_cleanup_hidden_formal_session_on_failure_kills_hidden_codex_client(self) -> None:
