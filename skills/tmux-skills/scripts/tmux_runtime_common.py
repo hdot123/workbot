@@ -461,6 +461,42 @@ def select_official_formal_session(
     return attached_formal_sessions[0]
 
 
+def describe_formal_client_state(
+    snapshot: dict[str, Any],
+    formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME,
+) -> dict[str, Any]:
+    sessions = snapshot.get("sessions", [])
+    current_client = snapshot.get("current_client") or {}
+    formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
+    formal_attached = any(
+        session.get("session_name") == formal_session_name and int(session.get("attached", 0)) > 0
+        for session in sessions
+    )
+    current_visible_formal_client = bool(snapshot.get("current_visible_formal_client"))
+    current_caller_session = str(current_client.get("session_name") or "").strip()
+    current_caller_inside_tmux = bool(current_client.get("inside_tmux"))
+    current_caller_in_formal = (
+        current_caller_inside_tmux and current_caller_session == formal_session_name
+    )
+    single_attached_formal_client = formal_attached and formal_client_count == 1
+    startup_transition_ready = (
+        single_attached_formal_client and not current_visible_formal_client
+    )
+    startup_client_ready = current_visible_formal_client or startup_transition_ready
+    return {
+        "formal_session_name": formal_session_name,
+        "formal_attached": formal_attached,
+        "formal_client_count": formal_client_count,
+        "current_visible_formal_client": current_visible_formal_client,
+        "current_caller_inside_tmux": current_caller_inside_tmux,
+        "current_caller_session": current_caller_session,
+        "current_caller_in_formal": current_caller_in_formal,
+        "single_attached_formal_client": single_attached_formal_client,
+        "startup_transition_ready": startup_transition_ready,
+        "startup_client_ready": startup_client_ready,
+    }
+
+
 def build_topology_fingerprint(
     official_session: dict[str, Any] | None,
     official_panes: list[dict[str, Any]],
@@ -548,7 +584,7 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         if str(binding.get("target", "")).strip()
     )
 
-    return {
+    snapshot = {
         "session_count": len(sessions),
         "pane_count": len(panes),
         "sessions": sessions,
@@ -583,3 +619,8 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
             official_formal_panes,
         ),
     }
+    snapshot["formal_client_state"] = describe_formal_client_state(
+        snapshot,
+        configured_formal_session_name,
+    )
+    return snapshot

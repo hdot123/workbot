@@ -11,7 +11,11 @@ import subprocess
 import time
 from typing import Any
 
-from tmux_runtime_common import inspect_runtime, is_legacy_bootstrap_session
+from tmux_runtime_common import (
+    describe_formal_client_state,
+    inspect_runtime,
+    is_legacy_bootstrap_session,
+)
 
 
 def run_tmux(*args: str) -> subprocess.CompletedProcess[str]:
@@ -75,17 +79,10 @@ def require_tmux_client_for_formal_session_change(
 
 def wait_for_attached_formal_session(session_name: str, timeout_seconds: float = 8.0) -> dict[str, Any]:
     deadline = time.monotonic() + max(0.1, timeout_seconds)
-    last_snapshot: dict[str, Any] = inspect_runtime()
     while time.monotonic() < deadline:
         snapshot = inspect_runtime()
-        last_snapshot = snapshot
-        formal_attached = any(
-            session.get("session_name") == session_name and int(session.get("attached", 0)) > 0
-            for session in snapshot.get("sessions", [])
-        )
-        if bool(snapshot.get("current_visible_formal_client")) or (
-            formal_attached and int(snapshot.get("formal_client_count", 0) or 0) == 1
-        ):
+        formal_state = describe_formal_client_state(snapshot, session_name)
+        if formal_state["startup_client_ready"]:
             return snapshot
         time.sleep(0.25)
     raise RuntimeError(
@@ -297,18 +294,17 @@ def main() -> int:
     formal_session_exists = formal_session in snapshot_after["session_names"]
     active_formal_sessions = [name for name in snapshot_after["formal_sessions"] if name]
     extra_formal_sessions = [name for name in active_formal_sessions if name != formal_session]
-    formal_attached = any(
-        session.get("session_name") == formal_session and int(session.get("attached", 0)) > 0
-        for session in snapshot_after.get("sessions", [])
-    )
-    formal_client_count = int(snapshot_after.get("formal_client_count", 0) or 0)
-    current_visible_formal_client = bool(snapshot_after.get("current_visible_formal_client"))
-    formal_attached_single_client = formal_attached and formal_client_count == 1
+    formal_state = describe_formal_client_state(snapshot_after, formal_session)
+    formal_attached = bool(formal_state["formal_attached"])
+    formal_client_count = int(formal_state["formal_client_count"])
+    current_visible_formal_client = bool(formal_state["current_visible_formal_client"])
+    startup_client_ready = bool(formal_state["startup_client_ready"])
     single_attached_formal = (
         formal_session_exists
         and not extra_formal_sessions
-        and formal_attached_single_client
-        and (current_visible_formal_client or create_formal_session)
+        and (
+            startup_client_ready if create_formal_session else current_visible_formal_client
+        )
     )
     if snapshot_after["session_count"] == 0:
         runtime_status = "BLOCKED"

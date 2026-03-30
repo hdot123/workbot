@@ -225,6 +225,48 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertTrue(context["visible_terminal_client"])
         self.assertEqual("Apple_Terminal", context["term_program"])
 
+    def test_describe_formal_client_state_marks_visible_formal_runtime(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=True,
+        )
+
+        state = tmux_runtime_common.describe_formal_client_state(snapshot, "formal-session")
+
+        self.assertTrue(state["formal_attached"])
+        self.assertTrue(state["current_visible_formal_client"])
+        self.assertFalse(state["startup_transition_ready"])
+        self.assertTrue(state["startup_client_ready"])
+
+    def test_describe_formal_client_state_marks_switched_source_pane_transition(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "seed-session", "attached": 0},
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "seed-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=False,
+        )
+
+        state = tmux_runtime_common.describe_formal_client_state(snapshot, "formal-session")
+
+        self.assertTrue(state["formal_attached"])
+        self.assertFalse(state["current_visible_formal_client"])
+        self.assertTrue(state["startup_transition_ready"])
+        self.assertTrue(state["startup_client_ready"])
+        self.assertEqual("seed-session", state["current_caller_session"])
+
     def test_build_batch_plan_uses_generic_slots(self) -> None:
         plan = start_formal_runtime_chain.build_batch_plan(
             [f"formal-session:1.{index}" for index in range(1, 5)],
@@ -1431,6 +1473,33 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIn(("new-session", "-Ad", "-s", "formal-session", "-c", "/tmp/bootstrap-cwd"), calls)
         self.assertIn(("switch-client", "-t", "formal-session"), calls)
         mock_cleanup_bootstrap.assert_called_once_with()
+
+    def test_start_formal_runtime_chain_accepts_startup_transition_from_source_pane(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "seed-session", "attached": 0},
+            ],
+            panes=[
+                {"session_name": "formal-session", "target": "formal-session:1.1"},
+                {"session_name": "seed-session", "target": "seed-session:1.1"},
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "seed-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+            },
+            visible_terminal_client=False,
+            formal_sessions=["formal-session"],
+        )
+
+        start_formal_runtime_chain.ensure_attached_formal_session(
+            snapshot,
+            "formal-session",
+            allow_startup_transition=True,
+        )
 
     def test_start_formal_runtime_chain_does_not_pass_cleanup_bootstrap_to_env(self) -> None:
         env_command: list[str] = []

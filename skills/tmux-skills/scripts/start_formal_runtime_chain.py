@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from runtime_ledger import DEFAULT_FORMAL_SESSION_NAME
+from tmux_runtime_common import describe_formal_client_state
 
 
 ROOT = Path("/Users/busiji/workbot")
@@ -200,9 +201,10 @@ def ensure_attached_formal_session(
     snapshot: dict[str, Any],
     formal_session: str,
     *,
-    allow_switched_source_pane: bool = False,
+    allow_startup_transition: bool = False,
 ) -> None:
-    formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
+    formal_state = describe_formal_client_state(snapshot, formal_session)
+    formal_client_count = int(formal_state["formal_client_count"])
     if formal_client_count <= 0:
         raise RuntimeError(
             f"formal session '{formal_session}' has no attached tmux client; foreground tmux is not visible"
@@ -211,14 +213,9 @@ def ensure_attached_formal_session(
         raise RuntimeError(
             f"formal session '{formal_session}' must have exactly one visible tmux client; got {formal_client_count}"
         )
-    if allow_switched_source_pane:
-        formal_attached = any(
-            session.get("session_name") == formal_session and int(session.get("attached", 0)) > 0
-            for session in snapshot.get("sessions", [])
-        )
-        if formal_attached:
-            return
-    if not bool(snapshot.get("current_visible_formal_client")):
+    if allow_startup_transition and formal_state["startup_client_ready"]:
+        return
+    if not formal_state["current_visible_formal_client"]:
         raise RuntimeError(
             f"current caller is not inside the visible formal session '{formal_session}'"
         )
@@ -446,7 +443,7 @@ def inspect_visible_formal_session(
     ensure_attached_formal_session(
         snapshot,
         formal_session,
-        allow_switched_source_pane=True,
+        allow_startup_transition=True,
     )
     if require_no_bootstrap and snapshot.get("bootstrap_sessions"):
         raise RuntimeError(
