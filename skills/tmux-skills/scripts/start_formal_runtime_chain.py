@@ -273,7 +273,7 @@ def build_result(
         "formal_session": steps.get("formal_session", DEFAULT_FORMAL_SESSION_NAME),
         "pane_count": len(pane_titles),
         "pane_titles": pane_titles,
-        "chain": ["cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"],
+        "chain": ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"],
         "steps": steps,
     }
     if error:
@@ -281,24 +281,71 @@ def build_result(
     return result
 
 
-def cleanup_hidden_formal_session_on_failure(formal_session: str) -> dict[str, Any]:
+def preflight_formal_session_cleanup(formal_session: str) -> dict[str, Any]:
+    try:
+        snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step="tmux_preflight_inspect")
+    except Exception as exc:
+        return {"attempted": False, "reason": f"inspect_failed: {exc}"}
+
+    current_client = snapshot.get("current_client") or {}
+    formal_sessions = [
+        str(name).strip()
+        for name in snapshot.get("formal_sessions", [])
+        if str(name).strip()
+    ]
+    formal_exists = formal_session in formal_sessions
+    current_in_formal = bool(
+        current_client.get("inside_tmux") and current_client.get("session_name") == formal_session
+    )
+    stale_formal_session = formal_exists and not bool(snapshot.get("current_visible_formal_client"))
+    result: dict[str, Any] = {
+        "attempted": False,
+        "formal_session": formal_session,
+        "formal_exists": formal_exists,
+        "current_visible_formal_client": bool(snapshot.get("current_visible_formal_client")),
+        "current_in_formal": current_in_formal,
+    }
+    if not stale_formal_session:
+        result["reason"] = "no_stale_formal_session"
+        return result
+    if current_in_formal:
+        result["reason"] = "defer_current_formal_cleanup"
+        result["pending_cleanup"] = True
+        return result
+
+    kill_proc = run(["tmux", "kill-session", "-t", formal_session])
+    result["attempted"] = True
+    result["kill_returncode"] = kill_proc.returncode
+    result["kill_detail"] = (kill_proc.stderr or kill_proc.stdout or "").strip()
+    result["cleaned"] = kill_proc.returncode == 0
+    return result
+
+
+def cleanup_hidden_formal_session_on_failure(formal_session: str, error_text: str = "") -> dict[str, Any]:
     try:
         snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step="failure_inspect")
     except Exception as exc:
         return {"attempted": False, "reason": f"inspect_failed: {exc}"}
 
     current_client = snapshot.get("current_client") or {}
+    residue_error = "historical formal-session residue" in error_text
     should_cleanup = bool(
         current_client.get("inside_tmux")
         and current_client.get("session_name") == formal_session
-        and current_client.get("codex_hosted")
-        and not current_client.get("visible_terminal_client")
         and int(snapshot.get("formal_client_count", 0) or 0) == 1
+        and (
+            residue_error
+            or (
+                current_client.get("codex_hosted")
+                and not current_client.get("visible_terminal_client")
+            )
+        )
     )
     result: dict[str, Any] = {
         "attempted": should_cleanup,
         "session_name": formal_session,
         "visibility_reason": current_client.get("visibility_reason", ""),
+        "residue_error": residue_error,
     }
     if not should_cleanup:
         result["reason"] = "skip"
@@ -324,6 +371,7 @@ def main() -> int:
 
     steps: dict[str, Any] = {"formal_session": args.formal_session}
     try:
+        steps["tmux_preflight"] = preflight_formal_session_cleanup(args.formal_session)
         steps["cleanup"] = cleanup_previous_runtime_state()
         steps["env"] = run_json(
             [
@@ -482,7 +530,10 @@ def main() -> int:
         result = build_result("failed", steps, pane_titles, str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
         sys.stdout.flush()
-        steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(args.formal_session)
+        steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
+            args.formal_session,
+            str(exc),
+        )
         return 1
 
     result = build_result("ok", steps, pane_titles)

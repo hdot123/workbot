@@ -28,6 +28,8 @@ description: |
 - `CODEX_THREAD_ID` 的语义是 Codex app thread id，不是本地 CLI session id
 - tmux handoff 的 delivery 通过常驻 window IPC bridge 投递到当前 Codex 窗口，不再使用 `codex exec resume`
 - 每次新的 pane 创建前，必须先清理上一轮遗留的 watcher、runtime ledger、issues 文件和 watcher 日志
+- 每次收到新的 pane 创建指令，第一步必须先审计 tmux 历史残留；如果发现不是“当前可见 formal client”的旧 `formal-session`，必须先清掉，再决定是否创建或接管
+- 禁止用伪造前台的方式启动 tmux，例如 `env TERM_PROGRAM=Ghostty ... zsh -i`、手动先跑 `tmux new-session -A` 再补做验收
 
 ## Attached 机制
 
@@ -124,12 +126,20 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_ch
 
 主链执行时会先做一轮预清理：
 
+- 审计当前 tmux 现场，优先识别并清掉历史残留的 `formal-session`
 - 停掉旧的 tmux-skills watcher
 - 清掉旧的 `current-runtime.json`
 - 清掉旧的 `last-runtime-issues.json`
 - 清掉旧的 `handoff-notifications.jsonl`
 - 清掉旧的 `handoff-notifications.sqlite3`
 - 清掉旧的 `watch-tmux-handoff.stdout.log`
+
+调用顺序约束：
+
+1. 先检查 `formal-session` 是否是“当前可见 formal client”
+2. 如果不是，但历史上残留了 `formal-session`，先清理残留
+3. 只有残留清干净后，才允许创建或接管新的 `formal-session`
+4. 不允许先手动 attach 一个 tmux client，再回头用 `check_tmux_ready.py` 补验
 
 布局规则：
 

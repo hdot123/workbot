@@ -410,7 +410,43 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             {"formal_session": "formal-session"},
             ["dev-bot-1"],
         )
+        self.assertIn("tmux_preflight", result["chain"])
         self.assertIn("ready_check", result["chain"])
+
+    def test_preflight_formal_session_cleanup_kills_stale_hidden_formal_session(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys044"}],
+            current_client={"inside_tmux": False, "session_name": "", "client_tty": ""},
+            visible_terminal_client=False,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                result = start_formal_runtime_chain.preflight_formal_session_cleanup("formal-session")
+        self.assertTrue(result["attempted"])
+        self.assertTrue(result["cleaned"])
+        mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "formal-session"])
+
+    def test_preflight_formal_session_cleanup_defers_when_current_session_is_stale_formal(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys044"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys044",
+                "visible_terminal_client": False,
+            },
+            visible_terminal_client=False,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                result = start_formal_runtime_chain.preflight_formal_session_cleanup("formal-session")
+        self.assertFalse(result["attempted"])
+        self.assertTrue(result["pending_cleanup"])
+        self.assertEqual("defer_current_formal_cleanup", result["reason"])
+        mock_run.assert_not_called()
 
     def test_cleanup_hidden_formal_session_on_failure_kills_hidden_codex_client(self) -> None:
         snapshot = runtime_snapshot(
@@ -434,10 +470,41 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
                 ):
                     result = start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure(
-                        "formal-session"
+                        "formal-session",
+                        "foreground tmux changes must run from a real visible terminal client",
                     )
         self.assertTrue(result["attempted"])
         self.assertTrue(result["cleaned"])
+        mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "formal-session"])
+
+    def test_cleanup_hidden_formal_session_on_failure_kills_residue_error(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys044"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys044",
+                "codex_hosted": False,
+                "visible_terminal_client": True,
+                "visibility_reason": "terminal_marker_detected",
+            },
+            visible_terminal_client=True,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                with patch(
+                    "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                    return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+                ):
+                    result = start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure(
+                        "formal-session",
+                        "historical formal-session residue is already attached to the current client",
+                    )
+        self.assertTrue(result["attempted"])
+        self.assertTrue(result["cleaned"])
+        self.assertTrue(result["residue_error"])
         mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "formal-session"])
 
     def test_cleanup_hidden_formal_session_on_failure_skips_visible_client(self) -> None:
@@ -1047,6 +1114,102 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     init_tmux_env.main()
 
         self.assertIn("refusing to create or switch formal-session from codex_hidden_pty", str(exc.exception))
+
+    def test_init_tmux_env_kills_existing_formal_session_before_recreate(self) -> None:
+        snapshot_before = runtime_snapshot(
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "other-session", "attached": 1},
+            ],
+            panes=[],
+            clients=[
+                {"session_name": "formal-session", "client_tty": "/dev/ttys048"},
+                {"session_name": "other-session", "client_tty": "/dev/ttys049"},
+            ],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "other-session",
+                "client_tty": "/dev/ttys049",
+            },
+            visible_terminal_client=True,
+        )
+        snapshot_after_kill = runtime_snapshot(
+            sessions=[{"session_name": "other-session", "attached": 1}],
+            panes=[],
+            clients=[{"session_name": "other-session", "client_tty": "/dev/ttys049"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "other-session",
+                "client_tty": "/dev/ttys049",
+            },
+            visible_terminal_client=True,
+        )
+        snapshot_after_create = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys049"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys049",
+            },
+            visible_terminal_client=True,
+        )
+        with patch("init_tmux_env.inspect_runtime", side_effect=[snapshot_before, snapshot_after_kill, snapshot_after_create, snapshot_after_create]):
+            with patch("init_tmux_env.kill_session", return_value=True) as mock_kill:
+                with patch(
+                    "init_tmux_env.create_or_switch_visible_formal_session",
+                    return_value={"transport": "current_tmux_client", "session_name": "formal-session", "cwd": "/Users/busiji/workbot"},
+                ) as mock_create:
+                    with patch("init_tmux_env.wait_for_attached_formal_session", return_value=snapshot_after_create):
+                        with patch(
+                            "init_tmux_env.initialize_formal_surface",
+                            return_value={"session_name": "formal-session", "primary_target": "formal-session:1.1", "actions": ["window_title=formal-session"]},
+                        ):
+                            with patch("init_tmux_env.enforce_destroy_unattached", return_value="destroy_unattached=on"):
+                                with patch.object(
+                                    sys,
+                                    "argv",
+                                    [
+                                        "init_tmux_env.py",
+                                        "--formal-session",
+                                        "formal-session",
+                                        "--create-formal-session",
+                                    ],
+                                ):
+                                    rc = init_tmux_env.main()
+
+        self.assertEqual(0, rc)
+        mock_kill.assert_called_once_with("formal-session")
+        mock_create.assert_called_once()
+
+    def test_init_tmux_env_rejects_current_formal_session_residue(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=True,
+        )
+        with patch("init_tmux_env.inspect_runtime", return_value=snapshot):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "init_tmux_env.py",
+                    "--formal-session",
+                    "formal-session",
+                    "--create-formal-session",
+                ],
+            ):
+                with self.assertRaises(RuntimeError) as exc:
+                    init_tmux_env.main()
+
+        self.assertIn("historical formal-session residue is already attached to the current client", str(exc.exception))
 
     def test_init_tmux_env_switches_current_tmux_client_without_osascript(self) -> None:
         snapshots = [
