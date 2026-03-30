@@ -138,6 +138,54 @@ def formal_runtime_ledger(
     }
 
 
+def switched_source_pane_snapshot(
+    *,
+    source_session: str = "seed-session",
+    source_path: str = "/tmp/source-cwd",
+    source_attached: int = 0,
+    include_formal_pane: bool = True,
+    include_source_pane: bool = True,
+    bootstrap_sessions: list[str] | None = None,
+) -> dict[str, object]:
+    panes: list[dict[str, object]] = []
+    if include_formal_pane:
+        panes.append(
+            {
+                "session_name": "formal-session",
+                "target": "formal-session:1.1",
+                "window_index": "1",
+                "pane_index": "1",
+            }
+        )
+    if include_source_pane:
+        panes.append(
+            {
+                "session_name": source_session,
+                "target": f"{source_session}:1.1",
+                "window_index": "1",
+                "pane_index": "1",
+                "current_path": source_path,
+            }
+        )
+    return runtime_snapshot(
+        sessions=[
+            {"session_name": "formal-session", "attached": 1},
+            {"session_name": source_session, "attached": source_attached},
+        ],
+        panes=panes,
+        clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+        current_client={
+            "inside_tmux": True,
+            "session_name": source_session,
+            "client_tty": "/dev/ttys048",
+            "visible_terminal_client": False,
+        },
+        visible_terminal_client=False,
+        formal_sessions=["formal-session"],
+        bootstrap_sessions=bootstrap_sessions,
+    )
+
+
 class TmuxSkillsHandoffTests(unittest.TestCase):
     def test_writer_accepts_stopped_and_unreachable_events(self) -> None:
         for event_type in ("pane_stopped", "pane_unreachable", "session_detached"):
@@ -245,19 +293,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertTrue(state["startup_client_ready"])
 
     def test_describe_formal_client_state_marks_switched_source_pane_transition(self) -> None:
-        snapshot = runtime_snapshot(
-            sessions=[
-                {"session_name": "formal-session", "attached": 1},
-                {"session_name": "seed-session", "attached": 0},
-            ],
-            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-            current_client={
-                "inside_tmux": True,
-                "session_name": "seed-session",
-                "client_tty": "/dev/ttys048",
-            },
-            visible_terminal_client=False,
-        )
+        snapshot = switched_source_pane_snapshot(include_formal_pane=False, include_source_pane=False)
 
         state = tmux_runtime_common.describe_formal_client_state(snapshot, "formal-session")
 
@@ -1310,25 +1346,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIn("historical formal-session residue is already attached to the current client", str(exc.exception))
 
     def test_wait_for_attached_formal_session_accepts_switched_formal_client_from_source_pane(self) -> None:
-        source_snapshot = runtime_snapshot(
-            sessions=[
-                {"session_name": "formal-session", "attached": 1},
-                {"session_name": "seed-session", "attached": 0},
-            ],
-            panes=[
-                {"session_name": "formal-session", "target": "formal-session:1.1"},
-                {"session_name": "seed-session", "target": "seed-session:1.1"},
-            ],
-            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-            current_client={
-                "inside_tmux": True,
-                "session_name": "seed-session",
-                "client_tty": "/dev/ttys048",
-                "visible_terminal_client": False,
-            },
-            visible_terminal_client=False,
-            formal_sessions=["formal-session"],
-        )
+        source_snapshot = switched_source_pane_snapshot()
         with patch("init_tmux_env.inspect_runtime", side_effect=[source_snapshot, source_snapshot]):
             result = init_tmux_env.wait_for_attached_formal_session("formal-session", timeout_seconds=0.2)
 
@@ -1355,81 +1373,18 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     "client_tty": "/dev/ttys048",
                 },
             ),
-            runtime_snapshot(
-                sessions=[
-                    {"session_name": "formal-session", "attached": 1},
-                    {"session_name": "bootstrap", "attached": 0},
-                ],
-                panes=[],
-                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-                current_client={
-                    "inside_tmux": True,
-                    "session_name": "bootstrap",
-                    "client_tty": "/dev/ttys048",
-                    "visible_terminal_client": False,
-                },
-                visible_terminal_client=False,
-                formal_sessions=["formal-session"],
+            switched_source_pane_snapshot(
+                source_session="bootstrap",
+                source_path="/tmp/bootstrap-cwd",
+                include_formal_pane=False,
             ),
-            runtime_snapshot(
-                sessions=[
-                    {"session_name": "formal-session", "attached": 1},
-                    {"session_name": "bootstrap", "attached": 0},
-                ],
-                panes=[
-                    {
-                        "session_name": "formal-session",
-                        "target": "formal-session:1.1",
-                        "window_index": "1",
-                        "pane_index": "1",
-                    },
-                    {
-                        "session_name": "bootstrap",
-                        "target": "bootstrap:1.1",
-                        "window_index": "1",
-                        "pane_index": "1",
-                        "current_path": "/tmp/bootstrap-cwd",
-                    },
-                ],
-                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-                current_client={
-                    "inside_tmux": True,
-                    "session_name": "bootstrap",
-                    "client_tty": "/dev/ttys048",
-                    "visible_terminal_client": False,
-                },
-                visible_terminal_client=False,
-                formal_sessions=["formal-session"],
+            switched_source_pane_snapshot(
+                source_session="bootstrap",
+                source_path="/tmp/bootstrap-cwd",
             ),
-            runtime_snapshot(
-                sessions=[
-                    {"session_name": "formal-session", "attached": 1},
-                    {"session_name": "bootstrap", "attached": 0},
-                ],
-                panes=[
-                    {
-                        "session_name": "formal-session",
-                        "target": "formal-session:1.1",
-                        "window_index": "1",
-                        "pane_index": "1",
-                    },
-                    {
-                        "session_name": "bootstrap",
-                        "target": "bootstrap:1.1",
-                        "window_index": "1",
-                        "pane_index": "1",
-                        "current_path": "/tmp/bootstrap-cwd",
-                    },
-                ],
-                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-                current_client={
-                    "inside_tmux": True,
-                    "session_name": "bootstrap",
-                    "client_tty": "/dev/ttys048",
-                    "visible_terminal_client": False,
-                },
-                visible_terminal_client=False,
-                formal_sessions=["formal-session"],
+            switched_source_pane_snapshot(
+                source_session="bootstrap",
+                source_path="/tmp/bootstrap-cwd",
             ),
         ]
 
@@ -1475,25 +1430,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         mock_cleanup_bootstrap.assert_called_once_with()
 
     def test_start_formal_runtime_chain_accepts_startup_transition_from_source_pane(self) -> None:
-        snapshot = runtime_snapshot(
-            sessions=[
-                {"session_name": "formal-session", "attached": 1},
-                {"session_name": "seed-session", "attached": 0},
-            ],
-            panes=[
-                {"session_name": "formal-session", "target": "formal-session:1.1"},
-                {"session_name": "seed-session", "target": "seed-session:1.1"},
-            ],
-            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-            current_client={
-                "inside_tmux": True,
-                "session_name": "seed-session",
-                "client_tty": "/dev/ttys048",
-                "visible_terminal_client": False,
-            },
-            visible_terminal_client=False,
-            formal_sessions=["formal-session"],
-        )
+        snapshot = switched_source_pane_snapshot()
 
         start_formal_runtime_chain.ensure_attached_formal_session(
             snapshot,
@@ -1501,38 +1438,21 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             allow_startup_transition=True,
         )
 
+    def test_start_formal_runtime_chain_rejects_source_pane_without_startup_transition(self) -> None:
+        snapshot = switched_source_pane_snapshot()
+
+        with self.assertRaises(RuntimeError) as exc:
+            start_formal_runtime_chain.ensure_attached_formal_session(
+                snapshot,
+                "formal-session",
+                allow_startup_transition=False,
+            )
+
+        self.assertIn("current caller is not inside the visible formal session", str(exc.exception))
+
     def test_start_formal_runtime_chain_does_not_pass_cleanup_bootstrap_to_env(self) -> None:
         env_command: list[str] = []
-        formal_snapshot = runtime_snapshot(
-            sessions=[
-                {"session_name": "formal-session", "attached": 1},
-                {"session_name": "seed-session", "attached": 0},
-            ],
-            panes=[
-                {
-                    "session_name": "formal-session",
-                    "target": "formal-session:1.1",
-                    "window_index": "1",
-                    "pane_index": "1",
-                },
-                {
-                    "session_name": "seed-session",
-                    "target": "seed-session:1.1",
-                    "window_index": "1",
-                    "pane_index": "1",
-                },
-            ],
-            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-            current_client={
-                "inside_tmux": True,
-                "session_name": "seed-session",
-                "client_tty": "/dev/ttys048",
-                "visible_terminal_client": False,
-            },
-            visible_terminal_client=False,
-            formal_sessions=["formal-session"],
-            bootstrap_sessions=[],
-        )
+        formal_snapshot = switched_source_pane_snapshot(bootstrap_sessions=[])
         inspect_after_titles = dict(formal_snapshot)
         inspect_after_titles["topology_fingerprint"] = "test-topology"
 

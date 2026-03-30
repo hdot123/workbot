@@ -30,6 +30,7 @@ description: |
 - 每次新的 pane 创建前，必须先清理上一轮遗留的 watcher、runtime ledger、issues 文件和 watcher 日志
 - 每次收到新的 pane 创建指令，第一步必须先审计 tmux 历史残留；如果发现不是“当前可见 formal client”的旧 `formal-session`，或者发现 `tbot` 之类无关 bootstrap session，必须先清掉，再决定是否创建或接管
 - 禁止用伪造前台的方式启动 tmux，例如 `env TERM_PROGRAM=Ghostty ... zsh -i`、手动先跑 `tmux new-session -A` 再补做验收
+- 启动过渡态允许“前台可见 client 已切到 `formal-session`，但发起脚本仍停在原 source pane”；这是合法启动路径，不能误判成失败
 
 ## Attached 机制
 
