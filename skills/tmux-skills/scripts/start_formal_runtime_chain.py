@@ -502,18 +502,25 @@ def build_inside_formal_command(args: argparse.Namespace) -> str:
         command.append("--pretty")
     shell_path = os.environ.get("SHELL") or "/bin/zsh"
     quoted_command = " ".join(shlex.quote(part) for part in command)
-    return f"{quoted_command}; exec {shlex.quote(shell_path)} -l"
+    # Preserve inner continuation failures while still keeping the pane alive on success.
+    return f"{quoted_command}; rc=$?; if [ $rc -ne 0 ]; then exit $rc; fi; exec {shlex.quote(shell_path)} -l"
 
 
 def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any]) -> int:
+    launcher_snapshot = inspect_runtime_snapshot(step="launcher_inspect")
+    require_visible_terminal_launcher(launcher_snapshot)
+    steps["launcher_visibility"] = {
+        "mode": "verified_before_cleanup",
+        "visible_terminal_client": (launcher_snapshot.get("current_client") or {}).get(
+            "visible_terminal_client", False
+        ),
+    }
     steps["tmux_preflight"] = preflight_kill_all_tmux_sessions()
     if steps["tmux_preflight"].get("blocked"):
         raise RuntimeError(
             "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
         )
     verify_tmux_cleared()
-    launcher_snapshot = inspect_runtime_snapshot(step="launcher_inspect")
-    require_visible_terminal_launcher(launcher_snapshot)
     steps["cleanup"] = cleanup_previous_runtime_state()
     tmux_command = [
         "tmux",
@@ -579,12 +586,11 @@ def apply_pane_titles(batch_plan: list[dict[str, str]]) -> dict[str, Any]:
     )
 
 
-def run_topology_and_titles(
+def run_topology_setup(
     formal_session: str,
     pane_count: int,
-    pane_titles: list[str],
     steps: dict[str, Any],
-) -> tuple[list[str], list[dict[str, str]], str]:
+) -> tuple[list[str], dict[str, Any]]:
     steps["topology"] = run_json(
         [
             sys.executable,
@@ -603,9 +609,19 @@ def run_topology_and_titles(
         step="inspect_after_topology",
     )
     targets = select_formal_targets(inspect_after_topology, formal_session)
-    batch_plan = build_batch_plan(targets, pane_titles)
     steps["inspect_after_topology"] = {"targets": targets}
 
+    return targets, inspect_after_topology
+
+
+def run_pane_title_application(
+    formal_session: str,
+    targets: list[str],
+    pane_titles: list[str],
+    inspect_after_topology: dict[str, Any],
+    steps: dict[str, Any],
+) -> tuple[list[dict[str, str]], str]:
+    batch_plan = build_batch_plan(targets, pane_titles)
     title_application = apply_pane_titles(batch_plan)
     steps["titles"] = title_application
     if not bool(title_application.get("verified")):
@@ -620,18 +636,21 @@ def run_topology_and_titles(
         "targets": select_formal_targets(inspect_after_titles, formal_session),
         "topology_fingerprint": topology_fingerprint,
     }
-    return targets, batch_plan, topology_fingerprint
+    return batch_plan, topology_fingerprint
 
 
 def run_runtime_activation(
     formal_session: str,
     task_id: str,
+    codex_thread_id: str,
     pane_count: int,
     batch_plan: list[dict[str, str]],
     topology_fingerprint: str,
     targets: list[str],
     steps: dict[str, Any],
 ) -> None:
+    steps["thread_binding"] = bind_tmux_thread_id(codex_thread_id)
+
     ledger_command = [
         sys.executable,
         str(LEDGER_SCRIPT),
@@ -703,18 +722,32 @@ def main() -> int:
             return 1
 
     try:
+        # Phase 1: pane_creation_phase
+        # visible launcher check -> preflight cleanup -> env setup -> topology -> inspect_after_topology -> select_formal_targets
         run_formal_env_setup(args.formal_session, steps)
         steps["formal_session_policy"] = apply_formal_session_policy(args.formal_session)
-        steps["thread_binding"] = bind_tmux_thread_id(args.codex_thread_id)
-        targets, batch_plan, topology_fingerprint = run_topology_and_titles(
+        targets, inspect_after_topology = run_topology_setup(
             args.formal_session,
             pane_count,
-            pane_titles,
             steps,
         )
+
+        # Phase 2: pane_title_phase
+        # apply_pane_titles() + validation
+        batch_plan, topology_fingerprint = run_pane_title_application(
+            args.formal_session,
+            targets,
+            pane_titles,
+            inspect_after_topology,
+            steps,
+        )
+
+        # Phase 3: handoff_activation_phase
+        # bind_tmux_thread_id + ledger + watcher + ready check
         run_runtime_activation(
             args.formal_session,
             args.task_id,
+            args.codex_thread_id,
             pane_count,
             batch_plan,
             topology_fingerprint,

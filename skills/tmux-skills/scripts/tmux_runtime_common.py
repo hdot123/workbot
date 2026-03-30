@@ -284,6 +284,11 @@ def read_process_environment_values(pid: int | None, *names: str) -> dict[str, s
 
 
 def resolve_terminal_provenance(client_pid: int | None = None) -> dict[str, Any]:
+    # Determine if we can safely fall back to current process env.
+    # Only allow fallback when querying the current caller context,
+    # NOT when enumerating other tmux clients (to avoid pollution).
+    is_current_caller_context = client_pid is None or client_pid == os.getpid()
+
     process_env = read_process_environment_values(
         client_pid,
         "TERM_PROGRAM",
@@ -291,14 +296,20 @@ def resolve_terminal_provenance(client_pid: int | None = None) -> dict[str, Any]
         "TERM_PROGRAM_VERSION",
         "__CFBundleIdentifier",
     )
-    term_program = str(process_env.get("TERM_PROGRAM") or os.environ.get("TERM_PROGRAM", "")).strip()
-    lc_terminal = str(process_env.get("LC_TERMINAL") or os.environ.get("LC_TERMINAL", "")).strip()
-    term_program_version = str(
-        process_env.get("TERM_PROGRAM_VERSION") or os.environ.get("TERM_PROGRAM_VERSION", "")
-    ).strip()
-    bundle_identifier = str(
-        process_env.get("__CFBundleIdentifier") or os.environ.get("__CFBundleIdentifier", "")
-    ).strip()
+    if is_current_caller_context:
+        term_program = str(process_env.get("TERM_PROGRAM") or os.environ.get("TERM_PROGRAM", "")).strip()
+        lc_terminal = str(process_env.get("LC_TERMINAL") or os.environ.get("LC_TERMINAL", "")).strip()
+        term_program_version = str(
+            process_env.get("TERM_PROGRAM_VERSION") or os.environ.get("TERM_PROGRAM_VERSION", "")
+        ).strip()
+        bundle_identifier = str(
+            process_env.get("__CFBundleIdentifier") or os.environ.get("__CFBundleIdentifier", "")
+        ).strip()
+    else:
+        term_program = str(process_env.get("TERM_PROGRAM", "")).strip()
+        lc_terminal = str(process_env.get("LC_TERMINAL", "")).strip()
+        term_program_version = str(process_env.get("TERM_PROGRAM_VERSION", "")).strip()
+        bundle_identifier = str(process_env.get("__CFBundleIdentifier", "")).strip()
     if term_program in NON_VISIBLE_TERMINAL_PROGRAMS:
         term_program = ""
     if lc_terminal in NON_VISIBLE_TERMINAL_PROGRAMS:

@@ -231,7 +231,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIn("watch_tmux_handoff.py", processes[0]["command"])
 
     def test_terminal_provenance_rejects_codex_hidden_pty(self) -> None:
-        with patch.dict("tmux_runtime_common.os.environ", {}, clear=False):
+        with patch.dict("tmux_runtime_common.os.environ", {}, clear=True):
             with patch(
                 "tmux_runtime_common.process_ancestry_commands",
                 return_value=[
@@ -256,6 +256,19 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     provenance = tmux_runtime_common.resolve_terminal_provenance(client_pid=33145)
         self.assertFalse(provenance["visible_terminal_client"])
         self.assertEqual("codex_hidden_pty", provenance["visibility_reason"])
+
+    def test_list_clients_does_not_use_current_env_fallback_for_other_clients(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {"TERM_PROGRAM": "Apple_Terminal"}, clear=False):
+            with patch(
+                "tmux_runtime_common.run",
+                return_value="/dev/ttys044\tformal-session\t33145\t180\t52\n",
+            ):
+                with patch("tmux_runtime_common.read_process_environment_values", return_value={}):
+                    with patch("tmux_runtime_common.process_ancestry_commands", return_value=[]):
+                        clients = tmux_runtime_common.list_clients("formal-session")
+        self.assertEqual(1, len(clients))
+        self.assertFalse(clients[0]["visible_terminal_client"])
+        self.assertEqual("missing_terminal_marker", clients[0]["visibility_reason"])
 
     def test_terminal_provenance_accepts_terminal_program_marker(self) -> None:
         with patch.dict("tmux_runtime_common.os.environ", {"TERM_PROGRAM": "Apple_Terminal"}, clear=False):

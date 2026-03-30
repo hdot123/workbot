@@ -199,6 +199,14 @@ def main() -> int:
         and not extra_formal_sessions
         and int(snapshot_after.get("session_count", 0) or 0) == 1
     )
+    continuation_surface_prepared = (
+        not create_formal_session
+        and init_requested
+        and formal_session_exists
+        and initialized_formal is not None
+        and not extra_formal_sessions
+    )
+    env_ok = single_prepared_formal or continuation_surface_prepared
 
     result = {
         "phase": "env",
@@ -218,15 +226,17 @@ def main() -> int:
         "extra_formal_sessions": extra_formal_sessions,
         "single_attached_formal_session": False,
         "formal_cwd": formal_cwd,
-        "formal_surface_status": "PREPARED" if single_prepared_formal else "NONE",
-        "runtime_status": "ATTACH_PENDING" if single_prepared_formal else "BLOCKED",
+        "formal_surface_status": "PREPARED" if env_ok else "NONE",
+        "runtime_status": "ATTACH_PENDING"
+        if single_prepared_formal
+        else ("SURFACE_READY" if continuation_surface_prepared else "BLOCKED"),
         "formal_session_policy_actions": [],
     }
     if args.pretty:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(json.dumps(result, ensure_ascii=False))
-    return 0 if single_prepared_formal else 1
+    return 0 if env_ok else 1
 
 
 if __name__ == "__main__":
