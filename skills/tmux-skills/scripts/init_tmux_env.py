@@ -73,14 +73,11 @@ def wait_for_attached_formal_session(session_name: str, timeout_seconds: float =
     while time.monotonic() < deadline:
         snapshot = inspect_runtime()
         last_snapshot = snapshot
-        if any(
-            session.get("session_name") == session_name and int(session.get("attached", 0)) > 0
-            for session in snapshot.get("sessions", [])
-        ):
+        if bool(snapshot.get("current_visible_formal_client")):
             return snapshot
         time.sleep(0.25)
     raise RuntimeError(
-        f"formal session {session_name} was not attached within {timeout_seconds:.1f}s"
+        f"formal session {session_name} did not become the current visible tmux client within {timeout_seconds:.1f}s"
     )
 
 
@@ -282,7 +279,15 @@ def main() -> int:
         session.get("session_name") == formal_session and int(session.get("attached", 0)) > 0
         for session in snapshot_after.get("sessions", [])
     )
-    single_attached_formal = formal_session_exists and not extra_formal_sessions and formal_attached
+    formal_client_count = int(snapshot_after.get("formal_client_count", 0) or 0)
+    current_visible_formal_client = bool(snapshot_after.get("current_visible_formal_client"))
+    single_attached_formal = (
+        formal_session_exists
+        and not extra_formal_sessions
+        and formal_attached
+        and formal_client_count == 1
+        and current_visible_formal_client
+    )
     if snapshot_after["session_count"] == 0:
         runtime_status = "BLOCKED"
         formal_surface_status = "NONE"
@@ -311,6 +316,8 @@ def main() -> int:
         "formal_session": formal_session,
         "formal_session_exists": formal_session_exists,
         "formal_session_attached": formal_attached,
+        "formal_client_count": formal_client_count,
+        "current_visible_formal_client": current_visible_formal_client,
         "extra_formal_sessions": extra_formal_sessions,
         "single_attached_formal_session": single_attached_formal,
         "formal_cwd": formal_cwd,

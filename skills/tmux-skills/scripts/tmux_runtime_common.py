@@ -8,6 +8,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,13 @@ TMUX_SESSION_COMMAND = [
     "list-sessions",
     "-F",
     "#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_id}",
+]
+
+TMUX_CLIENT_COMMAND = [
+    "tmux",
+    "list-clients",
+    "-F",
+    "#{client_tty}\t#{session_name}\t#{client_pid}\t#{client_width}\t#{client_height}",
 ]
 
 
@@ -86,6 +94,30 @@ def list_sessions(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> lis
             }
         )
     return sessions
+
+
+def list_clients(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[dict[str, Any]]:
+    try:
+        output = run(TMUX_CLIENT_COMMAND)
+    except RuntimeError:
+        return []
+
+    clients: list[dict[str, Any]] = []
+    for raw in output.splitlines():
+        if not raw.strip():
+            continue
+        client_tty, session_name, client_pid, width, height = raw.split("\t")
+        clients.append(
+            {
+                "client_tty": client_tty,
+                "session_name": session_name,
+                "client_pid": int(client_pid or 0),
+                "client_width": int(width or 0),
+                "client_height": int(height or 0),
+                "is_formal": session_name == formal_session_name,
+            }
+        )
+    return clients
 
 
 def list_panes(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[dict[str, Any]]:
@@ -145,6 +177,60 @@ def get_tmux_env(name: str, *, allow_os_fallback: bool = False) -> str:
     return os.environ.get(name, "") if allow_os_fallback else ""
 
 
+def resolve_current_tty() -> str:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            fileno = stream.fileno()
+        except (AttributeError, OSError, ValueError):
+            continue
+        try:
+            return os.ttyname(fileno)
+        except OSError:
+            continue
+    return ""
+
+
+def resolve_current_tmux_context() -> dict[str, Any]:
+    context = {
+        "inside_tmux": bool(os.environ.get("TMUX")),
+        "client_tty": "",
+        "session_name": "",
+        "window_index": "",
+        "pane_index": "",
+        "pane_id": "",
+        "current_tty": resolve_current_tty(),
+    }
+    if not context["inside_tmux"]:
+        return context
+    try:
+        output = run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "#{client_tty}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}",
+            ]
+        ).strip()
+    except RuntimeError:
+        return context
+    if not output:
+        return context
+    parts = output.split("\t")
+    if len(parts) != 5:
+        return context
+    client_tty, session_name, window_index, pane_index, pane_id = parts
+    context.update(
+        {
+            "client_tty": client_tty,
+            "session_name": session_name,
+            "window_index": window_index,
+            "pane_index": pane_index,
+            "pane_id": pane_id,
+        }
+    )
+    return context
+
+
 def command_invokes_watcher(command: str) -> bool:
     try:
         tokens = shlex.split(command)
@@ -192,8 +278,14 @@ def get_bell_processes() -> list[dict[str, Any]]:
 
 def select_official_formal_session(
     sessions: list[dict[str, Any]],
+    clients: list[dict[str, Any]],
     formal_session_name: str,
 ) -> dict[str, Any] | None:
+    attached_formal_clients = [
+        client for client in clients if client.get("session_name") == formal_session_name
+    ]
+    if len(attached_formal_clients) != 1:
+        return None
     attached_formal_sessions = [
         session
         for session in sessions
@@ -243,13 +335,29 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         pass
 
     sessions = list_sessions(configured_formal_session_name)
+    clients = list_clients(configured_formal_session_name)
     panes = list_panes(configured_formal_session_name)
     bell_processes = get_bell_processes()
+    current_client = resolve_current_tmux_context()
     session_names = [session["session_name"] for session in sessions]
     formal_sessions = [session["session_name"] for session in sessions if session["is_formal"]]
     bootstrap_sessions = [session["session_name"] for session in sessions if session["is_bootstrap"]]
     formal_session_count = len(formal_sessions)
-    official_formal_session = select_official_formal_session(sessions, configured_formal_session_name)
+    formal_clients = [client for client in clients if client.get("session_name") == configured_formal_session_name]
+    current_client_is_formal = bool(
+        current_client.get("inside_tmux")
+        and current_client.get("session_name") == configured_formal_session_name
+        and any(
+            client.get("client_tty") == current_client.get("client_tty")
+            for client in formal_clients
+        )
+    )
+    current_visible_formal_client = current_client_is_formal and len(formal_clients) == 1
+    official_formal_session = select_official_formal_session(
+        sessions,
+        clients,
+        configured_formal_session_name,
+    )
     primary_formal_session = (
         str(official_formal_session["session_name"]) if official_formal_session else ""
     )
@@ -275,12 +383,18 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         "session_count": len(sessions),
         "pane_count": len(panes),
         "sessions": sessions,
+        "clients": clients,
+        "current_client": current_client,
         "panes": panes,
         "session_names": session_names,
         "configured_formal_session_name": configured_formal_session_name,
         "formal_sessions": formal_sessions,
         "formal_session": primary_formal_session,
         "formal_session_count": formal_session_count,
+        "formal_clients": formal_clients,
+        "formal_client_count": len(formal_clients),
+        "current_client_is_formal": current_client_is_formal,
+        "current_visible_formal_client": current_visible_formal_client,
         "single_formal_session": formal_session_count == 1 and bool(primary_formal_session),
         "bootstrap_sessions": bootstrap_sessions,
         "formal_pane_count": len(formal_panes),

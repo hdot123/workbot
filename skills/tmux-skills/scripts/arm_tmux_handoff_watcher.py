@@ -267,6 +267,19 @@ def main() -> int:
         raise SystemExit(
             f"formal session {args.formal_session_name} is not attached; refusing to arm watcher"
         )
+    formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
+    if formal_client_count <= 0:
+        raise SystemExit(
+            f"formal session {args.formal_session_name} has no attached tmux client; refusing to arm watcher"
+        )
+    if formal_client_count != 1:
+        raise SystemExit(
+            f"formal session {args.formal_session_name} must have exactly one visible tmux client; refusing to arm watcher"
+        )
+    if not bool(snapshot.get("current_visible_formal_client")):
+        raise SystemExit(
+            f"current caller is not inside the visible formal session {args.formal_session_name}; refusing to arm watcher"
+        )
     targets = discover_targets(snapshot, args)
     if not targets:
         raise SystemExit(

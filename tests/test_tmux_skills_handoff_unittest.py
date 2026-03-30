@@ -19,6 +19,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import build_tmux_handoff_bundle  # noqa: E402
 import build_tmux_topology  # noqa: E402
 import check_tmux_ready  # noqa: E402
+import arm_tmux_handoff_watcher  # noqa: E402
 import deliver_tmux_handoff_notification  # noqa: E402
 import start_formal_runtime_chain  # noqa: E402
 import tmux_handoff_app_bridge  # noqa: E402
@@ -47,6 +48,65 @@ def sample_event(event_type: str, *, deliverable: bool = True) -> dict[str, obje
         "signature": "0123456789ab",
         "codex_thread_id": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
         "source": "tmux-skills",
+    }
+
+
+def runtime_snapshot(
+    *,
+    sessions: list[dict[str, object]] | None = None,
+    panes: list[dict[str, object]] | None = None,
+    clients: list[dict[str, object]] | None = None,
+    current_client: dict[str, object] | None = None,
+    runtime_ledger: dict[str, object] | None = None,
+    codex_thread_id: str = "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
+) -> dict[str, object]:
+    client_entries = clients or []
+    active_formal_clients = [
+        client for client in client_entries if client.get("session_name") == "formal-session"
+    ]
+    current = current_client or {"inside_tmux": False, "session_name": "", "client_tty": ""}
+    current_client_is_formal = bool(
+        current.get("inside_tmux")
+        and current.get("session_name") == "formal-session"
+        and any(client.get("client_tty") == current.get("client_tty") for client in active_formal_clients)
+    )
+    snapshot: dict[str, object] = {
+        "sessions": sessions or [],
+        "panes": panes or [],
+        "session_count": len(sessions or []),
+        "pane_count": len(panes or []),
+        "CODEX_THREAD_ID": codex_thread_id,
+        "clients": client_entries,
+        "current_client": current,
+        "formal_client_count": len(active_formal_clients),
+        "current_client_is_formal": current_client_is_formal,
+        "current_visible_formal_client": current_client_is_formal and len(active_formal_clients) == 1,
+    }
+    if runtime_ledger is not None:
+        snapshot["runtime_ledger"] = runtime_ledger
+    return snapshot
+
+
+def formal_runtime_ledger(
+    *,
+    pane_count: int = 4,
+    targets: list[str] | None = None,
+    watcher_armed: bool = True,
+    codex_thread_bound: bool = True,
+) -> dict[str, object]:
+    formal_targets = targets or [f"formal-session:1.{index}" for index in range(1, pane_count + 1)]
+    titles = ["dev-bot-1", "dev-bot-2", "doc-bot-1", "doc-bot-2"][:pane_count]
+    return {
+        "formal_session_name": "formal-session",
+        "pane_count": pane_count,
+        "topology_fingerprint": "test-topology",
+        "slot_bindings": {
+            f"pane_{index}": {"pane_title": title, "target": target}
+            for index, (title, target) in enumerate(zip(titles, formal_targets), start=1)
+        },
+        "watcher": {"armed": watcher_armed, "targets": formal_targets},
+        "codex_thread_bound": codex_thread_bound,
+        "worker_ceiling": 3,
     }
 
 
@@ -454,24 +514,9 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("", thread_id)
 
     def test_ready_check_blocks_unattached_formal_session(self) -> None:
-        snapshot = {
-                "runtime_ledger": {
-                    "pane_count": 4,
-                    "slot_bindings": {
-                        "pane_1": {"pane_title": "task-1", "target": "formal-session:1.1"},
-                        "pane_2": {"pane_title": "task-2", "target": "formal-session:1.2"},
-                        "pane_3": {"pane_title": "notes", "target": "formal-session:1.3"},
-                        "pane_4": {"pane_title": "monitor", "target": "formal-session:1.4"},
-                    },
-                "watcher": {"armed": True, "targets": [f"formal-session:1.{i}" for i in range(1, 5)]},
-                "codex_thread_bound": True,
-            },
-            "bell_processes": [
-                {
-                    "command": "python3 watch_tmux_handoff.py --target formal-session:1.1 --target formal-session:1.2 --target formal-session:1.3 --target formal-session:1.4"
-                }
-            ],
-            "panes": [
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 0}],
+            panes=[
                 {
                     "session_name": "formal-session",
                     "target": f"formal-session:1.{i}",
@@ -479,11 +524,15 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 }
                 for i, title in enumerate(["task-1", "task-2", "notes", "monitor"], start=1)
             ],
-            "sessions": [{"session_name": "formal-session", "attached": 0}],
-            "CODEX_THREAD_ID": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
-            "session_count": 1,
-            "pane_count": 4,
-        }
+            runtime_ledger=formal_runtime_ledger(
+                targets=[f"formal-session:1.{i}" for i in range(1, 5)]
+            ),
+        )
+        snapshot["bell_processes"] = [
+            {
+                "command": "python3 watch_tmux_handoff.py --target formal-session:1.1 --target formal-session:1.2 --target formal-session:1.3 --target formal-session:1.4"
+            }
+        ]
         args = Namespace(
             expected_pane_count=None,
             formal_session_name="formal-session",
@@ -495,9 +544,81 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("BLOCKED", result["runtime_status"])
         self.assertIn("formal session formal-session is not attached", result["reasons"])
 
+    def test_ready_check_blocks_when_formal_client_is_missing(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "dev-bot-1",
+                }
+            ],
+            runtime_ledger=formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"]),
+        )
+        snapshot["bell_processes"] = []
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("BLOCKED", result["runtime_status"])
+        self.assertIn("formal session formal-session has no attached tmux client", result["reasons"])
+
+    def test_ready_check_accepts_visible_formal_client_for_four_panes(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "dev-bot-1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"]),
+        )
+        snapshot["bell_processes"] = []
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("READY", result["runtime_status"])
+        self.assertEqual([], result["reasons"])
+
     def test_ready_check_handles_null_watcher(self) -> None:
-        snapshot = {
-            "runtime_ledger": {
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "task-1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger={
                 "pane_count": 1,
                 "slot_bindings": {
                     "pane_1": {"pane_title": "task-1", "target": "formal-session:1.1"},
@@ -505,19 +626,8 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 "watcher": None,
                 "codex_thread_bound": True,
             },
-            "bell_processes": [],
-            "panes": [
-                {
-                    "session_name": "formal-session",
-                    "target": "formal-session:1.1",
-                    "pane_title_normalized": "task-1",
-                }
-            ],
-            "sessions": [{"session_name": "formal-session", "attached": 1}],
-            "CODEX_THREAD_ID": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
-            "session_count": 1,
-            "pane_count": 1,
-        }
+        )
+        snapshot["bell_processes"] = []
         args = Namespace(
             expected_pane_count=None,
             formal_session_name="formal-session",
@@ -531,6 +641,108 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("BLOCKED", result["runtime_status"])
         self.assertIn("runtime watcher is not armed", result["reasons"])
 
+    def test_ready_check_blocks_attached_session_without_formal_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": f"formal-session:1.{index}",
+                    "pane_title_normalized": title,
+                }
+                for index, title in enumerate(["dev-bot-1", "dev-bot-2", "doc-bot-1", "doc-bot-2"], start=1)
+            ],
+            clients=[
+                {
+                    "client_tty": "/dev/ttys048",
+                    "client_session": "bootstrap",
+                    "session_name": "bootstrap",
+                    "session_attached": 1,
+                    "client_width": 80,
+                    "client_height": 24,
+                }
+            ],
+            runtime_ledger=formal_runtime_ledger(),
+        )
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=True,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("BLOCKED", result["runtime_status"])
+        self.assertTrue(
+            any(
+                any(keyword in reason.lower() for keyword in ("client", "foreground", "tty"))
+                for reason in result["reasons"]
+            ),
+            result["reasons"],
+        )
+
+    def test_ready_check_accepts_visible_formal_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": f"formal-session:1.{index}",
+                    "pane_title_normalized": title,
+                }
+                for index, title in enumerate(["dev-bot-1", "dev-bot-2", "doc-bot-1", "doc-bot-2"], start=1)
+            ],
+            clients=[
+                {
+                    "client_tty": "/dev/ttys048",
+                    "client_session": "formal-session",
+                    "session_name": "formal-session",
+                    "session_attached": 1,
+                    "client_width": 80,
+                    "client_height": 24,
+                    "active": 1,
+                }
+            ],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=formal_runtime_ledger(),
+        )
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=True,
+            require_watcher=True,
+            pretty=False,
+        )
+        snapshot["bell_processes"] = [
+            {
+                "command": (
+                    "python3 watch_tmux_handoff.py --target formal-session:1.1 "
+                    "--target formal-session:1.2 --target formal-session:1.3 "
+                    "--target formal-session:1.4"
+                )
+            }
+        ]
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("READY", result["runtime_status"])
+        self.assertTrue(result["watcher_armed"])
+        self.assertEqual(
+            [
+                "formal-session:1.1",
+                "formal-session:1.2",
+                "formal-session:1.3",
+                "formal-session:1.4",
+            ],
+            result["formal_targets"],
+        )
+
     def test_shell_snapshot_is_not_classified_as_stopped(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(
             {"session_attached": 1, "pane_dead": 0, "current_command": "zsh"}
@@ -538,10 +750,16 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIsNone(classification)
 
     def test_arm_watcher_dry_run_accepts_bound_thread_without_local_session_index(self) -> None:
-        snapshot = {
-            "sessions": [{"session_name": "formal-session", "attached": 1}],
-            "panes": [{"session_name": "formal-session", "target": "formal-session:1.1"}],
-        }
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+        )
         with patch("arm_tmux_handoff_watcher.inspect_runtime", return_value=snapshot):
             with patch("arm_tmux_handoff_watcher.enforce_destroy_unattached", return_value="destroy_unattached=on"):
                 with patch("arm_tmux_handoff_watcher.ensure_tmux_thread_binding", return_value="thread-123"):
@@ -559,6 +777,59 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
                         rc = arm_tmux_handoff_watcher.main()
         self.assertEqual(0, rc)
+
+    def test_arm_watcher_rejects_missing_formal_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+        )
+        with patch("arm_tmux_handoff_watcher.inspect_runtime", return_value=snapshot):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "arm_tmux_handoff_watcher.py",
+                    "--target",
+                    "formal-session:1.1",
+                    "--dry-run",
+                ],
+            ):
+                with self.assertRaises(SystemExit) as exc:
+                    arm_tmux_handoff_watcher.main()
+
+        self.assertIn("has no attached tmux client", str(exc.exception))
+
+    def test_arm_watcher_rejects_attached_session_without_formal_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[
+                {
+                    "client_tty": "/dev/ttys048",
+                    "client_session": "bootstrap",
+                    "session_name": "bootstrap",
+                    "session_attached": 1,
+                }
+            ],
+            runtime_ledger=formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"]),
+        )
+        with patch("arm_tmux_handoff_watcher.inspect_runtime", return_value=snapshot):
+            with patch("arm_tmux_handoff_watcher.enforce_destroy_unattached", return_value="destroy_unattached=on"):
+                with patch("arm_tmux_handoff_watcher.ensure_tmux_thread_binding", return_value="thread-123"):
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "arm_tmux_handoff_watcher.py",
+                            "--target",
+                            "formal-session:1.1",
+                            "--dry-run",
+                        ],
+                    ):
+                        with self.assertRaises(SystemExit) as exc:
+                            arm_tmux_handoff_watcher.main()
+
+        self.assertNotEqual(0, getattr(exc.exception, "code", 0))
 
     def test_pane_dead_snapshot_is_classified_as_stopped(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(

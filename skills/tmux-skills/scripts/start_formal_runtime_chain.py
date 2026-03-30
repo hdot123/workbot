@@ -186,14 +186,19 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
 
 
 def ensure_attached_formal_session(snapshot: dict[str, Any], formal_session: str) -> None:
-    for session in snapshot.get("sessions", []):
-        if session.get("session_name") != formal_session:
-            continue
-        if int(session.get("attached", 0)) > 0:
-            return
-    raise RuntimeError(
-        f"formal session '{formal_session}' is not attached; could not create or attach foreground tmux"
-    )
+    formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
+    if formal_client_count <= 0:
+        raise RuntimeError(
+            f"formal session '{formal_session}' has no attached tmux client; foreground tmux is not visible"
+        )
+    if formal_client_count != 1:
+        raise RuntimeError(
+            f"formal session '{formal_session}' must have exactly one visible tmux client; got {formal_client_count}"
+        )
+    if not bool(snapshot.get("current_visible_formal_client")):
+        raise RuntimeError(
+            f"current caller is not inside the visible formal session '{formal_session}'"
+        )
 
 
 def parse_target(target: str) -> tuple[int, int]:

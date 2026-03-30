@@ -91,6 +91,12 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
     runtime_ledger = snapshot.get("runtime_ledger") or {}
     bell_processes = snapshot.get("bell_processes", [])
     formal_panes = actual_formal_panes(snapshot.get("panes", []), args.formal_session_name)
+    formal_clients = [
+        client
+        for client in snapshot.get("clients", [])
+        if client.get("session_name") == args.formal_session_name
+    ]
+    current_client = snapshot.get("current_client") or {}
     actual_targets = [str(pane.get("target", "")).strip() for pane in formal_panes if str(pane.get("target", "")).strip()]
     codex_thread_id = str(snapshot.get("CODEX_THREAD_ID") or "").strip()
 
@@ -124,6 +130,23 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
     elif int(matching_sessions[0].get("attached", 0)) <= 0:
         reasons.append(f"formal session {args.formal_session_name} is not attached")
         next_action.append(f"attach {args.formal_session_name} in the foreground")
+
+    if not formal_clients:
+        reasons.append(f"formal session {args.formal_session_name} has no attached tmux client")
+        next_action.append(f"attach {args.formal_session_name} in the current visible terminal")
+    elif len(formal_clients) != 1:
+        reasons.append(
+            f"formal session {args.formal_session_name} must have exactly one attached tmux client, got {len(formal_clients)}"
+        )
+        next_action.append(f"reduce {args.formal_session_name} to a single visible client")
+
+    if not bool(snapshot.get("current_visible_formal_client")):
+        if not current_client.get("inside_tmux"):
+            reasons.append(f"current caller is not inside the visible formal session {args.formal_session_name}")
+            next_action.append(f"run tmux-skills from inside the visible {args.formal_session_name} client")
+        else:
+            reasons.append(f"current caller is not inside the visible formal session {args.formal_session_name}")
+            next_action.append(f"switch the current tmux client to {args.formal_session_name}")
 
     if len(formal_panes) != expected_pane_count:
         reasons.append(
@@ -201,6 +224,7 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         "session_count": snapshot.get("session_count", 0),
         "pane_count": snapshot.get("pane_count", 0),
         "formal_pane_count": len(formal_panes),
+        "formal_client_count": len(formal_clients),
         "expected_pane_count": expected_pane_count,
         "formal_targets": actual_targets,
         "watcher_targets": watcher_targets,
