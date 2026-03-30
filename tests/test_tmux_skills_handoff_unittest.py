@@ -382,12 +382,13 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
         with patch("start_formal_runtime_chain.safe_unlink", side_effect=fake_unlink):
             with patch("start_formal_runtime_chain.stop_existing_watchers", return_value=[11, 22]):
-                with patch("start_formal_runtime_chain.unset_tmux_env", return_value="cleared"):
+                with patch("start_formal_runtime_chain.unset_tmux_env", return_value="cleared") as mock_unset:
                     result = start_formal_runtime_chain.cleanup_previous_runtime_state()
 
         self.assertEqual(sorted(removed), sorted(result["removed_files"]))
         self.assertEqual([11, 22], result["stopped_watcher_pids"])
         self.assertEqual("cleared", result["tmux_env"]["CODEX_THREAD_ID"])
+        mock_unset.assert_called_once_with("CODEX_THREAD_ID")
 
     def test_run_json_with_status_preserves_nonzero_json_payload(self) -> None:
         with patch("start_formal_runtime_chain.run") as mock_run:
@@ -1191,7 +1192,25 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             },
             visible_terminal_client=True,
         )
-        with patch("init_tmux_env.inspect_runtime", side_effect=[snapshot_before, snapshot_after_kill, snapshot_after_create, snapshot_after_create]):
+        inspect_snapshots = [
+            snapshot_before,
+            snapshot_after_kill,
+            snapshot_after_create,
+            snapshot_after_create,
+            snapshot_after_create,
+        ]
+
+        def fake_inspect_runtime(*_args, **_kwargs):
+            if fake_inspect_runtime.calls < len(inspect_snapshots):
+                value = inspect_snapshots[fake_inspect_runtime.calls]
+            else:
+                value = inspect_snapshots[-1]
+            fake_inspect_runtime.calls += 1
+            return value
+
+        fake_inspect_runtime.calls = 0
+
+        with patch("init_tmux_env.inspect_runtime", side_effect=fake_inspect_runtime):
             with patch("init_tmux_env.kill_session", return_value=True) as mock_kill:
                 with patch(
                     "init_tmux_env.create_or_switch_visible_formal_session",
@@ -1203,17 +1222,18 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                             return_value={"session_name": "formal-session", "primary_target": "formal-session:1.1", "actions": ["window_title=formal-session"]},
                         ):
                             with patch("init_tmux_env.enforce_destroy_unattached", return_value="destroy_unattached=on"):
-                                with patch.object(
-                                    sys,
-                                    "argv",
-                                    [
-                                        "init_tmux_env.py",
-                                        "--formal-session",
-                                        "formal-session",
-                                        "--create-formal-session",
-                                    ],
-                                ):
-                                    rc = init_tmux_env.main()
+                                with patch("init_tmux_env.cleanup_bootstrap_sessions", return_value=[]):
+                                    with patch.object(
+                                        sys,
+                                        "argv",
+                                        [
+                                            "init_tmux_env.py",
+                                            "--formal-session",
+                                            "formal-session",
+                                            "--create-formal-session",
+                                        ],
+                                    ):
+                                        rc = init_tmux_env.main()
 
         self.assertEqual(0, rc)
         mock_kill.assert_called_once_with("formal-session")
@@ -1251,7 +1271,15 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         snapshots = [
             runtime_snapshot(
                 sessions=[{"session_name": "bootstrap", "attached": 1}],
-                panes=[],
+                panes=[
+                    {
+                        "session_name": "bootstrap",
+                        "target": "bootstrap:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                        "current_path": "/tmp/bootstrap-cwd",
+                    }
+                ],
                 clients=[{"session_name": "bootstrap", "client_tty": "/dev/ttys048"}],
                 current_client={
                     "inside_tmux": True,
@@ -1329,22 +1357,179 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
         with patch("init_tmux_env.inspect_runtime", side_effect=fake_inspect_runtime):
             with patch("init_tmux_env.run_tmux", side_effect=fake_run_tmux):
-                with patch.object(
-                    sys,
-                    "argv",
-                    [
-                        "init_tmux_env.py",
-                        "--formal-session",
-                        "formal-session",
-                        "--create-formal-session",
-                        "--initialize-formal-surfaces",
-                    ],
-                ):
-                    rc = init_tmux_env.main()
+                with patch("init_tmux_env.cleanup_bootstrap_sessions", return_value=[]) as mock_cleanup_bootstrap:
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "init_tmux_env.py",
+                            "--formal-session",
+                            "formal-session",
+                            "--create-formal-session",
+                            "--initialize-formal-surfaces",
+                        ],
+                    ):
+                        rc = init_tmux_env.main()
 
         self.assertEqual(0, rc)
-        self.assertIn(("new-session", "-Ad", "-s", "formal-session", "-c", "/Users/busiji/workbot"), calls)
+        self.assertIn(("new-session", "-Ad", "-s", "formal-session", "-c", "/tmp/bootstrap-cwd"), calls)
         self.assertIn(("switch-client", "-t", "formal-session"), calls)
+        mock_cleanup_bootstrap.assert_called_once_with()
+
+    def test_start_formal_runtime_chain_does_not_pass_cleanup_bootstrap_to_env(self) -> None:
+        env_command: list[str] = []
+        formal_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "window_index": "1",
+                    "pane_index": "1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            formal_sessions=["formal-session"],
+            bootstrap_sessions=[],
+        )
+        inspect_after_titles = dict(formal_snapshot)
+        inspect_after_titles["topology_fingerprint"] = "test-topology"
+
+        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+            nonlocal env_command
+            if step == "env":
+                env_command = command
+                return {"phase": "env", "runtime_status": "INIT_IN_PROGRESS"}
+            if step == "inspect_after_env":
+                return formal_snapshot
+            if step == "topology":
+                return {"phase": "topology"}
+            if step == "inspect_after_topology":
+                return formal_snapshot
+            if step == "pane-title-application":
+                return {"verified": True}
+            if step == "inspect_after_titles":
+                return inspect_after_titles
+            if step == "ledger":
+                return {"phase": "ledger"}
+            if step == "watcher":
+                return {"phase": "watcher"}
+            raise AssertionError(f"unexpected step: {step}")
+
+        def fake_run(command: list[str]) -> Mock:
+            if command[:3] == ["tmux", "set-environment", "-g"]:
+                return Mock(returncode=0, stdout="", stderr="")
+            if command[:3] == ["tmux", "show-environment", "-g"]:
+                return Mock(returncode=0, stdout="CODEX_THREAD_ID=test-thread\n", stderr="")
+            raise AssertionError(f"unexpected run command: {command}")
+
+        with patch("start_formal_runtime_chain.preflight_formal_session_cleanup", return_value={"attempted": False}):
+            with patch(
+                "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+            ):
+                with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
+                    with patch(
+                        "start_formal_runtime_chain.run_json_with_status",
+                        return_value=({"runtime_status": "READY", "reasons": []}, 0),
+                    ):
+                        with patch("start_formal_runtime_chain.run", side_effect=fake_run):
+                            with patch.object(
+                                sys,
+                                "argv",
+                                [
+                                    "start_formal_runtime_chain.py",
+                                    "--codex-thread-id",
+                                    "test-thread",
+                                    "--pane-title",
+                                    "dev-bot-1",
+                                ],
+                            ):
+                                with patch("sys.stdout", new_callable=io.StringIO):
+                                    rc = start_formal_runtime_chain.main()
+
+        self.assertEqual(0, rc)
+        self.assertNotIn("--cleanup-bootstrap", env_command)
+
+    def test_start_formal_runtime_chain_fails_when_bootstrap_residue_survives_env(self) -> None:
+        inspect_after_env = runtime_snapshot(
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "tbot", "attached": 0},
+            ],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "window_index": "1",
+                    "pane_index": "1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            formal_sessions=["formal-session"],
+            bootstrap_sessions=["tbot"],
+        )
+
+        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+            if step == "env":
+                return {"phase": "env", "runtime_status": "INIT_IN_PROGRESS"}
+            if step == "inspect_after_env":
+                return inspect_after_env
+            raise AssertionError(f"unexpected step: {step}")
+
+        with patch("start_formal_runtime_chain.preflight_formal_session_cleanup", return_value={"attempted": False}):
+            with patch(
+                "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+            ):
+                with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
+                    with patch(
+                        "start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure",
+                        return_value={"attempted": False, "reason": "skip"},
+                    ):
+                        with patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "start_formal_runtime_chain.py",
+                                "--codex-thread-id",
+                                "test-thread",
+                                "--pane-title",
+                                "dev-bot-1",
+                                "--pretty",
+                            ],
+                        ):
+                            with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                                rc = start_formal_runtime_chain.main()
+
+        self.assertEqual(1, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("bootstrap tmux residue remains after formal env setup: tbot", payload["error"])
+
+    def test_init_tmux_env_send_startup_command_quotes_command(self) -> None:
+        with patch("init_tmux_env.run_tmux") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            result = init_tmux_env.send_startup_command("formal-session:1.1", "echo 'hello world'")
+
+        self.assertEqual("startup_command='echo '\"'\"'hello world'\"'\"''", result)
+        mock_run.assert_called_once_with(
+            "send-keys",
+            "-t",
+            "formal-session:1.1",
+            "C-c",
+            "echo 'hello world'",
+            "Enter",
+        )
 
     def test_arm_watcher_rejects_attached_session_without_formal_client(self) -> None:
         snapshot = runtime_snapshot(

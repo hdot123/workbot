@@ -186,12 +186,12 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
         if safe_unlink(path):
             removed_files.append(str(path))
     removed_files.extend(clear_directory(DELIVERY_QUEUE_DIR))
-    unset_tmux_env("CODEX_THREAD_ID")
+    tmux_env_status = unset_tmux_env("CODEX_THREAD_ID")
     return {
         "removed_files": removed_files,
         "stopped_watcher_pids": stop_existing_watchers(),
         "tmux_env": {
-            "CODEX_THREAD_ID": unset_tmux_env("CODEX_THREAD_ID"),
+            "CODEX_THREAD_ID": tmux_env_status,
         },
     }
 
@@ -447,7 +447,6 @@ def main() -> int:
                 "--formal-cwd",
                 str(ROOT),
                 "--create-formal-session",
-                "--cleanup-bootstrap",
                 "--kill-detached",
                 "--initialize-formal-surfaces",
                 "--formal-window-title",

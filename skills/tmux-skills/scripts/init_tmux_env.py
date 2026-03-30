@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import time
 from typing import Any
@@ -31,13 +32,6 @@ def kill_detached_sessions() -> list[str]:
         if proc.returncode == 0:
             removed.append(session["session_name"])
     return removed
-
-
-def reject_background_session_creation(session_name: str) -> None:
-    raise RuntimeError(
-        "foreground-only tmux policy forbids creating detached/background sessions: "
-        f"{session_name}. Prepare and attach the formal session manually first."
-    )
 
 
 def create_or_switch_visible_formal_session(session_name: str, cwd: str) -> dict[str, Any]:
@@ -124,21 +118,25 @@ def reset_existing_formal_session(
     return inspect_runtime()
 
 
-def find_bootstrap_panel_path(snapshot: dict[str, Any], bootstrap_name: str) -> str | None:
+def find_session_panel_path(snapshot: dict[str, Any], session_name: str) -> str | None:
     for pane in snapshot.get("panes", []):
-        if pane.get("session_name") == bootstrap_name:
+        if pane.get("session_name") == session_name:
             path = pane.get("current_path")
             if path:
                 return path
     return None
 
 
-def resolve_formal_cwd(cli_value: str | None, default_cwd: str, snapshot: dict[str, Any], bootstrap_name: str) -> str:
+def resolve_formal_cwd(cli_value: str | None, default_cwd: str, snapshot: dict[str, Any]) -> str:
     if cli_value:
         return os.path.abspath(cli_value)
-    bootstrap_path = find_bootstrap_panel_path(snapshot, bootstrap_name)
-    if bootstrap_path:
-        return os.path.abspath(bootstrap_path)
+    current_client = snapshot.get("current_client") or {}
+    if current_client.get("inside_tmux"):
+        current_session_name = str(current_client.get("session_name") or "").strip()
+        if current_session_name:
+            current_session_path = find_session_panel_path(snapshot, current_session_name)
+            if current_session_path:
+                return os.path.abspath(current_session_path)
     return os.path.abspath(default_cwd)
 
 
@@ -198,7 +196,7 @@ def initialize_formal_surface(
 def cleanup_bootstrap_sessions() -> list[str]:
     removed: list[str] = []
     for session in list_sessions():
-        if not session["is_bootstrap"]:
+        if not session.get("is_bootstrap", session.get("session_name") == "tbot"):
             continue
         if kill_session(session["session_name"]):
             removed.append(session["session_name"])
@@ -207,13 +205,7 @@ def cleanup_bootstrap_sessions() -> list[str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create or normalize the tmux environment for tmux-skills.")
-    parser.add_argument("--bootstrap-name", default="tbot", help="Bootstrap temporary session name.")
     parser.add_argument("--cwd", default="/Users/busiji/workbot", help="Working directory for a new session.")
-    parser.add_argument(
-        "--create-if-missing",
-        action="store_true",
-        help="Deprecated. Foreground-only policy no longer allows creating detached bootstrap sessions.",
-    )
     parser.add_argument("--formal-session", help="Formal session name (single official runtime session).")
     parser.add_argument("--formal-cwd", help="Working directory for the formal session.")
     parser.add_argument(
@@ -235,7 +227,6 @@ def parse_args() -> argparse.Namespace:
         "--formal-startup-command",
         help="Optional startup command sent to the primary formal pane after session initialization.",
     )
-    parser.add_argument("--cleanup-bootstrap", action="store_true", help="Kill bootstrap sessions after optional formal sessions are in place.")
     parser.add_argument("--kill-detached", action="store_true", help="Kill detached sessions before inspecting the environment.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     return parser.parse_args()
@@ -262,13 +253,7 @@ def main() -> int:
     removed = kill_detached_sessions() if args.kill_detached else []
     snapshot_before = inspect_runtime()
     snapshot_current = snapshot_before
-    created_bootstrap = None
-    if args.create_if_missing and snapshot_before["session_count"] == 0:
-        reject_background_session_creation(args.bootstrap_name)
-
-    formal_cwd = resolve_formal_cwd(
-        formal_cwd_cli or None, args.cwd, snapshot_current, args.bootstrap_name
-    )
+    formal_cwd = resolve_formal_cwd(formal_cwd_cli or None, args.cwd, snapshot_current)
 
     created_formal: dict[str, Any] | None = None
     if create_formal_session:
@@ -298,7 +283,7 @@ def main() -> int:
         snapshot_current = inspect_runtime()
 
     removed_bootstrap: list[str] = []
-    if args.cleanup_bootstrap:
+    if create_formal_session:
         removed_bootstrap = cleanup_bootstrap_sessions()
         snapshot_current = inspect_runtime()
 
@@ -325,9 +310,6 @@ def main() -> int:
     elif single_attached_formal:
         runtime_status = "INIT_IN_PROGRESS"
         formal_surface_status = "COMPLETE"
-    elif snapshot_after["bootstrap_sessions"]:
-        runtime_status = "BOOTSTRAP"
-        formal_surface_status = "NONE"
     else:
         runtime_status = "BLOCKED"
         formal_surface_status = "NONE"
@@ -336,14 +318,12 @@ def main() -> int:
         "phase": "env",
         "removed_detached_sessions": removed,
         "removed_bootstrap_sessions": removed_bootstrap,
-        "created_bootstrap_session": created_bootstrap,
         "created_formal_session": created_formal,
         "initialized_formal_session": initialized_formal,
         "session_count_before": snapshot_before["session_count"],
         "session_count_after": snapshot_after["session_count"],
         "bootstrap_sessions": snapshot_after["bootstrap_sessions"],
         "formal_sessions": snapshot_after["formal_sessions"],
-        "bootstrap_primary_cwd": find_bootstrap_panel_path(snapshot_after, args.bootstrap_name),
         "formal_session": formal_session,
         "formal_session_exists": formal_session_exists,
         "formal_session_attached": formal_attached,
