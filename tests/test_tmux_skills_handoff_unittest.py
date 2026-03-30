@@ -58,6 +58,7 @@ def runtime_snapshot(
     panes: list[dict[str, object]] | None = None,
     clients: list[dict[str, object]] | None = None,
     current_client: dict[str, object] | None = None,
+    visible_terminal_client: bool | None = None,
     session_names: list[str] | None = None,
     formal_sessions: list[str] | None = None,
     bootstrap_sessions: list[str] | None = None,
@@ -70,6 +71,13 @@ def runtime_snapshot(
         client for client in client_entries if client.get("session_name") == "formal-session"
     ]
     current = current_client or {"inside_tmux": False, "session_name": "", "client_tty": ""}
+    visible_client = (
+        visible_terminal_client
+        if visible_terminal_client is not None
+        else bool(current.get("inside_tmux"))
+    )
+    current.setdefault("visible_terminal_client", visible_client)
+    current.setdefault("visibility_reason", "test_visible_terminal" if visible_client else "test_hidden_terminal")
     current_client_is_formal = bool(
         current.get("inside_tmux")
         and current.get("session_name") == "formal-session"
@@ -96,7 +104,11 @@ def runtime_snapshot(
         ],
         "formal_client_count": len(active_formal_clients),
         "current_client_is_formal": current_client_is_formal,
-        "current_visible_formal_client": current_client_is_formal and len(active_formal_clients) == 1,
+        "current_visible_formal_client": (
+            current_client_is_formal
+            and len(active_formal_clients) == 1
+            and bool(current.get("visible_terminal_client"))
+        ),
     }
     if runtime_ledger is not None:
         snapshot["runtime_ledger"] = runtime_ledger
@@ -149,6 +161,69 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual(1, len(processes))
         self.assertEqual(456, processes[0]["pid"])
         self.assertIn("watch_tmux_handoff.py", processes[0]["command"])
+
+    def test_terminal_provenance_rejects_codex_hidden_pty(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {}, clear=False):
+            with patch(
+                "tmux_runtime_common.process_ancestry_commands",
+                return_value=[
+                    "/Applications/Codex.app/Contents/Resources/codex app-serve",
+                    "/Applications/Codex.app/Contents/MacOS/Codex",
+                ],
+            ):
+                provenance = tmux_runtime_common.resolve_terminal_provenance()
+        self.assertFalse(provenance["visible_terminal_client"])
+        self.assertEqual("codex_hidden_pty", provenance["visibility_reason"])
+
+    def test_terminal_provenance_ignores_tmux_self_marker(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {"TERM_PROGRAM": "tmux"}, clear=False):
+            with patch("tmux_runtime_common.read_process_environment_values", return_value={}):
+                with patch(
+                    "tmux_runtime_common.process_ancestry_commands",
+                    return_value=[
+                        "/Applications/Codex.app/Contents/Resources/codex app-serve",
+                        "/Applications/Codex.app/Contents/MacOS/Codex",
+                    ],
+                ):
+                    provenance = tmux_runtime_common.resolve_terminal_provenance(client_pid=33145)
+        self.assertFalse(provenance["visible_terminal_client"])
+        self.assertEqual("codex_hidden_pty", provenance["visibility_reason"])
+
+    def test_terminal_provenance_accepts_terminal_program_marker(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {"TERM_PROGRAM": "Apple_Terminal"}, clear=False):
+            with patch("tmux_runtime_common.process_ancestry_commands", return_value=[]):
+                provenance = tmux_runtime_common.resolve_terminal_provenance()
+        self.assertTrue(provenance["visible_terminal_client"])
+        self.assertEqual("terminal_marker_detected", provenance["visibility_reason"])
+
+    def test_terminal_provenance_accepts_client_bundle_marker(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {"TERM_PROGRAM": "tmux"}, clear=False):
+            with patch(
+                "tmux_runtime_common.read_process_environment_values",
+                return_value={"__CFBundleIdentifier": "com.apple.Terminal"},
+            ):
+                with patch("tmux_runtime_common.process_ancestry_commands", return_value=[]):
+                    provenance = tmux_runtime_common.resolve_terminal_provenance(client_pid=33145)
+        self.assertTrue(provenance["visible_terminal_client"])
+        self.assertEqual("Apple_Terminal", provenance["known_terminal_marker"])
+
+    def test_current_tmux_context_uses_client_pid_for_terminal_visibility(self) -> None:
+        with patch.dict("tmux_runtime_common.os.environ", {"TMUX": "/tmp/tmux,123,0", "TERM_PROGRAM": "tmux"}, clear=False):
+            with patch("tmux_runtime_common.resolve_current_tty", return_value="/dev/ttys058"):
+                with patch(
+                    "tmux_runtime_common.run",
+                    return_value="/dev/ttys044\t33145\tformal-session\t1\t3\t%5\n",
+                ):
+                    with patch(
+                        "tmux_runtime_common.read_process_environment_values",
+                        return_value={"TERM_PROGRAM": "Apple_Terminal"},
+                    ):
+                        with patch("tmux_runtime_common.process_ancestry_commands", return_value=[]):
+                            context = tmux_runtime_common.resolve_current_tmux_context()
+        self.assertTrue(context["inside_tmux"])
+        self.assertEqual(33145, context["client_pid"])
+        self.assertTrue(context["visible_terminal_client"])
+        self.assertEqual("Apple_Terminal", context["term_program"])
 
     def test_build_batch_plan_uses_generic_slots(self) -> None:
         plan = start_formal_runtime_chain.build_batch_plan(
@@ -313,6 +388,80 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual(sorted(removed), sorted(result["removed_files"]))
         self.assertEqual([11, 22], result["stopped_watcher_pids"])
         self.assertEqual("cleared", result["tmux_env"]["CODEX_THREAD_ID"])
+
+    def test_run_json_with_status_preserves_nonzero_json_payload(self) -> None:
+        with patch("start_formal_runtime_chain.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout=json.dumps({"runtime_status": "BLOCKED", "reasons": ["not visible"]}),
+                stderr="",
+                returncode=1,
+            )
+            payload, rc = start_formal_runtime_chain.run_json_with_status(
+                ["python3", "fake.py"],
+                step="ready_check",
+            )
+        self.assertEqual(1, rc)
+        self.assertEqual("BLOCKED", payload["runtime_status"])
+        self.assertEqual(["not visible"], payload["reasons"])
+
+    def test_build_result_reports_ready_check_step(self) -> None:
+        result = start_formal_runtime_chain.build_result(
+            "ok",
+            {"formal_session": "formal-session"},
+            ["dev-bot-1"],
+        )
+        self.assertIn("ready_check", result["chain"])
+
+    def test_cleanup_hidden_formal_session_on_failure_kills_hidden_codex_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys044"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys044",
+                "codex_hosted": True,
+                "visible_terminal_client": False,
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                with patch(
+                    "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                    return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+                ):
+                    result = start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure(
+                        "formal-session"
+                    )
+        self.assertTrue(result["attempted"])
+        self.assertTrue(result["cleaned"])
+        mock_run.assert_called_once_with(["tmux", "kill-session", "-t", "formal-session"])
+
+    def test_cleanup_hidden_formal_session_on_failure_skips_visible_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1, "windows": 1}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys044"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys044",
+                "codex_hosted": False,
+                "visible_terminal_client": True,
+                "visibility_reason": "terminal_marker_detected",
+            },
+            visible_terminal_client=True,
+        )
+        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+            with patch("start_formal_runtime_chain.run") as mock_run:
+                result = start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure(
+                    "formal-session"
+                )
+        self.assertFalse(result["attempted"])
+        self.assertEqual("skip", result["reason"])
+        mock_run.assert_not_called()
 
     def test_bundle_message_is_simple_stopped_pane_report(self) -> None:
         bundle = build_tmux_handoff_bundle.build_bundle(
@@ -618,6 +767,39 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("READY", result["runtime_status"])
         self.assertEqual([], result["reasons"])
 
+    def test_ready_check_blocks_hidden_codex_tty_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "dev-bot-1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=False,
+            runtime_ledger=formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"]),
+        )
+        snapshot["bell_processes"] = []
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("BLOCKED", result["runtime_status"])
+        self.assertIn("current caller is not inside the visible formal session formal-session", result["reasons"])
+
     def test_ready_check_handles_null_watcher(self) -> None:
         snapshot = runtime_snapshot(
             sessions=[{"session_name": "formal-session", "attached": 1}],
@@ -836,6 +1018,35 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     init_tmux_env.main()
 
         self.assertIn("refusing to create or switch formal-session from a non-tmux context", str(exc.exception))
+
+    def test_init_tmux_env_rejects_hidden_codex_tty_client(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+        )
+        with patch("init_tmux_env.inspect_runtime", return_value=snapshot):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "init_tmux_env.py",
+                    "--formal-session",
+                    "formal-session",
+                    "--create-formal-session",
+                ],
+            ):
+                with self.assertRaises(RuntimeError) as exc:
+                    init_tmux_env.main()
+
+        self.assertIn("refusing to create or switch formal-session from codex_hidden_pty", str(exc.exception))
 
     def test_init_tmux_env_switches_current_tmux_client_without_osascript(self) -> None:
         snapshots = [

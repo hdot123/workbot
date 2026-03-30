@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -22,6 +23,29 @@ from runtime_ledger import (
 
 
 WATCHER_SCRIPT_NAME = "watch_tmux_handoff.py"
+CODex_PROCESS_TOKEN = "/Applications/Codex.app/"
+KNOWN_TERMINAL_MARKERS = (
+    "Apple_Terminal",
+    "iTerm",
+    "WezTerm",
+    "Alacritty",
+    "Ghostty",
+    "kitty",
+    "Warp",
+    "Hyper",
+    "Tabby",
+    "Rio",
+    "Terminal.app",
+    "iTerm2.app",
+    "WezTerm.app",
+    "Ghostty.app",
+    "kitty.app",
+)
+KNOWN_TERMINAL_BUNDLE_IDS = {
+    "com.apple.Terminal": "Apple_Terminal",
+    "com.googlecode.iterm2": "iTerm",
+}
+NON_VISIBLE_TERMINAL_PROGRAMS = {"tmux"}
 
 TMUX_RUNTIME_COMMAND = [
     "tmux",
@@ -190,42 +214,178 @@ def resolve_current_tty() -> str:
     return ""
 
 
+def process_ancestry_commands(start_pid: int | None = None, max_depth: int = 6) -> list[str]:
+    ancestry: list[str] = []
+    pid = int(start_pid or os.getpid())
+    for _ in range(max(0, max_depth)):
+        proc = subprocess.run(
+            ["ps", "-o", "ppid=,command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            break
+        line = proc.stdout.strip()
+        if not line:
+            break
+        ppid_text, _, command = line.partition(" ")
+        command = command.strip()
+        if command:
+            ancestry.append(command)
+        if not ppid_text.strip().isdigit():
+            break
+        next_pid = int(ppid_text.strip())
+        if next_pid <= 1 or next_pid == pid:
+            if next_pid == 1:
+                root = subprocess.run(
+                    ["ps", "-o", "command=", "-p", "1"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                root_command = root.stdout.strip()
+                if root_command:
+                    ancestry.append(root_command)
+            break
+        pid = next_pid
+    return ancestry
+
+
+def read_process_environment_values(pid: int | None, *names: str) -> dict[str, str]:
+    if not pid or pid <= 0 or not names:
+        return {}
+    proc = subprocess.run(
+        ["ps", "eww", "-o", "command=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return {}
+    output = proc.stdout.strip()
+    values: dict[str, str] = {}
+    for name in names:
+        match = re.search(rf"(?:^| ){re.escape(name)}=([^ ]*)", output)
+        if match:
+            values[name] = match.group(1).strip()
+    return values
+
+
+def resolve_terminal_provenance(client_pid: int | None = None) -> dict[str, Any]:
+    process_env = read_process_environment_values(
+        client_pid,
+        "TERM_PROGRAM",
+        "LC_TERMINAL",
+        "TERM_PROGRAM_VERSION",
+        "__CFBundleIdentifier",
+    )
+    term_program = str(process_env.get("TERM_PROGRAM") or os.environ.get("TERM_PROGRAM", "")).strip()
+    lc_terminal = str(process_env.get("LC_TERMINAL") or os.environ.get("LC_TERMINAL", "")).strip()
+    term_program_version = str(
+        process_env.get("TERM_PROGRAM_VERSION") or os.environ.get("TERM_PROGRAM_VERSION", "")
+    ).strip()
+    bundle_identifier = str(
+        process_env.get("__CFBundleIdentifier") or os.environ.get("__CFBundleIdentifier", "")
+    ).strip()
+    if term_program in NON_VISIBLE_TERMINAL_PROGRAMS:
+        term_program = ""
+    if lc_terminal in NON_VISIBLE_TERMINAL_PROGRAMS:
+        lc_terminal = ""
+    ancestry = process_ancestry_commands(start_pid=client_pid)
+
+    known_terminal = ""
+    for marker in KNOWN_TERMINAL_MARKERS:
+        if term_program == marker or lc_terminal == marker:
+            known_terminal = marker
+            break
+        if any(marker in command for command in ancestry):
+            known_terminal = marker
+            break
+    if not known_terminal and bundle_identifier:
+        known_terminal = KNOWN_TERMINAL_BUNDLE_IDS.get(bundle_identifier, "")
+
+    codex_hosted = any(CODex_PROCESS_TOKEN in command for command in ancestry)
+    if bundle_identifier == "com.openai.codex":
+        codex_hosted = True
+    visible_terminal_client = bool(term_program or lc_terminal or known_terminal)
+    reason = "terminal_marker_detected" if visible_terminal_client else "missing_terminal_marker"
+    if not visible_terminal_client and codex_hosted:
+        reason = "codex_hidden_pty"
+
+    return {
+        "term_program": term_program,
+        "lc_terminal": lc_terminal,
+        "term_program_version": term_program_version,
+        "bundle_identifier": bundle_identifier,
+        "process_ancestry": ancestry,
+        "known_terminal_marker": known_terminal,
+        "codex_hosted": codex_hosted,
+        "visible_terminal_client": visible_terminal_client,
+        "visibility_reason": reason,
+    }
+
+
 def resolve_current_tmux_context() -> dict[str, Any]:
     context = {
         "inside_tmux": bool(os.environ.get("TMUX")),
         "client_tty": "",
+        "client_pid": 0,
         "session_name": "",
         "window_index": "",
         "pane_index": "",
         "pane_id": "",
         "current_tty": resolve_current_tty(),
+        "term_program": "",
+        "lc_terminal": "",
+        "term_program_version": "",
+        "bundle_identifier": "",
+        "known_terminal_marker": "",
+        "codex_hosted": False,
+        "visible_terminal_client": False,
+        "visibility_reason": "",
+        "process_ancestry": [],
     }
-    if not context["inside_tmux"]:
-        return context
-    try:
-        output = run(
-            [
-                "tmux",
-                "display-message",
-                "-p",
-                "#{client_tty}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}",
-            ]
-        ).strip()
-    except RuntimeError:
-        return context
-    if not output:
-        return context
-    parts = output.split("\t")
-    if len(parts) != 5:
-        return context
-    client_tty, session_name, window_index, pane_index, pane_id = parts
+    if context["inside_tmux"]:
+        try:
+            output = run(
+                [
+                    "tmux",
+                    "display-message",
+                    "-p",
+                    "#{client_tty}\t#{client_pid}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}",
+                ]
+            ).strip()
+        except RuntimeError:
+            output = ""
+        if output:
+            parts = output.split("\t")
+            if len(parts) == 6:
+                client_tty, client_pid, session_name, window_index, pane_index, pane_id = parts
+                context.update(
+                    {
+                        "client_tty": client_tty,
+                        "client_pid": int(client_pid or 0),
+                        "session_name": session_name,
+                        "window_index": window_index,
+                        "pane_index": pane_index,
+                        "pane_id": pane_id,
+                    }
+                )
+    terminal_provenance = resolve_terminal_provenance(
+        client_pid=int(context.get("client_pid") or 0) or None
+    )
     context.update(
         {
-            "client_tty": client_tty,
-            "session_name": session_name,
-            "window_index": window_index,
-            "pane_index": pane_index,
-            "pane_id": pane_id,
+            "term_program": terminal_provenance["term_program"],
+            "lc_terminal": terminal_provenance["lc_terminal"],
+            "term_program_version": terminal_provenance["term_program_version"],
+            "bundle_identifier": terminal_provenance["bundle_identifier"],
+            "known_terminal_marker": terminal_provenance["known_terminal_marker"],
+            "codex_hosted": terminal_provenance["codex_hosted"],
+            "visible_terminal_client": terminal_provenance["visible_terminal_client"],
+            "visibility_reason": terminal_provenance["visibility_reason"],
+            "process_ancestry": terminal_provenance["process_ancestry"],
         }
     )
     return context
@@ -352,7 +512,11 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
             for client in formal_clients
         )
     )
-    current_visible_formal_client = current_client_is_formal and len(formal_clients) == 1
+    current_visible_formal_client = (
+        current_client_is_formal
+        and len(formal_clients) == 1
+        and bool(current_client.get("visible_terminal_client"))
+    )
     official_formal_session = select_official_formal_session(
         sessions,
         clients,

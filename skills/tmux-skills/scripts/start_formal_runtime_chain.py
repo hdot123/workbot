@@ -26,6 +26,7 @@ PANE_INIT_SCRIPT = SCRIPTS_DIR / "init_tmux_panes.py"
 INSPECT_SCRIPT = SCRIPTS_DIR / "inspect_tmux_runtime.py"
 LEDGER_SCRIPT = SCRIPTS_DIR / "init_runtime_ledger.py"
 WATCHER_SCRIPT = SCRIPTS_DIR / "arm_tmux_handoff_watcher.py"
+READY_CHECK_SCRIPT = SCRIPTS_DIR / "check_tmux_ready.py"
 WATCHER_WORKER_SCRIPT = SCRIPTS_DIR / "watch_tmux_handoff.py"
 TMUX_RUNTIME_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
 TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-skills"
@@ -87,6 +88,16 @@ def run_json(command: list[str], *, step: str) -> dict[str, Any]:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"{step} returned non-JSON output: {exc}") from exc
+
+
+def run_json_with_status(command: list[str], *, step: str) -> tuple[dict[str, Any], int]:
+    proc = run(command)
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        detail = (proc.stderr or proc.stdout or "command failed").strip()
+        raise RuntimeError(f"{step} returned non-JSON output: {detail or exc}") from exc
+    return payload, proc.returncode
 
 
 def wait_for_pid_exit(pid: int, timeout_seconds: float = 3.0) -> None:
@@ -262,11 +273,42 @@ def build_result(
         "formal_session": steps.get("formal_session", DEFAULT_FORMAL_SESSION_NAME),
         "pane_count": len(pane_titles),
         "pane_titles": pane_titles,
-        "chain": ["cleanup", "env", "topology", "titles", "ledger", "watcher"],
+        "chain": ["cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"],
         "steps": steps,
     }
     if error:
         result["error"] = error
+    return result
+
+
+def cleanup_hidden_formal_session_on_failure(formal_session: str) -> dict[str, Any]:
+    try:
+        snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step="failure_inspect")
+    except Exception as exc:
+        return {"attempted": False, "reason": f"inspect_failed: {exc}"}
+
+    current_client = snapshot.get("current_client") or {}
+    should_cleanup = bool(
+        current_client.get("inside_tmux")
+        and current_client.get("session_name") == formal_session
+        and current_client.get("codex_hosted")
+        and not current_client.get("visible_terminal_client")
+        and int(snapshot.get("formal_client_count", 0) or 0) == 1
+    )
+    result: dict[str, Any] = {
+        "attempted": should_cleanup,
+        "session_name": formal_session,
+        "visibility_reason": current_client.get("visibility_reason", ""),
+    }
+    if not should_cleanup:
+        result["reason"] = "skip"
+        return result
+
+    kill_proc = run(["tmux", "kill-session", "-t", formal_session])
+    result["kill_returncode"] = kill_proc.returncode
+    result["kill_detail"] = (kill_proc.stderr or kill_proc.stdout or "").strip()
+    result["runtime_cleanup"] = cleanup_previous_runtime_state()
+    result["cleaned"] = kill_proc.returncode == 0
     return result
 
 
@@ -416,9 +458,31 @@ def main() -> int:
         for target in targets:
             watcher_command.extend(["--target", target])
         steps["watcher"] = run_json(watcher_command, step="watcher")
+
+        ready_check_command = [
+            sys.executable,
+            str(READY_CHECK_SCRIPT),
+            "--formal-session-name",
+            args.formal_session,
+            "--require-formal",
+            "--require-watcher",
+            "--pretty",
+        ]
+        ready_check_result, ready_check_rc = run_json_with_status(
+            ready_check_command,
+            step="ready_check",
+        )
+        steps["ready_check"] = ready_check_result
+        if ready_check_rc != 0:
+            raise RuntimeError(
+                "ready_check failed: "
+                + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
+            )
     except Exception as exc:
         result = build_result("failed", steps, pane_titles, str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+        sys.stdout.flush()
+        steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(args.formal_session)
         return 1
 
     result = build_result("ok", steps, pane_titles)

@@ -70,6 +70,12 @@ def require_tmux_client_for_formal_session_change(
             "foreground tmux changes must run from inside the visible tmux client; "
             f"refusing to create or switch {formal_session} from a non-tmux context"
         )
+    if not current_client.get("visible_terminal_client"):
+        reason = str(current_client.get("visibility_reason") or "invisible_terminal_client")
+        raise RuntimeError(
+            "foreground tmux changes must run from a real visible terminal client; "
+            f"refusing to create or switch {formal_session} from {reason}"
+        )
     return current_client
 
 
