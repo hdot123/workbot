@@ -14,7 +14,7 @@ maxTurns: 4
 当前 `tmux-skills` 的正式口径只有两件事：
 
 1. 接收 Codex 提供的 `pane_count` 与 `pane_titles`
-2. 在前台 `formal-session` 中生成 pane，并在 pane 停止时通过 app-server bridge 回报给 monitor thread 的 `CODEX_THREAD_ID` 对应 app thread
+2. 在前台 `formal-session` 中生成 pane，并在 pane 停止时通过 window IPC bridge 回报给 monitor thread 的 `CODEX_THREAD_ID` 对应当前窗口 thread
 
 补充口径：
 

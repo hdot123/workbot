@@ -25,7 +25,7 @@ related: []
 
 | 决策ID | 标题 | 日期 | 状态 | 依赖 |
 |--------|------|------|------|------|
-| 2026-03-30-tmux-handoff-app-thread-delivery | tmux handoff 投递切换到 Codex app thread | 2026-03-30 | active | 2026-03-25-workbot-project-agents-and-runtime-surfaces |
+| 2026-03-30-tmux-handoff-app-thread-delivery | tmux handoff 投递切换到 Codex owner window | 2026-03-30 | active | 2026-03-25-workbot-project-agents-and-runtime-surfaces |
 | 2026-03-25-workbot-project-agents-and-runtime-surfaces | Workbot 项目级 Agents 与正式运行面规范 | 2026-03-25 | active | - |
 | 2026-03-25-ce-task-governance | CE 任务治理规范 | 2026-03-25 | active | - |
 

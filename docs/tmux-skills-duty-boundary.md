@@ -19,7 +19,7 @@
 - 把 pane 标题设置为调用要求的标题
 - 输出 pane 的 `target` 和标题
 - 监控 pane 状态
-- pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+- pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 补充一条基础规则：
 
@@ -77,14 +77,14 @@ formal-session:1.4 doc-bot
 
 - pane 停止了
 
-触发后就向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告。
+触发后就向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告。
 
 报告目标使用：
 
 - `CODEX_THREAD_ID`
 - `CODEX_THREAD_ID` 在这里表示 Codex app thread id，不是本地 CLI session id
-- delivery 固定经由常驻 app-server bridge，不使用 `codex exec resume`，也不查本地 `session_index.jsonl`
+- delivery 固定经由常驻 window IPC bridge，不使用 `codex exec resume`，也不查本地 `session_index.jsonl`
 
 ## 一句话结论
 
-`tmux-skills` 的职责不是“管理 Claude pane”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定的 Codex app thread”。
+`tmux-skills` 的职责不是“管理 Claude pane”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口”。
