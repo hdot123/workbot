@@ -17,6 +17,7 @@ SCRIPTS_DIR = Path("/Users/busiji/workbot/skills/tmux-skills/scripts")
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import build_tmux_handoff_bundle  # noqa: E402
+import build_tmux_topology  # noqa: E402
 import check_tmux_ready  # noqa: E402
 import deliver_tmux_handoff_notification  # noqa: E402
 import start_formal_runtime_chain  # noqa: E402
@@ -35,7 +36,7 @@ def sample_event(event_type: str, *, deliverable: bool = True) -> dict[str, obje
         "session": "formal-session",
         "window": "1",
         "pane_id": "%3",
-        "pane_title": "qa-bot",
+        "pane_title": "notes",
         "cwd": "/Users/busiji/workbot",
         "current_command": "zsh",
         "state_class": event_type,
@@ -76,12 +77,135 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
     def test_build_batch_plan_uses_generic_slots(self) -> None:
         plan = start_formal_runtime_chain.build_batch_plan(
             [f"formal-session:1.{index}" for index in range(1, 5)],
-            ["dev-bot", "dev-bot", "qa-bot", "doc-bot"],
+            ["task-1", "task-2", "notes", "monitor"],
         )
         self.assertEqual(4, len(plan))
         self.assertEqual("pane_1", plan[0]["slot"])
         self.assertEqual("pane_4", plan[-1]["slot"])
-        self.assertEqual("doc-bot", plan[-1]["pane_title"])
+        self.assertEqual("monitor", plan[-1]["pane_title"])
+
+    def test_split_flag_for_pane_prefers_wide_then_tall(self) -> None:
+        self.assertEqual(
+            "-h",
+            build_tmux_topology.split_flag_for_pane(
+                {"target": "formal-session:1.1", "width": 220, "height": 66}
+            ),
+        )
+        self.assertEqual(
+            "-v",
+            build_tmux_topology.split_flag_for_pane(
+                {"target": "formal-session:1.1", "width": 70, "height": 120}
+            ),
+        )
+
+    def test_select_split_pane_prefers_largest_balanced_candidate(self) -> None:
+        selected = build_tmux_topology.select_split_pane(
+            [
+                {"target": "formal-session:1.2", "width": 100, "height": 30},
+                {"target": "formal-session:1.1", "width": 90, "height": 40},
+                {"target": "formal-session:1.3", "width": 80, "height": 30},
+            ]
+        )
+        self.assertEqual("formal-session:1.1", selected["target"])
+
+    def test_reconcile_topology_rebalances_after_each_split(self) -> None:
+        pane_states = [
+            [{"target": "formal-session:1.1", "width": 227, "height": 66}],
+            [
+                {"target": "formal-session:1.1", "width": 113, "height": 66},
+                {"target": "formal-session:1.2", "width": 113, "height": 66},
+            ],
+            [
+                {"target": "formal-session:1.1", "width": 113, "height": 33},
+                {"target": "formal-session:1.2", "width": 113, "height": 66},
+                {"target": "formal-session:1.3", "width": 113, "height": 32},
+            ],
+            [
+                {"target": "formal-session:1.1", "width": 76, "height": 33},
+                {"target": "formal-session:1.2", "width": 76, "height": 33},
+                {"target": "formal-session:1.3", "width": 76, "height": 33},
+                {"target": "formal-session:1.4", "width": 76, "height": 33},
+            ],
+            [
+                {"target": "formal-session:1.1", "width": 76, "height": 22},
+                {"target": "formal-session:1.2", "width": 76, "height": 22},
+                {"target": "formal-session:1.3", "width": 76, "height": 22},
+                {"target": "formal-session:1.4", "width": 76, "height": 44},
+                {"target": "formal-session:1.5", "width": 76, "height": 44},
+            ],
+        ]
+        session_target_states = [
+            ["formal-session:1.1"],
+            ["formal-session:1.1", "formal-session:1.2"],
+            ["formal-session:1.1", "formal-session:1.2", "formal-session:1.3"],
+            ["formal-session:1.1", "formal-session:1.2", "formal-session:1.3", "formal-session:1.4"],
+            [
+                "formal-session:1.1",
+                "formal-session:1.2",
+                "formal-session:1.3",
+                "formal-session:1.4",
+                "formal-session:1.5",
+            ],
+            [
+                "formal-session:1.1",
+                "formal-session:1.2",
+                "formal-session:1.3",
+                "formal-session:1.4",
+                "formal-session:1.5",
+                "formal-session:1.6",
+            ],
+        ]
+
+        def fake_session_panes(_: str) -> list[dict[str, int | str]]:
+            return pane_states.pop(0)
+
+        def fake_session_targets(_: str) -> list[str]:
+            return session_target_states.pop(0)
+
+        with patch("build_tmux_topology.session_targets", side_effect=fake_session_targets):
+            with patch("build_tmux_topology.session_panes", side_effect=fake_session_panes):
+                with patch("build_tmux_topology.run_tmux") as mock_run_tmux:
+                    mock_run_tmux.return_value = Mock(returncode=0, stdout="", stderr="")
+                    with patch(
+                        "build_tmux_topology.inspect_runtime",
+                        side_effect=[
+                            {
+                                "panes": [
+                                    {"session_name": "formal-session", "target": f"formal-session:1.{index}"}
+                                    for index in range(1, 7)
+                                ],
+                                "topology_fingerprint": "fingerprint-1",
+                            },
+                            {
+                                "panes": [
+                                    {"session_name": "formal-session", "target": f"formal-session:1.{index}"}
+                                    for index in range(1, 7)
+                                ],
+                                "topology_fingerprint": "fingerprint-2",
+                            },
+                        ],
+                    ):
+                        result = build_tmux_topology.reconcile_topology("formal-session", 6)
+
+        split_commands = [
+            call.args for call in mock_run_tmux.call_args_list if call.args and call.args[0] == "split-window"
+        ]
+        layout_commands = [
+            call.args for call in mock_run_tmux.call_args_list if call.args and call.args[0] == "select-layout"
+        ]
+
+        self.assertEqual(
+            [
+                ("split-window", "-h", "-t", "formal-session:1.1"),
+                ("split-window", "-v", "-t", "formal-session:1.1"),
+                ("split-window", "-v", "-t", "formal-session:1.1"),
+                ("split-window", "-v", "-t", "formal-session:1.2"),
+                ("split-window", "-v", "-t", "formal-session:1.2"),
+            ],
+            split_commands,
+        )
+        self.assertEqual(6, result["pane_count_after"])
+        self.assertGreaterEqual(len(layout_commands), 5)
 
     def test_list_existing_watcher_processes_parses_ps_output(self) -> None:
         with patch("start_formal_runtime_chain.run") as mock_run:
@@ -121,7 +245,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             session_mode="fixed",
         )
         message = bundle["tmux_skills_handoff"]["notification"]["message"]
-        self.assertEqual("qa-bot pane 已停止：formal-session:1.3", message)
+        self.assertEqual("notes pane 已停止：formal-session:1.3", message)
         self.assertEqual(
             "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
             bundle["tmux_skills_handoff"]["target"]["thread_id"],
@@ -167,7 +291,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     "items": [
                         {
                             "type": "userMessage",
-                            "content": [{"type": "text", "text": "qa-bot pane 已停止：formal-session:1.3"}],
+                            "content": [{"type": "text", "text": "notes pane 已停止：formal-session:1.3"}],
                         }
                     ],
                 }
@@ -177,7 +301,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             tmux_handoff_app_bridge.turn_contains_user_message(
                 thread,
                 "turn-1",
-                "qa-bot pane 已停止：formal-session:1.3",
+                "notes pane 已停止：formal-session:1.3",
             )
         )
 
@@ -232,6 +356,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             event_file = Path(tmpdir) / "event.json"
             event_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            queue_dir = Path(tmpdir) / "queue"
             with patch(
                 "deliver_tmux_handoff_notification.ensure_bridge_running",
                 return_value=(54321, True),
@@ -243,12 +368,49 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                         "deliver_tmux_handoff_notification.py",
                         "--event-file",
                         str(event_file),
+                        "--queue-dir",
+                        str(queue_dir),
                     ],
                 ):
-                    rc = deliver_tmux_handoff_notification.main()
+                    stdout = io.StringIO()
+                    with patch("sys.stdout", stdout):
+                        rc = deliver_tmux_handoff_notification.main()
             self.assertTrue(event_file.exists())
+            queued = json.loads(stdout.getvalue())
+            queued_path = Path(queued["event_file"])
+            self.assertEqual(queue_dir, queued_path.parent)
+            self.assertTrue(queued_path.exists())
 
         self.assertEqual(0, rc)
+
+    def test_delivery_runner_reuses_event_file_already_in_queue_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_dir = Path(tmpdir) / "queue"
+            queue_dir.mkdir(parents=True, exist_ok=True)
+            event_file = queue_dir / "event.json"
+            event_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            with patch(
+                "deliver_tmux_handoff_notification.ensure_bridge_running",
+                return_value=(54321, True),
+            ):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "deliver_tmux_handoff_notification.py",
+                        "--event-file",
+                        str(event_file),
+                        "--queue-dir",
+                        str(queue_dir),
+                    ],
+                ):
+                    stdout = io.StringIO()
+                    with patch("sys.stdout", stdout):
+                        rc = deliver_tmux_handoff_notification.main()
+
+        self.assertEqual(0, rc)
+        queued = json.loads(stdout.getvalue())
+        self.assertEqual(str(event_file), queued["event_file"])
 
     def test_delivery_runner_dry_run_reports_window_ipc_transport(self) -> None:
         stdout = io.StringIO()
@@ -293,14 +455,14 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
     def test_ready_check_blocks_unattached_formal_session(self) -> None:
         snapshot = {
-            "runtime_ledger": {
-                "pane_count": 4,
-                "slot_bindings": {
-                    "pane_1": {"role": "dev-bot", "target": "formal-session:1.1"},
-                    "pane_2": {"role": "dev-bot", "target": "formal-session:1.2"},
-                    "pane_3": {"role": "qa-bot", "target": "formal-session:1.3"},
-                    "pane_4": {"role": "doc-bot", "target": "formal-session:1.4"},
-                },
+                "runtime_ledger": {
+                    "pane_count": 4,
+                    "slot_bindings": {
+                        "pane_1": {"pane_title": "task-1", "target": "formal-session:1.1"},
+                        "pane_2": {"pane_title": "task-2", "target": "formal-session:1.2"},
+                        "pane_3": {"pane_title": "notes", "target": "formal-session:1.3"},
+                        "pane_4": {"pane_title": "monitor", "target": "formal-session:1.4"},
+                    },
                 "watcher": {"armed": True, "targets": [f"formal-session:1.{i}" for i in range(1, 5)]},
                 "codex_thread_bound": True,
             },
@@ -315,7 +477,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     "target": f"formal-session:1.{i}",
                     "pane_title_normalized": title,
                 }
-                for i, title in enumerate(["dev-bot", "dev-bot", "qa-bot", "doc-bot"], start=1)
+                for i, title in enumerate(["task-1", "task-2", "notes", "monitor"], start=1)
             ],
             "sessions": [{"session_name": "formal-session", "attached": 0}],
             "CODEX_THREAD_ID": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
@@ -368,73 +530,50 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         )
         self.assertEqual(("pane_stopped", "pane 已停止 (0)", "pane_stopped"), classification)
 
-    def test_hash_state_requires_observed_activity_before_stop_eligibility(self) -> None:
-        last_output_hash: dict[str, str] = {}
-        unchanged_output_count: dict[str, int] = {}
-        observed_activity: dict[str, bool] = {}
-        snapshot = {"recent_output_hash": "abc123"}
-        counts = [
-            watch_tmux_handoff.advance_output_hash_state(
+    def test_live_snapshot_is_not_classified_as_stopped(self) -> None:
+        classification = watch_tmux_handoff.classify_snapshot(
+            {"session_attached": 1, "pane_dead": 0, "current_command": "zsh"}
+        )
+        self.assertIsNone(classification)
+
+    def test_once_scan_does_not_emit_for_live_idle_shell(self) -> None:
+        snapshot = {
+            "target": "formal-session:1.1",
+            "session": "formal-session",
+            "window": "1",
+            "pane_index": "1",
+            "pane_id": "%1",
+            "pane_title": "task-1",
+            "cwd": "/Users/busiji/workbot",
+            "current_command": "zsh",
+            "pane_dead": 0,
+            "pane_dead_status": "",
+            "session_attached": 1,
+            "recent_output": "busiji@host workbot %",
+            "recent_output_hash": "abc123",
+            "reachable": True,
+            "state_signature": "sig-1",
+        }
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "watch_tmux_handoff.py",
+                "--target",
                 "formal-session:1.1",
-                snapshot,
-                last_output_hash=last_output_hash,
-                unchanged_output_count=unchanged_output_count,
-                observed_activity=observed_activity,
-            )
-            for _ in range(4)
-        ]
-        self.assertEqual([0, 1, 2, 3], counts)
-        self.assertFalse(observed_activity["formal-session:1.1"])
+                "--once",
+            ],
+        ):
+            with patch("watch_tmux_handoff.read_tmux_session_binding", return_value="thread-1"):
+                with patch("watch_tmux_handoff.capture_snapshot", return_value=snapshot):
+                    with patch("watch_tmux_handoff.record_event") as mock_record:
+                        stdout = io.StringIO()
+                        with patch("sys.stdout", stdout):
+                            rc = watch_tmux_handoff.main()
 
-    def test_hash_state_marks_activity_after_output_change(self) -> None:
-        last_output_hash: dict[str, str] = {}
-        unchanged_output_count: dict[str, int] = {}
-        observed_activity: dict[str, bool] = {}
-        target = "formal-session:1.1"
-
-        first_count = watch_tmux_handoff.advance_output_hash_state(
-            target,
-            {"recent_output_hash": "abc123"},
-            last_output_hash=last_output_hash,
-            unchanged_output_count=unchanged_output_count,
-            observed_activity=observed_activity,
-        )
-        second_count = watch_tmux_handoff.advance_output_hash_state(
-            target,
-            {"recent_output_hash": "def456"},
-            last_output_hash=last_output_hash,
-            unchanged_output_count=unchanged_output_count,
-            observed_activity=observed_activity,
-        )
-        follow_up_counts = [
-            watch_tmux_handoff.advance_output_hash_state(
-                target,
-                {"recent_output_hash": "def456"},
-                last_output_hash=last_output_hash,
-                unchanged_output_count=unchanged_output_count,
-                observed_activity=observed_activity,
-            )
-            for _ in range(3)
-        ]
-
-        self.assertEqual(0, first_count)
-        self.assertEqual(0, second_count)
-        self.assertTrue(observed_activity[target])
-        self.assertEqual([1, 2, 3], follow_up_counts)
-
-    def test_reset_output_hash_state_clears_cached_values(self) -> None:
-        last_output_hash = {"formal-session:1.1": "abc123"}
-        unchanged_output_count = {"formal-session:1.1": 2}
-        observed_activity = {"formal-session:1.1": True}
-        watch_tmux_handoff.reset_output_hash_state(
-            "formal-session:1.1",
-            last_output_hash=last_output_hash,
-            unchanged_output_count=unchanged_output_count,
-            observed_activity=observed_activity,
-        )
-        self.assertEqual({}, last_output_hash)
-        self.assertEqual({}, unchanged_output_count)
-        self.assertEqual({}, observed_activity)
+        self.assertEqual(0, rc)
+        self.assertEqual("", stdout.getvalue())
+        mock_record.assert_not_called()
 
     def test_detached_snapshot_is_classified_as_session_detached(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(
@@ -451,7 +590,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 "formal-session:1.3",
                 reason="pane 不可达",
                 codex_thread_id="019d3900-80a8-7be1-8e7e-ffa52e0816d3",
-                cached_snapshot={"pane_title": "qa-bot"},
+                cached_snapshot={"pane_title": "notes"},
             )
         self.assertEqual("019d3900-80a8-7be1-8e7e-ffa52e0816d3", event["codex_thread_id"])
 
@@ -464,7 +603,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 "0123456789abcdef": {
                     "status": "delivered",
                     "thread_id": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
-                    "message": "qa-bot pane 已停止：formal-session:1.3",
+                    "message": "notes pane 已停止：formal-session:1.3",
                 }
             }
             client = Mock()
@@ -474,6 +613,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 receipts_log=receipts_log,
                 receipts_by_event_id=receipts,
                 confirm_timeout=1.0,
+                idle_timeout=1.0,
                 max_retries=1,
             )
         client.deliver_turn_to_current_window.assert_not_called()
@@ -491,23 +631,93 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 turn_id="turn-123",
                 visibility_broadcast_observed=True,
             )
+            client.wait_for_thread_idle.return_value = True
             tmux_handoff_app_bridge.process_queue_item(
                 queue_file,
                 client=client,
                 receipts_log=receipts_log,
                 receipts_by_event_id=receipts,
                 confirm_timeout=1.0,
+                idle_timeout=1.0,
                 max_retries=1,
             )
             lines = receipts_log.read_text(encoding="utf-8").splitlines()
         client.deliver_turn_to_current_window.assert_called_once()
+        client.wait_for_thread_idle.assert_called_once()
         self.assertFalse(queue_file.exists())
         self.assertEqual(1, len(lines))
         receipt = json.loads(lines[0])
         self.assertEqual("delivered", receipt["status"])
         self.assertEqual("turn-123", receipt["turn_id"])
         self.assertEqual("client-123", receipt["handled_by_client_id"])
-        self.assertEqual("owner_window_response+thread_stream_state_changed", receipt["reason"])
+        self.assertEqual("owner_window_response+thread_stream_state_changed+thread_idle", receipt["reason"])
+
+    def test_bridge_keeps_queue_item_while_waiting_for_thread_idle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_file = Path(tmpdir) / "queued.json"
+            queue_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            receipts_log = Path(tmpdir) / "receipts.jsonl"
+            receipts: dict[str, dict[str, object]] = {}
+            client = Mock()
+            client.deliver_turn_to_current_window.return_value = tmux_handoff_app_bridge.WindowIpcDeliveryResult(
+                handled_by_client_id="client-123",
+                turn_id="turn-123",
+                visibility_broadcast_observed=True,
+            )
+            client.wait_for_thread_idle.return_value = False
+            tmux_handoff_app_bridge.process_queue_item(
+                queue_file,
+                client=client,
+                receipts_log=receipts_log,
+                receipts_by_event_id=receipts,
+                confirm_timeout=1.0,
+                idle_timeout=1.0,
+                max_retries=1,
+            )
+            lines = receipts_log.read_text(encoding="utf-8").splitlines()
+            queue_exists = queue_file.exists()
+
+        client.deliver_turn_to_current_window.assert_called_once()
+        client.wait_for_thread_idle.assert_called_once()
+        self.assertTrue(queue_exists)
+        receipt = json.loads(lines[0])
+        self.assertEqual("accepted_waiting_idle", receipt["status"])
+        self.assertEqual("client-123", receipt["handled_by_client_id"])
+
+    def test_bridge_resumes_waiting_item_without_redelivery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_file = Path(tmpdir) / "queued.json"
+            queue_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            receipts_log = Path(tmpdir) / "receipts.jsonl"
+            receipts: dict[str, dict[str, object]] = {
+                "0123456789abcdef": {
+                    "status": "accepted_waiting_idle",
+                    "thread_id": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
+                    "message": "notes pane 已停止：formal-session:1.3",
+                    "turn_id": "turn-123",
+                    "handled_by_client_id": "client-123",
+                    "reason": "owner_window_response+thread_stream_state_changed",
+                }
+            }
+            client = Mock()
+            client.wait_for_thread_idle.return_value = True
+            tmux_handoff_app_bridge.process_queue_item(
+                queue_file,
+                client=client,
+                receipts_log=receipts_log,
+                receipts_by_event_id=receipts,
+                confirm_timeout=1.0,
+                idle_timeout=1.0,
+                max_retries=1,
+            )
+            lines = receipts_log.read_text(encoding="utf-8").splitlines()
+
+        client.deliver_turn_to_current_window.assert_not_called()
+        client.wait_for_thread_idle.assert_called_once()
+        self.assertFalse(queue_file.exists())
+        receipt = json.loads(lines[0])
+        self.assertEqual("delivered", receipt["status"])
+        self.assertEqual("owner_window_response+thread_stream_state_changed+thread_idle", receipt["reason"])
 
     def test_send_request_does_not_starve_matching_response_behind_broadcast(self) -> None:
         client = tmux_handoff_app_bridge.CodexWindowIpcClient(request_timeout=1.0)

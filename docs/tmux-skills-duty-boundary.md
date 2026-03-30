@@ -20,6 +20,7 @@
 - 输出 pane 的 `target` 和标题
 - 监控 pane 状态
 - pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
+- pane 标题只表示当前 runtime 的临时局部标签，不表示项目级身份对象
 
 补充一条基础规则：
 
@@ -33,7 +34,7 @@
 - `claude --agent`
 - agent 身份切换
 - system prompt 注入
-- Claude scene 校验
+- 外部会话校验
 - 业务任务分发
 
 ## Codex 负责
@@ -50,20 +51,20 @@ pane 生成是参数化的，不是写死在技能里。
 例如，当 Codex 提供：
 
 - `pane_count = 4`
-- `pane_titles = ["dev-bot", "dev-bot", "qa-bot", "doc-bot"]`
+- `pane_titles = ["task-1", "task-2", "notes", "monitor"]`
 
 则 `tmux-skills` 只负责：
 
 - 在前台 tmux 中生成 4 个 pane
-- 把 4 个 pane 标题依次改为 `dev-bot`、`dev-bot`、`qa-bot`、`doc-bot`
+- 把 4 个 pane 标题依次改为 `task-1`、`task-2`、`notes`、`monitor`
 
 正式交付格式固定为：
 
 ```text
-formal-session:1.1 dev-bot
-formal-session:1.2 dev-bot
-formal-session:1.3 qa-bot
-formal-session:1.4 doc-bot
+formal-session:1.1 task-1
+formal-session:1.2 task-2
+formal-session:1.3 notes
+formal-session:1.4 monitor
 ```
 
 这里固定使用：
@@ -87,4 +88,4 @@ formal-session:1.4 doc-bot
 
 ## 一句话结论
 
-`tmux-skills` 的职责不是“管理 Claude pane”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口”。
+`tmux-skills` 的职责不是“管理 Claude 身份容器”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口”。

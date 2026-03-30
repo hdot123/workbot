@@ -2,13 +2,13 @@
 type: [KB:DECISION]
 title: "Workbot 项目级 Agents 与正式运行面规范"
 created: 2026-03-25
-updated: 2026-03-28
-last_verified: 2026-03-28
+updated: 2026-03-30
+last_verified: 2026-03-30
 source: Manual
 confidence: high
 tags: [workbot, claude, agents, runtime, runtime-surfaces, tmux-to, bailian, qwen3.5-plus]
 related: [workbot, 2026-03-04-4-bot-workflow-planning, 2026-03-02-bailian-coding-plan-models]
-version: v1.6
+version: v1.7
 status: active
 ---
 
@@ -16,14 +16,14 @@ status: active
 
 ## 结论
 
-- `dev-bot` 与 `qa-bot` 的项目级 Claude 身份真源固定在 `/Users/busiji/workbot/.claude/agents/`
-- `doc-bot` 的项目级 Claude 身份真源也固定在 `/Users/busiji/workbot/.claude/agents/`
+- `dev-bot` 与 `qa-bot` 的项目级 agent 真源固定在 `/Users/busiji/workbot/.claude/agents/`
+- `doc-bot` 的项目级 agent 真源也固定在 `/Users/busiji/workbot/.claude/agents/`
 - 当前项目不再把 `/Users/busiji/workbot/agents/` 作为 `dev-bot` / `qa-bot` / `doc-bot` 的运行真源
 - `dev-bot`、`qa-bot` 与 `doc-bot` 当前主模型统一固定为 `qwen3.5-plus`
 - 百炼连接参数放在项目本地 Claude settings 层，不放在 agent markdown 正文中
-- tmux 运行时必须一 bot 一 pane，且 pane 标题必须与 bot 名完全一致
+- tmux pane / window / slot 只是当前 attached session 内的临时工作分区或临时标签，不是项目级 bot 身份对象
 - tmux 正式运行面必须收口为一个前台 attached 的 `formal-session`
-- `task` / `monitor` / `runtime` 是同一个 `formal-session` 内的 pane / slot 角色，不再各自拥有独立 formal session
+- `task` / `monitor` / `runtime` 只表示同一个 `formal-session` 内的临时工作分区或临时 slot，不再各自拥有独立 formal session
 
 ## 真源定义
 
@@ -66,26 +66,19 @@ status: active
 ### 命名规则
 
 - 正式 runtime 只承认一个 formal session，默认名为 `formal-session`
-- 一个 bot 对应一个 tmux pane
 - 接管或启动前，必须先获取当前 tmux 的 `session name`、`window id`、`window title`、`pane id` 与 `pane title`
-- bot 绑定关系必须可见化，至少要能明确回答：当前 `window id` 是多少、当前 `window title` 是什么、当前 pane 绑定的 bot 是谁
-- pane 标题必须与 bot 名完全一致
-- 若一个 window 只承载一个 bot，则 `window title` 也应直接使用 bot 名，例如 `dev-bot`
-- 若一个 window 内承载多个 bot pane，则 `window title` 保留任务语义，但每个 pane 标题仍必须与各自 bot 名完全一致
-- 当前项目级执行身份允许的标题包括：
-  - `dev-bot`
-  - `qa-bot`
-  - `doc-bot`
-- `tmux-skills` 不再定义独立 stage identity；它只负责 tmux pane 生成、标题设置和 pane 停止上报
+- 当前 tmux 拓扑、pane id、pane title 与 slot 分配都只是当次 attached runtime 的临时元数据
+- bot 绑定关系必须可见化，至少要能明确回答：当前 `window id` 是多少、当前 `window title` 是什么、当前 pane 当前承载了什么工作
+- pane 标题只用于当前 runtime 的局部辨识，不得被文档固化为项目级身份名、稳定对象名或长期语义键
+- 项目文档不得把 pane 标签与身份名拼接成长期存在的对象名
+- `tmux-skills` 不再定义任何长期对象名；它只负责 tmux pane 生成、标题设置和 pane 停止上报
 
 ### 运行规则
 
-- `dev-bot` pane 中只启动 `dev-bot` 身份的 Claude 会话
-- `qa-bot` pane 中只启动 `qa-bot` 身份的 Claude 会话
-- `doc-bot` pane 中只启动 `doc-bot` 身份的 Claude 会话
-- 只有在 Claude 界面已经明确显示 `@dev-bot` / `@qa-bot` / `@doc-bot` 后，该 pane 才算正式 bot pane
-- 不允许跳过 `claude` 拉起步骤，直接把 shell pane 或历史会话误判为本次接管成功
-- 不允许在已命名的 pane 内临时切换为其他 bot
+- 项目级 agent 真源只在 `.claude/agents/`，不在 tmux pane 标题、pane 编号或 pane 拓扑中表达
+- 某个 pane 是否承载某个项目级 agent，属于当前 runtime 的会话态事实，不得写成项目级长期命名对象
+- 不允许把 shell pane、历史输出或旧拓扑标签误判为当前 runtime 已完成身份接管
+- 不允许把临时 pane 标签文档化为稳定对象名
 - 修改 `.claude/agents/` 或 `.claude/settings.local.json` 后，必须重启对应 Claude 会话或重新加载配置
 - tmux 正式运行面必须在前台
 - detached session、后台残留 session、无人可见的 tmux 会话不算有效运行面
@@ -93,7 +86,7 @@ status: active
 
 ### tmux-skills Pane 生成与监控流程
 
-`tmux-skills` 的职责不再是 handoff Claude pane，而是：
+`tmux-skills` 的职责不再是处理任何会话身份接管，而是：
 
 - 接收 Codex 提供的 `pane_count`
 - 接收 Codex 提供的 `pane_titles`
@@ -166,7 +159,7 @@ status: active
 - 监控线程只监控当天任务线程
 - 监控线程只承接异常、告警、监控状态，不承接任务本身
 - 监控线程是当天监控事实的唯一线程真源
-- tmux 门铃系统不再维护 monitor 专用 thread 变量；负责监控的 pane / slot 必须在启动时显式注入唯一的 `CODEX_THREAD_ID`
+- tmux 门铃系统不再维护 monitor 专用 thread 变量；负责监控的临时工作 pane 或临时 slot 必须在启动时显式注入唯一的 `CODEX_THREAD_ID`
 - 上述 `CODEX_THREAD_ID` 必须是 monitor 对应的 Codex app thread id
 
 ## 每日单 formal tmux 会话规范
@@ -175,7 +168,7 @@ status: active
 
 - 每天最多承认一个正式 tmux 会话，默认名为 `formal-session`
 - `formal-session` 只绑定当天正式 runtime，不再拆分为独立 task formal session 与 monitor formal session
-- `task` / `monitor` 与其他工作 pane 必须作为 `formal-session` 内的 pane / slot 角色存在
+- `task` / `monitor` 与其他工作 pane 只作为 `formal-session` 内的临时工作分区或临时 slot 存在
 - Codex 调用 `tmux-skills` 生成的 pane 只在 `formal-session` 当前拓扑允许的 pane 中执行
 - `formal-session` 必须是当前前台可见会话，不允许在后台长期运行
 - detached session、bootstrap `tbot` 和其他临时会话都不算正式运行面
@@ -187,7 +180,7 @@ status: active
 - 不允许把异常信息打回任务线程
 - 不允许把任务执行结果打到监控线程
 - 不允许一个线程同时承担任务流和监控流
-- 对 tmux 门铃链路而言，线程分流通过 monitor pane / slot 启动时注入的 `CODEX_THREAD_ID` 实现，不再依赖多个候选环境变量回退
+- 对 tmux 门铃链路而言，线程分流通过 monitor 临时工作 pane 或临时 slot 启动时注入的 `CODEX_THREAD_ID` 实现，不再依赖多个候选环境变量回退
 - 对 tmux handoff delivery 而言，消息进入监控线程时应当以 owner window 的成功响应作为接收确认
 
 ## 每日启动流程
@@ -211,7 +204,7 @@ status: active
 3. 创建或接管唯一的 `formal-session`
 4. 由 Codex 调用 `tmux-skills`，传入当天需要的 `pane_count` 与 `pane_titles`
 5. 由 `tmux-skills` 在 `formal-session` 内生成对应 pane 并设置标题
-6. 在 monitor pane / slot 中启动对 `formal-session` 的监控，并注入当天监控线程的 `CODEX_THREAD_ID`
+6. 在 monitor 临时工作 pane 或临时 slot 中启动对 `formal-session` 的监控，并注入当天监控线程的 `CODEX_THREAD_ID`
 7. 后续所有 `tmux-to` 消息按任务流与监控流严格分流
 
 ## 每日收口流程
@@ -222,14 +215,14 @@ status: active
 
 ## 原因
 
-- 运行身份、加载目录、tmux pane 标题三者必须对齐，否则容易出现身份漂移
+- 如果把 tmux 临时标签误写成长期对象名，后续执行和记忆层就容易再次把临时工作分区误读成身份对象
 - 把项目级运行身份收口到 `.claude/agents/` 后，Claude 加载链最直接
 - 把真实模型直接写入 agent frontmatter 后，排障时不需要再反查别名映射
 
 ## 后续约束
 
 - 若未来切换品牌或模型，优先修改项目级 agent 与 settings 层，不新增第二真源
-- 若新增新的项目级 bot，应复用同样规则：项目级 agent 真源固定、tmux pane 标题与 bot 名一致
+- 若新增新的项目级 bot，应复用同样规则：项目级 agent 真源固定，tmux 侧只表达当前会话期的临时工作分区与临时标签
 - 若新增新的每日任务流，必须沿用“任务/监控线程分流 + 单 formal tmux 会话 + pane / slot 分层 + `tmux-to` 分流”模型，不得回退为多 formal session 混用
 
 ## 日报规则

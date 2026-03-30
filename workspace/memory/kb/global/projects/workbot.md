@@ -32,7 +32,7 @@ last_verified: 2026-03-30
 - 历史项目材料统一从主入口剥离，集中暂存到 `history-projects/`。
 
 ## 当前控制面口径
-- `tmux-skills` 负责前台 `formal-session` 的 pane 生成与 stopped-pane handoff。
+- `tmux-skills` 负责前台 `formal-session` 的 pane 生成与 stopped-pane reporting。
 - tmux handoff 的目标真源是 monitor 对应的 `CODEX_THREAD_ID`，且该值必须是 Codex app thread id。
 - stopped-pane delivery 当前通过常驻 window IPC bridge 投递到目标 thread 的 owner 窗口，不再通过 `codex exec resume` 投递到本地 CLI session。
 

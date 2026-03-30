@@ -11,7 +11,7 @@
 - `tmux-skills` 在前台 tmux 中生成这些 pane
 - `tmux-skills` 在 pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
-它不再被定义为 Claude runtime skill，也不再以 Claude scene 校验作为完成标准。
+它不再被定义为 runtime skill，也不再以任何旧接管校验作为完成标准。
 
 ## 当前完成情况
 
@@ -24,7 +24,7 @@
 - `CODEX_THREAD_ID` 仍然是上报目标的唯一正式线程入口，并且必须指向唯一的 Codex app thread id
 - delivery 已收口到常驻 window IPC bridge，不再通过 `codex exec resume` 或本地 `session_index.jsonl` 解释目标线程
 - 公开主链已切到 `cleanup -> env -> topology -> pane-labeling -> ledger -> watcher`
-- 旧的 Claude / scene / identity 公开入口已下线或改为兼容弃用提示
+- 旧的接管相关公开入口已下线或改为兼容弃用提示
 - watcher 已改成只上报 `pane_stopped` / `pane_unreachable` / `session_detached`
 - 每次新的 pane 创建前都会先清理旧 watcher、旧 runtime ledger、旧 issues、旧 handoff 数据和旧 watcher 日志
 
@@ -39,4 +39,4 @@
 
 ## 当前阶段结论
 
-**`tmux-skills` 已完成从旧的 Claude 耦合实现到“前台 tmux pane 生成 + 停止上报”的改造。**
+**`tmux-skills` 已完成向“前台 tmux pane 生成 + 停止上报”口径的改造。**

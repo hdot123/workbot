@@ -31,6 +31,7 @@ DEFAULT_PID_FILE = Path(
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 DEFAULT_CONFIRM_TIMEOUT_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0
+DEFAULT_IDLE_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_RETRIES = 1
 MAX_IPC_FRAME_BYTES = 256 * 1024 * 1024
 IPC_METHOD_VERSIONS = {
@@ -93,6 +94,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_CONFIRM_TIMEOUT_SECONDS,
         help="Optional wait after owner-window turn start to observe a stream-state broadcast from that same window.",
+    )
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=DEFAULT_IDLE_TIMEOUT_SECONDS,
+        help="Maximum wait per polling cycle for the target thread to return to idle before allowing the next queued delivery.",
     )
     parser.add_argument("--request-timeout", type=float, default=DEFAULT_REQUEST_TIMEOUT_SECONDS, help="Window IPC request timeout.")
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES, help="Retries per queue item before moving on to the next polling cycle.")
@@ -356,6 +363,32 @@ class CodexWindowIpcClient:
             self._backlog = deferred + self._backlog
         return False
 
+    def wait_for_thread_idle(
+        self,
+        *,
+        thread_id: str,
+        handled_by_client_id: str,
+        timeout: float,
+    ) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        deferred: list[dict[str, Any]] = []
+        while time.monotonic() < deadline:
+            message = self._next_message(deadline - time.monotonic())
+            if message is None:
+                continue
+            if self._is_matching_idle_state_change(
+                message,
+                thread_id=thread_id,
+                handled_by_client_id=handled_by_client_id,
+            ):
+                if deferred:
+                    self._backlog = deferred + self._backlog
+                return True
+            deferred.append(message)
+        if deferred:
+            self._backlog = deferred + self._backlog
+        return False
+
     def _send_request_raw(
         self,
         method: str,
@@ -452,6 +485,27 @@ class CodexWindowIpcClient:
             and str(message.get("sourceClientId") or "").strip() == handled_by_client_id
         )
 
+    @classmethod
+    def _is_matching_idle_state_change(
+        cls,
+        message: dict[str, Any],
+        *,
+        thread_id: str,
+        handled_by_client_id: str,
+    ) -> bool:
+        if not cls._is_matching_stream_state_change(
+            message,
+            thread_id=thread_id,
+            handled_by_client_id=handled_by_client_id,
+        ):
+            return False
+        params = message.get("params") or {}
+        change = params.get("change") or {}
+        runtime_state = change.get("threadRuntimeStatus")
+        if not isinstance(runtime_state, dict):
+            runtime_state = ((change.get("conversationState") or {}).get("threadRuntimeStatus"))
+        return str((runtime_state or {}).get("type") or "").strip() == "idle"
+
     @staticmethod
     def _response_error(response: dict[str, Any]) -> str:
         error = response.get("error")
@@ -467,6 +521,7 @@ def process_queue_item(
     receipts_log: Path,
     receipts_by_event_id: dict[str, dict[str, Any]],
     confirm_timeout: float,
+    idle_timeout: float,
     max_retries: int,
 ) -> None:
     payload = load_json(path)
@@ -485,6 +540,40 @@ def process_queue_item(
 
     latest_receipt = receipts_by_event_id.get(event_id)
     if latest_receipt and latest_receipt.get("status") in {"delivered", "skipped"}:
+        maybe_ack_queue_file(path)
+        return
+
+    if latest_receipt and latest_receipt.get("status") == "accepted_waiting_idle":
+        handled_by_client_id = str(latest_receipt.get("handled_by_client_id") or "").strip()
+        if not handled_by_client_id:
+            raise WindowIpcError(f"receipt missing handled_by_client_id while waiting for idle: {event_id}")
+        idle_observed = client.wait_for_thread_idle(
+            thread_id=thread_id,
+            handled_by_client_id=handled_by_client_id,
+            timeout=idle_timeout,
+        )
+        if not idle_observed:
+            return
+        append_receipt(
+            receipts_log,
+            DeliveryReceipt(
+                event_id,
+                "delivered",
+                thread_id,
+                message,
+                turn_id=str(latest_receipt.get("turn_id") or "").strip() or None,
+                handled_by_client_id=handled_by_client_id,
+                reason="owner_window_response+thread_stream_state_changed+thread_idle",
+            ),
+        )
+        receipts_by_event_id[event_id] = {
+            "status": "delivered",
+            "thread_id": thread_id,
+            "message": message,
+            "turn_id": str(latest_receipt.get("turn_id") or "").strip() or None,
+            "handled_by_client_id": handled_by_client_id,
+            "reason": "owner_window_response+thread_stream_state_changed+thread_idle",
+        }
         maybe_ack_queue_file(path)
         return
 
@@ -522,6 +611,33 @@ def process_queue_item(
         confirmation_reason = "owner_window_response"
         if result.visibility_broadcast_observed:
             confirmation_reason = "owner_window_response+thread_stream_state_changed"
+        idle_observed = client.wait_for_thread_idle(
+            thread_id=thread_id,
+            handled_by_client_id=result.handled_by_client_id,
+            timeout=idle_timeout,
+        )
+        if not idle_observed:
+            append_receipt(
+                receipts_log,
+                DeliveryReceipt(
+                    event_id,
+                    "accepted_waiting_idle",
+                    thread_id,
+                    message,
+                    turn_id=result.turn_id,
+                    handled_by_client_id=result.handled_by_client_id,
+                    reason=confirmation_reason,
+                ),
+            )
+            receipts_by_event_id[event_id] = {
+                "status": "accepted_waiting_idle",
+                "thread_id": thread_id,
+                "message": message,
+                "turn_id": result.turn_id,
+                "handled_by_client_id": result.handled_by_client_id,
+                "reason": confirmation_reason,
+            }
+            return
         append_receipt(
             receipts_log,
             DeliveryReceipt(
@@ -531,7 +647,7 @@ def process_queue_item(
                 message,
                 turn_id=result.turn_id,
                 handled_by_client_id=result.handled_by_client_id,
-                reason=confirmation_reason,
+                reason=f"{confirmation_reason}+thread_idle",
             ),
         )
         receipts_by_event_id[event_id] = {
@@ -540,7 +656,7 @@ def process_queue_item(
             "message": message,
             "turn_id": result.turn_id,
             "handled_by_client_id": result.handled_by_client_id,
-            "reason": confirmation_reason,
+            "reason": f"{confirmation_reason}+thread_idle",
         }
         maybe_ack_queue_file(path)
         return
@@ -566,6 +682,7 @@ def main() -> int:
                         receipts_log=receipts_log,
                         receipts_by_event_id=receipts_by_event_id,
                         confirm_timeout=args.confirm_timeout,
+                        idle_timeout=args.idle_timeout,
                         max_retries=args.max_retries,
                     )
                 except Exception as exc:

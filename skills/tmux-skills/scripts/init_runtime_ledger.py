@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
         "--slot-binding",
         action="append",
         default=[],
-        help="Assign a slot binding using slot=role@target syntax. Repeatable.",
+        help="Assign a slot binding using slot=pane_title@target syntax. Repeatable.",
     )
     parser.add_argument(
         "--slot-bindings-json",
@@ -80,7 +80,7 @@ def parse_slot_bindings(args: argparse.Namespace) -> dict[str, dict[str, str]]:
             if not isinstance(binding, dict):
                 raise ValueError("slot-bindings-json values must be objects")
             bindings[str(slot_name).strip()] = {
-                "role": str(binding.get("role", "")).strip(),
+                "pane_title": str(binding.get("pane_title", "")).strip(),
                 "target": str(binding.get("target", "")).strip(),
             }
     for entry in args.slot_binding:

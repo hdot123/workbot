@@ -157,13 +157,13 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
     }
     for slot_name, binding in slot_bindings.items():
         target = str(binding.get("target", "")).strip()
-        role = str(binding.get("role", "")).strip()
+        pane_title = str(binding.get("pane_title", "")).strip()
         if not target or target not in actual_titles_by_target:
             reasons.append(f"slot_bindings.{slot_name}.target does not exist in live formal panes")
             continue
-        if role and actual_titles_by_target[target] != role:
+        if pane_title and actual_titles_by_target[target] != pane_title:
             reasons.append(
-                f"slot_bindings.{slot_name} expects {role} at {target}, actual title is {actual_titles_by_target[target]}"
+                f"slot_bindings.{slot_name} expects {pane_title} at {target}, actual title is {actual_titles_by_target[target]}"
             )
 
     codex_thread_bound = False
