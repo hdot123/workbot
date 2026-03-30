@@ -177,6 +177,8 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         next_action.append("refresh the runtime ledger after CODEX_THREAD_ID binding")
 
     watcher = runtime_ledger.get("watcher") if runtime_ledger else {}
+    if not isinstance(watcher, dict):
+        watcher = {}
     watcher_targets = sorted(str(target).strip() for target in watcher.get("targets", []) if str(target).strip())
     watcher_commands = watcher_commands_for_targets(bell_processes, actual_targets or watcher_targets)
     if args.require_watcher and not bool(watcher.get("armed")):

@@ -495,6 +495,42 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("BLOCKED", result["runtime_status"])
         self.assertIn("formal session formal-session is not attached", result["reasons"])
 
+    def test_ready_check_handles_null_watcher(self) -> None:
+        snapshot = {
+            "runtime_ledger": {
+                "pane_count": 1,
+                "slot_bindings": {
+                    "pane_1": {"pane_title": "task-1", "target": "formal-session:1.1"},
+                },
+                "watcher": None,
+                "codex_thread_bound": True,
+            },
+            "bell_processes": [],
+            "panes": [
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "task-1",
+                }
+            ],
+            "sessions": [{"session_name": "formal-session", "attached": 1}],
+            "CODEX_THREAD_ID": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
+            "session_count": 1,
+            "pane_count": 1,
+        }
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=True,
+            pretty=False,
+        )
+
+        result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("BLOCKED", result["runtime_status"])
+        self.assertIn("runtime watcher is not armed", result["reasons"])
+
     def test_shell_snapshot_is_not_classified_as_stopped(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(
             {"session_attached": 1, "pane_dead": 0, "current_command": "zsh"}
