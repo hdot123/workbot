@@ -6,27 +6,43 @@ import fcntl
 import json
 import os
 import select
-import subprocess
+import socket
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from build_tmux_handoff_bundle import build_bundle
 
 
 DEFAULT_QUEUE_DIR = Path("/Users/busiji/workbot/workspace/artifacts/tmux-skills/delivery-queue")
-DEFAULT_RECEIPTS_LOG = Path("/Users/busiji/workbot/workspace/artifacts/tmux-skills/app-thread-delivery-receipts.jsonl")
-DEFAULT_STDOUT_LOG = Path("/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-app-bridge.stdout.log")
-DEFAULT_PID_FILE = Path("/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-app-bridge.pid")
+DEFAULT_RECEIPTS_LOG = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/window-ipc-delivery-receipts.jsonl"
+)
+DEFAULT_STDOUT_LOG = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-window-ipc-bridge.stdout.log"
+)
+DEFAULT_PID_FILE = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-window-ipc-bridge.pid"
+)
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
-DEFAULT_CONFIRM_TIMEOUT_SECONDS = 15.0
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 15.0
+DEFAULT_CONFIRM_TIMEOUT_SECONDS = 5.0
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0
 DEFAULT_MAX_RETRIES = 1
+MAX_IPC_FRAME_BYTES = 256 * 1024 * 1024
+IPC_METHOD_VERSIONS = {
+    "initialize": 0,
+    "thread-follower-start-turn": 1,
+    "thread-stream-state-changed": 5,
+    "client-status-changed": 0,
+}
+INITIALIZING_CLIENT_ID = "initializing-client"
 
 
-class AppServerError(RuntimeError):
+class WindowIpcError(RuntimeError):
     pass
 
 
@@ -37,6 +53,7 @@ class DeliveryReceipt:
     thread_id: str
     message: str
     turn_id: str | None = None
+    handled_by_client_id: str | None = None
     reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -49,21 +66,35 @@ class DeliveryReceipt:
         }
         if self.turn_id:
             payload["turn_id"] = self.turn_id
+        if self.handled_by_client_id:
+            payload["handled_by_client_id"] = self.handled_by_client_id
         if self.reason:
             payload["reason"] = self.reason
         return payload
 
 
+@dataclass
+class WindowIpcDeliveryResult:
+    handled_by_client_id: str
+    turn_id: str | None
+    visibility_broadcast_observed: bool
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Long-running bridge that delivers tmux handoff queue events into Codex app threads via app-server."
+        description="Long-running bridge that delivers tmux handoff queue events into the current Codex window via local window IPC."
     )
     parser.add_argument("--queue-dir", default=str(DEFAULT_QUEUE_DIR), help="Directory containing queued event files.")
     parser.add_argument("--receipts-log", default=str(DEFAULT_RECEIPTS_LOG), help="JSONL file recording delivery receipts.")
     parser.add_argument("--pid-file", default=str(DEFAULT_PID_FILE), help="PID file used for singleton bridge ownership.")
     parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL_SECONDS, help="Queue polling interval.")
-    parser.add_argument("--confirm-timeout", type=float, default=DEFAULT_CONFIRM_TIMEOUT_SECONDS, help="Receipt confirmation timeout after turn/start.")
-    parser.add_argument("--request-timeout", type=float, default=DEFAULT_REQUEST_TIMEOUT_SECONDS, help="App-server request timeout.")
+    parser.add_argument(
+        "--confirm-timeout",
+        type=float,
+        default=DEFAULT_CONFIRM_TIMEOUT_SECONDS,
+        help="Optional wait after owner-window turn start to observe a stream-state broadcast from that same window.",
+    )
+    parser.add_argument("--request-timeout", type=float, default=DEFAULT_REQUEST_TIMEOUT_SECONDS, help="Window IPC request timeout.")
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES, help="Retries per queue item before moving on to the next polling cycle.")
     parser.add_argument("--once", action="store_true", help="Process the queue once and exit.")
     return parser.parse_args()
@@ -170,149 +201,269 @@ def acquire_lock(lock_path: Path):
     return handle
 
 
-class AppServerClient:
-    def __init__(self, *, request_timeout: float) -> None:
-        self.request_timeout = request_timeout
-        self.process: subprocess.Popen[str] | None = None
-        self.next_request_id = 1
-        self.notifications: list[dict[str, Any]] = []
+def ipc_method_version(method: str) -> int:
+    return IPC_METHOD_VERSIONS.get(method, 0)
 
-    def ensure_started(self) -> None:
-        if self.process and self.process.poll() is None:
-            return
-        try:
-            self.process = subprocess.Popen(
-                ["codex", "app-server", "--listen", "stdio://"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-        except OSError as exc:
-            raise AppServerError(str(exc) or "failed to start codex app-server") from exc
-        self.notifications.clear()
-        self.request(
-            "initialize",
-            {
-                "clientInfo": {"name": "tmux-handoff-app-bridge", "version": "0.1"},
-                "capabilities": None,
-            },
-        )
+
+def default_ipc_socket_path() -> Path:
+    configured = os.environ.get("CODEX_IPC_SOCKET", "").strip()
+    if configured:
+        return Path(configured)
+    temp_root = Path(tempfile.gettempdir()) / "codex-ipc"
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    if uid is None:
+        return temp_root / "ipc.sock"
+    return temp_root / f"ipc-{uid}.sock"
+
+
+def encode_ipc_message(message: dict[str, Any]) -> bytes:
+    encoded = json.dumps(message, ensure_ascii=False).encode("utf-8")
+    size = len(encoded)
+    if size > MAX_IPC_FRAME_BYTES:
+        raise WindowIpcError(f"IPC frame too large: {size} bytes")
+    return size.to_bytes(4, byteorder="little", signed=False) + encoded
+
+
+def extract_turn_id(response: dict[str, Any]) -> str | None:
+    candidates = [
+        response.get("result"),
+        (response.get("result") or {}).get("result"),
+        (response.get("result") or {}).get("turn"),
+        ((response.get("result") or {}).get("result") or {}).get("turn"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            turn = candidate.get("turn") if "turn" in candidate else candidate
+            if isinstance(turn, dict):
+                turn_id = str(turn.get("id") or "").strip()
+                if turn_id:
+                    return turn_id
+    return None
+
+
+class CodexWindowIpcClient:
+    def __init__(self, *, request_timeout: float, client_type: str = "tmux-handoff-app-bridge") -> None:
+        self.request_timeout = request_timeout
+        self.client_type = client_type
+        self.socket: socket.socket | None = None
+        self.client_id = INITIALIZING_CLIENT_ID
+        self._buffer = bytearray()
+        self._backlog: list[dict[str, Any]] = []
 
     def close(self) -> None:
-        if not self.process:
+        if self.socket is None:
             return
-        self.process.terminate()
         try:
-            self.process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
+            self.socket.close()
+        finally:
+            self.socket = None
+            self.client_id = INITIALIZING_CLIENT_ID
+            self._buffer.clear()
+            self._backlog.clear()
 
-    def request(self, method: str, params: dict[str, Any] | None) -> dict[str, Any]:
-        self.ensure_started()
-        assert self.process is not None
-        assert self.process.stdin is not None
+    def ensure_connected(self) -> None:
+        if self.socket is not None:
+            return
+        socket_path = default_ipc_socket_path()
+        if not socket_path.exists():
+            raise WindowIpcError(f"Codex window IPC socket not found: {socket_path}")
+        if os.name == "nt":
+            raise WindowIpcError("Windows named-pipe Codex IPC is not supported by tmux-skills")
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            connection.connect(str(socket_path))
+        except OSError as exc:
+            connection.close()
+            raise WindowIpcError(str(exc) or f"failed to connect to Codex IPC socket {socket_path}") from exc
+        self.socket = connection
+        response = self._send_request_raw("initialize", {"clientType": self.client_type})
+        if response.get("resultType") != "success":
+            self.close()
+            raise WindowIpcError(self._response_error(response) or "Codex IPC initialize failed")
+        client_id = str((response.get("result") or {}).get("clientId") or "").strip()
+        if not client_id:
+            self.close()
+            raise WindowIpcError("Codex IPC initialize succeeded without a clientId")
+        self.client_id = client_id
 
-        request_id = self.next_request_id
-        self.next_request_id += 1
-        payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-        self.process.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        self.process.stdin.flush()
+    def deliver_turn_to_current_window(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        confirm_timeout: float,
+    ) -> WindowIpcDeliveryResult:
+        response = self.send_request(
+            "thread-follower-start-turn",
+            {
+                "conversationId": thread_id,
+                "turnStartParams": {
+                    "input": [{"type": "text", "text": message, "text_elements": []}],
+                    "attachments": [],
+                },
+            },
+        )
+        if response.get("resultType") != "success":
+            raise WindowIpcError(self._response_error(response) or "thread-follower-start-turn failed")
+        handled_by_client_id = str(response.get("handledByClientId") or "").strip()
+        if not handled_by_client_id:
+            raise WindowIpcError("thread-follower-start-turn succeeded without handledByClientId")
+        turn_id = extract_turn_id(response)
+        visibility_broadcast_observed = self.wait_for_stream_state_change(
+            thread_id=thread_id,
+            handled_by_client_id=handled_by_client_id,
+            timeout=confirm_timeout,
+        )
+        return WindowIpcDeliveryResult(
+            handled_by_client_id=handled_by_client_id,
+            turn_id=turn_id,
+            visibility_broadcast_observed=visibility_broadcast_observed,
+        )
 
-        deadline = time.monotonic() + self.request_timeout
+    def send_request(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        target_client_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.ensure_connected()
+        return self._send_request_raw(method, params, target_client_id=target_client_id)
+
+    def wait_for_stream_state_change(
+        self,
+        *,
+        thread_id: str,
+        handled_by_client_id: str,
+        timeout: float,
+    ) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        deferred: list[dict[str, Any]] = []
         while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                raise AppServerError(
-                    f"codex app-server exited with code {self.process.returncode}"
-                )
-            message = self._read_message(max(0.1, deadline - time.monotonic()))
+            message = self._next_message(deadline - time.monotonic())
             if message is None:
                 continue
-            if "id" in message:
-                if message["id"] != request_id:
-                    continue
-                if "error" in message:
-                    raise AppServerError(json.dumps(message["error"], ensure_ascii=False))
-                return dict(message.get("result") or {})
-            self.notifications.append(message)
-        raise AppServerError(f"timeout waiting for app-server response to {method}")
-
-    def wait_for_delivery_receipt(self, *, thread_id: str, turn_id: str, message: str, timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
-        saw_turn_started = False
-        while time.monotonic() < deadline:
-            buffered: list[dict[str, Any]] = []
-            while self.notifications:
-                buffered.append(self.notifications.pop(0))
-            for notification in buffered:
-                if self._is_turn_started(notification, thread_id, turn_id):
-                    saw_turn_started = True
-                if saw_turn_started and self._is_user_message_receipt(notification, thread_id, turn_id, message):
-                    return True
-
-            thread = self.request(
-                "thread/read",
-                {
-                    "threadId": thread_id,
-                    "includeTurns": True,
-                },
-            ).get("thread", {})
-            if turn_contains_user_message(thread, turn_id, message):
+            if self._is_matching_stream_state_change(
+                message,
+                thread_id=thread_id,
+                handled_by_client_id=handled_by_client_id,
+            ):
+                if deferred:
+                    self._backlog = deferred + self._backlog
                 return True
+            deferred.append(message)
+        if deferred:
+            self._backlog = deferred + self._backlog
         return False
 
-    def _read_message(self, timeout: float) -> dict[str, Any] | None:
-        assert self.process is not None
-        assert self.process.stdout is not None
-        assert self.process.stderr is not None
+    def _send_request_raw(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        target_client_id: str | None = None,
+    ) -> dict[str, Any]:
+        request_id = str(uuid4())
+        request = {
+            "type": "request",
+            "requestId": request_id,
+            "sourceClientId": self.client_id,
+            "version": ipc_method_version(method),
+            "method": method,
+            "params": params,
+        }
+        if target_client_id:
+            request["targetClientId"] = target_client_id
+        self._write_message(request)
+        deadline = time.monotonic() + self.request_timeout
+        deferred: list[dict[str, Any]] = []
+        while time.monotonic() < deadline:
+            message = self._next_message(deadline - time.monotonic())
+            if message is None:
+                continue
+            if message.get("type") == "response" and str(message.get("requestId") or "") == request_id:
+                if deferred:
+                    self._backlog = deferred + self._backlog
+                return message
+            deferred.append(message)
+        if deferred:
+            self._backlog = deferred + self._backlog
+        raise WindowIpcError(f"timeout waiting for Codex window IPC response to {method}")
 
-        readable, _, _ = select.select([self.process.stdout, self.process.stderr], [], [], timeout)
+    def _next_message(self, timeout: float) -> dict[str, Any] | None:
+        if self._backlog:
+            return self._backlog.pop(0)
+        assert self.socket is not None
+        remaining = max(0.0, timeout)
+        readable, _, _ = select.select([self.socket], [], [], remaining)
         if not readable:
             return None
-        for stream in readable:
-            line = stream.readline()
-            if not line:
-                continue
-            line = line.rstrip("\n")
-            if stream is self.process.stderr:
-                print(line, file=sys.stderr)
-                continue
+        chunk = self.socket.recv(64 * 1024)
+        if not chunk:
+            self.close()
+            raise WindowIpcError("Codex window IPC connection closed")
+        self._buffer.extend(chunk)
+        frames = self._drain_frames()
+        if not frames:
+            return None
+        self._backlog.extend(frames[1:])
+        return frames[0]
+
+    def _drain_frames(self) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        while True:
+            if len(self._buffer) < 4:
+                return messages
+            frame_size = int.from_bytes(self._buffer[:4], byteorder="little", signed=False)
+            if frame_size > MAX_IPC_FRAME_BYTES:
+                raise WindowIpcError(f"IPC frame exceeded limit ({frame_size} bytes)")
+            if len(self._buffer) < 4 + frame_size:
+                return messages
+            frame = bytes(self._buffer[4 : 4 + frame_size])
+            del self._buffer[: 4 + frame_size]
             try:
-                return json.loads(line)
+                messages.append(json.loads(frame.decode("utf-8")))
             except json.JSONDecodeError as exc:
-                raise AppServerError(f"invalid JSON from app-server: {exc}") from exc
-        return None
+                raise WindowIpcError(f"invalid JSON from Codex window IPC: {exc}") from exc
+
+    def _write_message(self, message: dict[str, Any]) -> None:
+        assert self.socket is not None
+        payload = encode_ipc_message(message)
+        try:
+            self.socket.sendall(payload)
+        except OSError as exc:
+            self.close()
+            raise WindowIpcError(str(exc) or "failed to write to Codex window IPC") from exc
 
     @staticmethod
-    def _is_turn_started(notification: dict[str, Any], thread_id: str, turn_id: str) -> bool:
-        params = notification.get("params") or {}
-        turn = params.get("turn") or {}
+    def _is_matching_stream_state_change(
+        message: dict[str, Any],
+        *,
+        thread_id: str,
+        handled_by_client_id: str,
+    ) -> bool:
+        if message.get("type") != "broadcast":
+            return False
+        if message.get("method") != "thread-stream-state-changed":
+            return False
+        params = message.get("params") or {}
         return (
-            notification.get("method") == "turn/started"
-            and str(params.get("threadId") or "").strip() == thread_id
-            and str(turn.get("id") or "").strip() == turn_id
+            str(params.get("conversationId") or "").strip() == thread_id
+            and str(message.get("sourceClientId") or "").strip() == handled_by_client_id
         )
 
     @staticmethod
-    def _is_user_message_receipt(notification: dict[str, Any], thread_id: str, turn_id: str, message: str) -> bool:
-        if notification.get("method") not in {"item/started", "item/completed"}:
-            return False
-        params = notification.get("params") or {}
-        item = params.get("item") or {}
-        if str(params.get("threadId") or "").strip() != thread_id:
-            return False
-        if str(params.get("turnId") or "").strip() != turn_id:
-            return False
-        if item.get("type") != "userMessage":
-            return False
-        return normalize_message_text(item.get("content") or []) == message.strip()
+    def _response_error(response: dict[str, Any]) -> str:
+        error = response.get("error")
+        if isinstance(error, str) and error:
+            return error
+        return json.dumps(error, ensure_ascii=False) if error is not None else ""
 
 
 def process_queue_item(
     path: Path,
     *,
-    client: AppServerClient,
+    client: CodexWindowIpcClient,
     receipts_log: Path,
     receipts_by_event_id: dict[str, dict[str, Any]],
     confirm_timeout: float,
@@ -326,11 +477,11 @@ def process_queue_item(
     thread_id = target_thread_id(bundle)
 
     if not event_id:
-        raise AppServerError(f"event file missing event_id: {path}")
+        raise WindowIpcError(f"event file missing event_id: {path}")
     if not message:
-        raise AppServerError(f"event file missing notification message: {path}")
+        raise WindowIpcError(f"event file missing notification message: {path}")
     if not thread_id:
-        raise AppServerError(f"event file missing target thread id: {path}")
+        raise WindowIpcError(f"event file missing target thread id: {path}")
 
     latest_receipt = receipts_by_event_id.get(event_id)
     if latest_receipt and latest_receipt.get("status") in {"delivered", "skipped"}:
@@ -338,66 +489,60 @@ def process_queue_item(
         return
 
     if not bundle_deliverable(bundle):
-        append_receipt(receipts_log, DeliveryReceipt(event_id, "skipped", thread_id, message, reason="non_deliverable_event"))
+        append_receipt(
+            receipts_log,
+            DeliveryReceipt(event_id, "skipped", thread_id, message, reason="non_deliverable_event"),
+        )
         receipts_by_event_id[event_id] = {"status": "skipped", "thread_id": thread_id, "message": message}
         maybe_ack_queue_file(path)
         return
 
-    if latest_receipt and latest_receipt.get("status") == "turn_started":
-        turn_id = str(latest_receipt.get("turn_id") or "").strip()
-        if turn_id and client.wait_for_delivery_receipt(thread_id=thread_id, turn_id=turn_id, message=message, timeout=confirm_timeout):
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "delivered", thread_id, message, turn_id=turn_id))
-            receipts_by_event_id[event_id] = {"status": "delivered", "thread_id": thread_id, "turn_id": turn_id, "message": message}
-            maybe_ack_queue_file(path)
-        return
-
     for _ in range(max(1, max_retries)):
         try:
-            resumed = client.request(
-                "thread/resume",
-                {
-                    "threadId": thread_id,
-                    "persistExtendedHistory": False,
-                },
+            result = client.deliver_turn_to_current_window(
+                thread_id=thread_id,
+                message=message,
+                confirm_timeout=confirm_timeout,
             )
-        except AppServerError as exc:
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "thread_resume_failed", thread_id, message, reason=str(exc)))
-            receipts_by_event_id[event_id] = {"status": "thread_resume_failed", "thread_id": thread_id, "message": message, "reason": str(exc)}
+        except WindowIpcError as exc:
+            reason = str(exc) or "window_ipc_delivery_failed"
+            status = "window_ipc_connect_failed" if "socket" in reason or "connect" in reason else "window_ipc_request_failed"
+            append_receipt(
+                receipts_log,
+                DeliveryReceipt(event_id, status, thread_id, message, reason=reason),
+            )
+            receipts_by_event_id[event_id] = {
+                "status": status,
+                "thread_id": thread_id,
+                "message": message,
+                "reason": reason,
+            }
             return
 
-        thread = resumed.get("thread", {})
-        status = thread.get("status") or {}
-        if str(status.get("type") or "").strip() not in {"", "idle"}:
-            reason = f"thread_not_idle:{json.dumps(status, ensure_ascii=False)}"
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "thread_not_idle", thread_id, message, reason=reason))
-            receipts_by_event_id[event_id] = {"status": "thread_not_idle", "thread_id": thread_id, "message": message, "reason": reason}
-            return
-
-        try:
-            turn = client.request(
-                "turn/start",
-                {
-                    "threadId": thread_id,
-                    "input": [{"type": "text", "text": message, "text_elements": []}],
-                },
-            ).get("turn", {})
-        except AppServerError as exc:
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "turn_start_failed", thread_id, message, reason=str(exc)))
-            receipts_by_event_id[event_id] = {"status": "turn_start_failed", "thread_id": thread_id, "message": message, "reason": str(exc)}
-            return
-
-        turn_id = str(turn.get("id") or "").strip()
-        if not turn_id:
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "turn_start_failed", thread_id, message, reason="missing_turn_id"))
-            receipts_by_event_id[event_id] = {"status": "turn_start_failed", "thread_id": thread_id, "message": message, "reason": "missing_turn_id"}
-            return
-
-        append_receipt(receipts_log, DeliveryReceipt(event_id, "turn_started", thread_id, message, turn_id=turn_id))
-        receipts_by_event_id[event_id] = {"status": "turn_started", "thread_id": thread_id, "turn_id": turn_id, "message": message}
-        if client.wait_for_delivery_receipt(thread_id=thread_id, turn_id=turn_id, message=message, timeout=confirm_timeout):
-            append_receipt(receipts_log, DeliveryReceipt(event_id, "delivered", thread_id, message, turn_id=turn_id))
-            receipts_by_event_id[event_id] = {"status": "delivered", "thread_id": thread_id, "turn_id": turn_id, "message": message}
-            maybe_ack_queue_file(path)
+        confirmation_reason = "owner_window_response"
+        if result.visibility_broadcast_observed:
+            confirmation_reason = "owner_window_response+thread_stream_state_changed"
+        append_receipt(
+            receipts_log,
+            DeliveryReceipt(
+                event_id,
+                "delivered",
+                thread_id,
+                message,
+                turn_id=result.turn_id,
+                handled_by_client_id=result.handled_by_client_id,
+                reason=confirmation_reason,
+            ),
+        )
+        receipts_by_event_id[event_id] = {
+            "status": "delivered",
+            "thread_id": thread_id,
+            "message": message,
+            "turn_id": result.turn_id,
+            "handled_by_client_id": result.handled_by_client_id,
+            "reason": confirmation_reason,
+        }
+        maybe_ack_queue_file(path)
         return
 
 
@@ -406,7 +551,7 @@ def main() -> int:
     queue_dir = Path(args.queue_dir)
     receipts_log = Path(args.receipts_log)
     _lock_handle = acquire_lock(Path(args.pid_file))
-    client = AppServerClient(request_timeout=args.request_timeout)
+    client = CodexWindowIpcClient(request_timeout=args.request_timeout)
     receipts_by_event_id = load_receipts(receipts_log)
     queue_dir.mkdir(parents=True, exist_ok=True)
 

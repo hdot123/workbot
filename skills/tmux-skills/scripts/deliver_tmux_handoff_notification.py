@@ -26,7 +26,7 @@ DEFAULT_BRIDGE_START_POLL_SECONDS = 0.1
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Deliver a tmux-skills handoff notification to the CODEX_THREAD_ID-bound Codex thread."
+        description="Deliver a tmux-skills handoff notification to the CODEX_THREAD_ID-bound Codex window thread."
     )
     parser.add_argument(
         "--event-file",
@@ -50,27 +50,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--queue-dir",
         default=str(DEFAULT_QUEUE_DIR),
-        help="Queue directory consumed by the long-lived tmux handoff app-thread bridge.",
+        help="Queue directory consumed by the long-lived tmux handoff window IPC bridge.",
     )
     parser.add_argument(
         "--bridge-script",
         default=str(DEFAULT_BRIDGE_SCRIPT),
-        help="Bridge/sidecar script responsible for app-thread delivery.",
+        help="Bridge/sidecar script responsible for Codex window IPC delivery.",
     )
     parser.add_argument(
         "--bridge-pid-file",
         default=str(DEFAULT_BRIDGE_PID_FILE),
-        help="PID file used to detect the long-lived app-thread bridge.",
+        help="PID file used to detect the long-lived window IPC bridge.",
     )
     parser.add_argument(
         "--bridge-stdout-log",
         default=str(DEFAULT_BRIDGE_STDOUT_LOG),
-        help="Stdout/stderr capture path for the long-lived app-thread bridge.",
+        help="Stdout/stderr capture path for the long-lived window IPC bridge.",
     )
     parser.add_argument(
         "--bridge-receipts-log",
         default=str(DEFAULT_BRIDGE_RECEIPTS_LOG),
-        help="JSONL receipt log written by the long-lived app-thread bridge.",
+        help="JSONL receipt log written by the long-lived window IPC bridge.",
     )
     return parser.parse_args()
 
@@ -269,7 +269,7 @@ def main() -> int:
         json.dump(
             {
                 "status": "dry_run",
-                "transport": "codex_app_server_thread",
+                "transport": "codex_window_ipc",
                 "session_mode": session_mode,
                 "codex_thread_id": codex_thread_id,
                 "bridge_command": bridge_command,
@@ -307,7 +307,7 @@ def main() -> int:
     json.dump(
         {
             "status": "queued_for_bridge",
-            "transport": "codex_app_server_thread",
+            "transport": "codex_window_ipc",
             "session_mode": session_mode,
             "codex_thread_id": codex_thread_id,
             "bridge_pid": bridge_pid,

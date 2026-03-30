@@ -9,7 +9,7 @@
 - Codex 提供 `pane_count`
 - Codex 提供 `pane_titles`
 - `tmux-skills` 在前台 tmux 中生成这些 pane
-- `tmux-skills` 在 pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+- `tmux-skills` 在 pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 它不再被定义为 Claude runtime skill，也不再以 Claude scene 校验作为完成标准。
 
@@ -21,8 +21,8 @@
 - `tmux-skills` 的执行目标是前台 attached 的 `formal-session`
 - `tmux-skills` 的产出目标是 pane 数量到位、标题到位
 - `tmux-skills` 的持续职责是 pane 状态监控与停止上报
-- `CODEX_THREAD_ID` 仍然是上报目标的唯一正式线程入口，并且必须指向唯一的 Codex app thread
-- delivery 已收口到常驻 app-server bridge，不再通过 `codex exec resume` 或本地 `session_index.jsonl` 解释目标线程
+- `CODEX_THREAD_ID` 仍然是上报目标的唯一正式线程入口，并且必须指向唯一的 Codex app thread id
+- delivery 已收口到常驻 window IPC bridge，不再通过 `codex exec resume` 或本地 `session_index.jsonl` 解释目标线程
 - 公开主链已切到 `cleanup -> env -> topology -> pane-labeling -> ledger -> watcher`
 - 旧的 Claude / scene / identity 公开入口已下线或改为兼容弃用提示
 - watcher 已改成只上报 `pane_stopped` / `pane_unreachable` / `session_detached`
@@ -35,7 +35,7 @@
 1. 接收 Codex 提供的 `pane_count`
 2. 接收 Codex 提供的 `pane_titles`
 3. 在前台 tmux 中生成 pane 并设置标题
-4. 在 pane 停止时把状态报告给 `CODEX_THREAD_ID` 绑定的 Codex app thread
+4. 在 pane 停止时把状态报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口
 
 ## 当前阶段结论
 

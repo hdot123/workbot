@@ -2,7 +2,7 @@
 type: [KB:PROJECT]
 title: "Workbot"
 created: 2026-03-24 10:13
-updated: 2026-03-30 02:35
+updated: 2026-03-30 08:00
 source: [Manual]
 confidence: high
 tags: [workbot, workspace, obsidian, mrd, control-plane]
@@ -34,7 +34,7 @@ last_verified: 2026-03-30
 ## 当前控制面口径
 - `tmux-skills` 负责前台 `formal-session` 的 pane 生成与 stopped-pane handoff。
 - tmux handoff 的目标真源是 monitor 对应的 `CODEX_THREAD_ID`，且该值必须是 Codex app thread id。
-- stopped-pane delivery 当前通过常驻 app-server bridge 投递到目标 app thread，不再通过 `codex exec resume` 投递到本地 CLI session。
+- stopped-pane delivery 当前通过常驻 window IPC bridge 投递到目标 thread 的 owner 窗口，不再通过 `codex exec resume` 投递到本地 CLI session。
 
 ## 相关项目入口
 - [AEdu](/Users/busiji/workbot/workspace/memory/kb/projects/AEdu.md)

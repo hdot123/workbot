@@ -2,7 +2,7 @@
 name: tmux-skills
 description: |
   Workbot 的 tmux pane 生成与监控技能。
-  Codex 提供 pane 数量和 pane 标题，tmux-skills 负责在前台 tmux 中生成这些 pane，并在 pane 停止时通过 Codex App Server 向专用 monitor thread 的 `CODEX_THREAD_ID` 对应 app thread 报告。
+  Codex 提供 pane 数量和 pane 标题，tmux-skills 负责在前台 tmux 中生成这些 pane，并在 pane 停止时通过 Codex 本地 window IPC 向专用 monitor thread 的 `CODEX_THREAD_ID` 对应当前窗口 thread 报告。
 ---
 
 # tmux-skills
@@ -12,7 +12,7 @@ description: |
 这个 skill 只做两件事：
 
 1. 接收 Codex 提供的 `pane_count` 与 `pane_titles`
-2. 在前台 tmux 中生成这些 pane，并在 pane 停止时向 monitor thread 的 `CODEX_THREAD_ID` 对应 app thread 报告
+2. 在前台 tmux 中生成这些 pane，并在 pane 停止时向 monitor thread 的 `CODEX_THREAD_ID` 对应当前窗口 thread 报告
 
 ## 冻结口径
 
@@ -25,7 +25,7 @@ description: |
 - pane 停止后的报告目标固定为 monitor thread 注入的 `CODEX_THREAD_ID`
 - `CODEX_THREAD_ID` 是 tmux 门铃投递目标的唯一 thread 真源，必须指向当天唯一的监控 app thread
 - `CODEX_THREAD_ID` 的语义是 Codex app thread id，不是本地 CLI session id
-- tmux handoff 的 delivery 通过常驻 app-server bridge 投递到 app thread，不再使用 `codex exec resume`
+- tmux handoff 的 delivery 通过常驻 window IPC bridge 投递到当前 Codex 窗口，不再使用 `codex exec resume`
 - 每次新的 pane 创建前，必须先清理上一轮遗留的 watcher、runtime ledger、issues 文件和 watcher 日志
 
 ## Attached 机制
@@ -50,7 +50,7 @@ description: |
 - 按 Codex 提供的标题设置 pane 标题
 - 输出 pane 的 `target` 与标题
 - 持续监控 pane 状态
-- 当 pane 停止、失联或不可达时，向 `CODEX_THREAD_ID` 绑定的 monitor app thread 报告
+- 当 pane 停止、失联或不可达时，向 `CODEX_THREAD_ID` 绑定的 monitor 当前窗口 thread 报告
 
 ## 不负责什么
 
@@ -84,9 +84,9 @@ Codex 调用 `tmux-skills` 时必须显式提供：
 
 pane 监控阶段只保留一个对外动作：
 
-- pane 停止后向 `CODEX_THREAD_ID` 绑定的 monitor app thread 报告
+- pane 停止后向 `CODEX_THREAD_ID` 绑定的 monitor 当前窗口 thread 报告
   - 这里的目标线程只认 `CODEX_THREAD_ID`，不认发起本次调用的对话，也不认 tmux session 名称
-  - delivery runner 只负责排队并确保 bridge 常驻，真正投递由 app-server bridge 完成
+  - delivery runner 只负责排队并确保 bridge 常驻，真正投递由 window IPC bridge 完成
 
 报告目标使用：
 
@@ -106,7 +106,7 @@ pane 监控阶段只保留一个对外动作：
 - 布局入口：`/Users/busiji/workbot/skills/tmux-skills/scripts/build_tmux_topology.py`
 - 运行面审计：`/Users/busiji/workbot/skills/tmux-skills/scripts/check_tmux_ready.py`
 - watcher 挂载：`/Users/busiji/workbot/skills/tmux-skills/scripts/arm_tmux_handoff_watcher.py`
-- app-thread bridge：`/Users/busiji/workbot/skills/tmux-skills/scripts/tmux_handoff_app_bridge.py`
+- window IPC bridge：`/Users/busiji/workbot/skills/tmux-skills/scripts/tmux_handoff_app_bridge.py`
 
 常见调用方式：
 
@@ -140,9 +140,9 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_ch
 
 - watcher 负责“看”，发现事件后落 handoff 队列
 - delivery runner 负责“送”的编排，只确保 bridge 在跑并把事件留在队列中
-- bridge 常驻消费队列，并通过 `codex app-server` 的 thread / turn 模型把消息送进目标 app thread
-- 投递成功至少要求该消息在目标 thread 上拿到可确认的 turn / item 回执；只“发出请求”不算成功
+- bridge 常驻消费队列，并通过 Codex 本地 window IPC 的 `thread-follower-start-turn` 把消息路由到目标 thread 的 owner 窗口
+- 投递成功至少要求 owner 窗口返回 `handledByClientId`，并拿到该次 turn 的成功响应；如果同连接还观察到 `thread-stream-state-changed` 广播，会一并记入 receipt
 
 ## 一句话职责
 
-**根据 Codex 提供的数量和标题，在前台 tmux 中生成 pane，并在 pane 停止后通过 app-server bridge 向 `CODEX_THREAD_ID` 对应的 monitor app thread 报告。**
+**根据 Codex 提供的数量和标题，在前台 tmux 中生成 pane，并在 pane 停止后通过 window IPC bridge 向 `CODEX_THREAD_ID` 对应的 monitor 当前窗口 thread 报告。**

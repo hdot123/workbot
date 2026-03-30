@@ -72,7 +72,7 @@ def build_bundle(event: dict[str, Any], *, table: str, session_mode: str) -> dic
             "thread_id": codex_thread_id,
         },
         "delivery": {
-            "transport": "codex_app_server_thread",
+            "transport": "codex_window_ipc",
             "deliverable": deliverable,
         },
         "notification": notification,

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import io
 import sys
 import tempfile
 import unittest
@@ -126,7 +127,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             bundle["tmux_skills_handoff"]["target"]["thread_id"],
         )
         self.assertEqual(
-            "codex_app_server_thread",
+            "codex_window_ipc",
             bundle["tmux_skills_handoff"]["delivery"]["transport"],
         )
 
@@ -179,6 +180,20 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 "qa-bot pane 已停止：formal-session:1.3",
             )
         )
+
+    def test_default_ipc_socket_path_uses_uid_tmpdir(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("tmux_handoff_app_bridge.tempfile.gettempdir", return_value="/tmp/codex-tests"):
+                with patch("tmux_handoff_app_bridge.os.getuid", return_value=501):
+                    path = tmux_handoff_app_bridge.default_ipc_socket_path()
+        self.assertEqual(Path("/tmp/codex-tests/codex-ipc/ipc-501.sock"), path)
+
+    def test_encode_ipc_message_uses_length_prefixed_json(self) -> None:
+        payload = {"type": "request", "method": "initialize", "params": {"clientType": "tmux-tests"}}
+        frame = tmux_handoff_app_bridge.encode_ipc_message(payload)
+        body_size = int.from_bytes(frame[:4], byteorder="little", signed=False)
+        self.assertEqual(len(frame) - 4, body_size)
+        self.assertEqual(payload, json.loads(frame[4:].decode("utf-8")))
 
     def test_watcher_handoff_queues_event_and_spawns_delivery_runner(self) -> None:
         event = sample_event("pane_stopped")
@@ -234,6 +249,23 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             self.assertTrue(event_file.exists())
 
         self.assertEqual(0, rc)
+
+    def test_delivery_runner_dry_run_reports_window_ipc_transport(self) -> None:
+        stdout = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "deliver_tmux_handoff_notification.py",
+                "--dry-run",
+            ],
+        ):
+            with patch("sys.stdout", stdout):
+                payload = sample_event("pane_stopped")
+                with patch("deliver_tmux_handoff_notification.load_json", return_value=payload):
+                    rc = deliver_tmux_handoff_notification.main()
+        self.assertEqual(0, rc)
+        self.assertEqual("codex_window_ipc", json.loads(stdout.getvalue())["transport"])
 
     def test_delivery_runner_acknowledges_non_deliverable_event_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -444,8 +476,62 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 confirm_timeout=1.0,
                 max_retries=1,
             )
-        client.request.assert_not_called()
+        client.deliver_turn_to_current_window.assert_not_called()
         self.assertFalse(queue_file.exists())
+
+    def test_bridge_delivers_via_window_ipc_and_acknowledges_queue_item(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_file = Path(tmpdir) / "queued.json"
+            queue_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            receipts_log = Path(tmpdir) / "receipts.jsonl"
+            receipts: dict[str, dict[str, object]] = {}
+            client = Mock()
+            client.deliver_turn_to_current_window.return_value = tmux_handoff_app_bridge.WindowIpcDeliveryResult(
+                handled_by_client_id="client-123",
+                turn_id="turn-123",
+                visibility_broadcast_observed=True,
+            )
+            tmux_handoff_app_bridge.process_queue_item(
+                queue_file,
+                client=client,
+                receipts_log=receipts_log,
+                receipts_by_event_id=receipts,
+                confirm_timeout=1.0,
+                max_retries=1,
+            )
+            lines = receipts_log.read_text(encoding="utf-8").splitlines()
+        client.deliver_turn_to_current_window.assert_called_once()
+        self.assertFalse(queue_file.exists())
+        self.assertEqual(1, len(lines))
+        receipt = json.loads(lines[0])
+        self.assertEqual("delivered", receipt["status"])
+        self.assertEqual("turn-123", receipt["turn_id"])
+        self.assertEqual("client-123", receipt["handled_by_client_id"])
+        self.assertEqual("owner_window_response+thread_stream_state_changed", receipt["reason"])
+
+    def test_send_request_does_not_starve_matching_response_behind_broadcast(self) -> None:
+        client = tmux_handoff_app_bridge.CodexWindowIpcClient(request_timeout=1.0)
+        client.socket = Mock()
+        client.client_id = "client-abc"
+        messages = [
+            {"type": "broadcast", "method": "client-status-changed"},
+            {"type": "response", "requestId": "fixed-request", "resultType": "success", "method": "thread-follower-start-turn", "handledByClientId": "window-1", "result": {}},
+        ]
+
+        def fake_next_message(_timeout: float) -> dict[str, object] | None:
+            return messages.pop(0) if messages else None
+
+        with patch("tmux_handoff_app_bridge.uuid4", return_value="fixed-request"):
+            with patch.object(client, "_write_message"):
+                with patch.object(client, "_next_message", side_effect=fake_next_message):
+                    response = client._send_request_raw(
+                        "thread-follower-start-turn",
+                        {"conversationId": "thread-1", "turnStartParams": {"input": [], "attachments": []}},
+                    )
+
+        self.assertEqual("success", response["resultType"])
+        self.assertEqual(1, len(client._backlog))
+        self.assertEqual("client-status-changed", client._backlog[0]["method"])
 
 
 if __name__ == "__main__":

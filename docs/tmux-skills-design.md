@@ -7,7 +7,7 @@
 它的职责只有两段：
 
 1. Codex 提供 pane 数量和 pane 标题，`tmux-skills` 在前台 tmux 中生成这些 pane
-2. pane 生成完成后，`tmux-skills` 持续监控 pane 状态，并在 pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+2. pane 生成完成后，`tmux-skills` 持续监控 pane 状态，并在 pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 一句话定义：
 
@@ -82,7 +82,7 @@ pane 监控阶段只关心 pane 是否仍在运行：
 
 其中最重要的正式动作是：
 
-- pane 停止后向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+- pane 停止后向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 ## 4. Codex 与 tmux-skills 的边界
 
@@ -101,7 +101,7 @@ pane 监控阶段只关心 pane 是否仍在运行：
 - 设置 pane 标题
 - 输出 pane target 与标题
 - 监控 pane 状态
-- pane 停止后向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+- pane 停止后向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 ### 4.3 tmux-skills 不负责
 
@@ -113,17 +113,17 @@ pane 监控阶段只关心 pane 是否仍在运行：
 
 ## 5. 报告模型
 
-`tmux-skills` 的报告目标固定为 `CODEX_THREAD_ID` 绑定的 Codex app thread。
+`tmux-skills` 的报告目标固定为 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口。
 
 这里不再使用旧简称，以免误解成某个固定名字的线程或 tmux session。
 
-这里真正指的是 tmux 运行面中注入的那个 `CODEX_THREAD_ID` 唯一指向的正式 Codex app thread。
+这里真正指的是 tmux 运行面中注入的那个 `CODEX_THREAD_ID` 唯一指向的正式 Codex app thread id，以及该 thread 当前 owner 的 Codex 窗口。
 
 delivery 路径固定为：
 
 - watcher 发现事件并落 handoff 队列
 - delivery runner 只负责排队并确保 bridge 常驻
-- app-server bridge 通过 `thread/resume` 和 `turn/start` 把消息送进目标 app thread
+- window IPC bridge 通过本地 Codex IPC 的 `thread-follower-start-turn` 把消息路由到目标 thread 的 owner 窗口
 
 这里明确排除：
 
@@ -152,6 +152,6 @@ delivery 路径固定为：
 `tmux-skills` 的完成标准只有两条：
 
 1. 已按 Codex 提供的数量和标题，在前台 tmux 中生成目标 pane
-2. 已开始监控这些 pane，并能在 pane 停止时向 `CODEX_THREAD_ID` 绑定的 Codex app thread 报告
+2. 已开始监控这些 pane，并能在 pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 只要满足这两条，就算 `ok`。

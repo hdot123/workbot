@@ -139,7 +139,7 @@ status: active
 - 监控目标只包含当前 formal session 中由 Codex 要求生成的 pane
 - 任一 pane 停止时，`tmux-skills` 必须把停止事件发送到 `CODEX_THREAD_ID`
 - `CODEX_THREAD_ID` 在 tmux 门铃链路中的语义固定为 Codex app thread id，不再允许复用为本地 CLI session id
-- 停止事件的 delivery 由常驻 app-server bridge 执行；watcher 只负责观察、记录和落队列
+- 停止事件的 delivery 由常驻 window IPC bridge 执行；watcher 只负责观察、记录和落队列
 - 停止事件不再通过 `codex exec resume` 投递
 - 停止事件至少包含：
   - `target`
@@ -188,7 +188,7 @@ status: active
 - 不允许把任务执行结果打到监控线程
 - 不允许一个线程同时承担任务流和监控流
 - 对 tmux 门铃链路而言，线程分流通过 monitor pane / slot 启动时注入的 `CODEX_THREAD_ID` 实现，不再依赖多个候选环境变量回退
-- 对 tmux handoff delivery 而言，消息进入监控线程时应当以 app thread / turn 回执作为接收确认
+- 对 tmux handoff delivery 而言，消息进入监控线程时应当以 owner window 的成功响应作为接收确认
 
 ## 每日启动流程
 
