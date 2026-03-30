@@ -1267,6 +1267,32 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
         self.assertIn("historical formal-session residue is already attached to the current client", str(exc.exception))
 
+    def test_wait_for_attached_formal_session_accepts_switched_formal_client_from_source_pane(self) -> None:
+        source_snapshot = runtime_snapshot(
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "seed-session", "attached": 0},
+            ],
+            panes=[
+                {"session_name": "formal-session", "target": "formal-session:1.1"},
+                {"session_name": "seed-session", "target": "seed-session:1.1"},
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "seed-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+            },
+            visible_terminal_client=False,
+            formal_sessions=["formal-session"],
+        )
+        with patch("init_tmux_env.inspect_runtime", side_effect=[source_snapshot, source_snapshot]):
+            result = init_tmux_env.wait_for_attached_formal_session("formal-session", timeout_seconds=0.2)
+
+        self.assertIn("formal-session", result["formal_sessions"])
+        self.assertEqual(1, result["formal_client_count"])
+
     def test_init_tmux_env_switches_current_tmux_client_without_osascript(self) -> None:
         snapshots = [
             runtime_snapshot(
@@ -1288,49 +1314,79 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 },
             ),
             runtime_snapshot(
-                sessions=[{"session_name": "formal-session", "attached": 1}],
+                sessions=[
+                    {"session_name": "formal-session", "attached": 1},
+                    {"session_name": "bootstrap", "attached": 0},
+                ],
                 panes=[],
                 clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
                 current_client={
                     "inside_tmux": True,
-                    "session_name": "formal-session",
+                    "session_name": "bootstrap",
                     "client_tty": "/dev/ttys048",
+                    "visible_terminal_client": False,
                 },
-            ),
-            runtime_snapshot(
-                sessions=[{"session_name": "formal-session", "attached": 1}],
-                panes=[
-                    {
-                        "session_name": "formal-session",
-                        "target": "formal-session:1.1",
-                        "window_index": "1",
-                        "pane_index": "1",
-                    }
-                ],
-                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
-                current_client={
-                    "inside_tmux": True,
-                    "session_name": "formal-session",
-                    "client_tty": "/dev/ttys048",
-                },
+                visible_terminal_client=False,
                 formal_sessions=["formal-session"],
             ),
             runtime_snapshot(
-                sessions=[{"session_name": "formal-session", "attached": 1}],
+                sessions=[
+                    {"session_name": "formal-session", "attached": 1},
+                    {"session_name": "bootstrap", "attached": 0},
+                ],
                 panes=[
                     {
                         "session_name": "formal-session",
                         "target": "formal-session:1.1",
                         "window_index": "1",
                         "pane_index": "1",
-                    }
+                    },
+                    {
+                        "session_name": "bootstrap",
+                        "target": "bootstrap:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                        "current_path": "/tmp/bootstrap-cwd",
+                    },
                 ],
                 clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
                 current_client={
                     "inside_tmux": True,
-                    "session_name": "formal-session",
+                    "session_name": "bootstrap",
                     "client_tty": "/dev/ttys048",
+                    "visible_terminal_client": False,
                 },
+                visible_terminal_client=False,
+                formal_sessions=["formal-session"],
+            ),
+            runtime_snapshot(
+                sessions=[
+                    {"session_name": "formal-session", "attached": 1},
+                    {"session_name": "bootstrap", "attached": 0},
+                ],
+                panes=[
+                    {
+                        "session_name": "formal-session",
+                        "target": "formal-session:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                    },
+                    {
+                        "session_name": "bootstrap",
+                        "target": "bootstrap:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                        "current_path": "/tmp/bootstrap-cwd",
+                    },
+                ],
+                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+                current_client={
+                    "inside_tmux": True,
+                    "session_name": "bootstrap",
+                    "client_tty": "/dev/ttys048",
+                    "visible_terminal_client": False,
+                },
+                visible_terminal_client=False,
                 formal_sessions=["formal-session"],
             ),
         ]
@@ -1379,21 +1435,32 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
     def test_start_formal_runtime_chain_does_not_pass_cleanup_bootstrap_to_env(self) -> None:
         env_command: list[str] = []
         formal_snapshot = runtime_snapshot(
-            sessions=[{"session_name": "formal-session", "attached": 1}],
+            sessions=[
+                {"session_name": "formal-session", "attached": 1},
+                {"session_name": "seed-session", "attached": 0},
+            ],
             panes=[
                 {
                     "session_name": "formal-session",
                     "target": "formal-session:1.1",
                     "window_index": "1",
                     "pane_index": "1",
-                }
+                },
+                {
+                    "session_name": "seed-session",
+                    "target": "seed-session:1.1",
+                    "window_index": "1",
+                    "pane_index": "1",
+                },
             ],
             clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
             current_client={
                 "inside_tmux": True,
-                "session_name": "formal-session",
+                "session_name": "seed-session",
                 "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
             },
+            visible_terminal_client=False,
             formal_sessions=["formal-session"],
             bootstrap_sessions=[],
         )

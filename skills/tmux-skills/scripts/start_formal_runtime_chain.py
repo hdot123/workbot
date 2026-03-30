@@ -196,7 +196,12 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
     }
 
 
-def ensure_attached_formal_session(snapshot: dict[str, Any], formal_session: str) -> None:
+def ensure_attached_formal_session(
+    snapshot: dict[str, Any],
+    formal_session: str,
+    *,
+    allow_switched_source_pane: bool = False,
+) -> None:
     formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
     if formal_client_count <= 0:
         raise RuntimeError(
@@ -206,6 +211,13 @@ def ensure_attached_formal_session(snapshot: dict[str, Any], formal_session: str
         raise RuntimeError(
             f"formal session '{formal_session}' must have exactly one visible tmux client; got {formal_client_count}"
         )
+    if allow_switched_source_pane:
+        formal_attached = any(
+            session.get("session_name") == formal_session and int(session.get("attached", 0)) > 0
+            for session in snapshot.get("sessions", [])
+        )
+        if formal_attached:
+            return
     if not bool(snapshot.get("current_visible_formal_client")):
         raise RuntimeError(
             f"current caller is not inside the visible formal session '{formal_session}'"
@@ -431,7 +443,11 @@ def inspect_visible_formal_session(
     require_no_bootstrap: bool = False,
 ) -> dict[str, Any]:
     snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
-    ensure_attached_formal_session(snapshot, formal_session)
+    ensure_attached_formal_session(
+        snapshot,
+        formal_session,
+        allow_switched_source_pane=True,
+    )
     if require_no_bootstrap and snapshot.get("bootstrap_sessions"):
         raise RuntimeError(
             "bootstrap tmux residue remains after formal env setup: "

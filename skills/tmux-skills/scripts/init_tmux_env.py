@@ -79,11 +79,17 @@ def wait_for_attached_formal_session(session_name: str, timeout_seconds: float =
     while time.monotonic() < deadline:
         snapshot = inspect_runtime()
         last_snapshot = snapshot
-        if bool(snapshot.get("current_visible_formal_client")):
+        formal_attached = any(
+            session.get("session_name") == session_name and int(session.get("attached", 0)) > 0
+            for session in snapshot.get("sessions", [])
+        )
+        if bool(snapshot.get("current_visible_formal_client")) or (
+            formal_attached and int(snapshot.get("formal_client_count", 0) or 0) == 1
+        ):
             return snapshot
         time.sleep(0.25)
     raise RuntimeError(
-        f"formal session {session_name} did not become the current visible tmux client within {timeout_seconds:.1f}s"
+        f"formal session {session_name} did not become the attached visible tmux runtime within {timeout_seconds:.1f}s"
     )
 
 
@@ -297,12 +303,12 @@ def main() -> int:
     )
     formal_client_count = int(snapshot_after.get("formal_client_count", 0) or 0)
     current_visible_formal_client = bool(snapshot_after.get("current_visible_formal_client"))
+    formal_attached_single_client = formal_attached and formal_client_count == 1
     single_attached_formal = (
         formal_session_exists
         and not extra_formal_sessions
-        and formal_attached
-        and formal_client_count == 1
-        and current_visible_formal_client
+        and formal_attached_single_client
+        and (current_visible_formal_client or create_formal_session)
     )
     if snapshot_after["session_count"] == 0:
         runtime_status = "BLOCKED"
