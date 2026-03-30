@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from runtime_ledger import apply_slot_binding_updates, load_current_runtime_ledger
+from tmux_runtime_common import inspect_runtime
 
 
 class PaneInitEntry(TypedDict, total=False):
@@ -187,6 +188,23 @@ def maybe_apply_slot_bindings(bindings: dict[str, dict[str, str]]) -> tuple[bool
     return True, None
 
 
+def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str) -> None:
+    current_client = snapshot.get("current_client") or {}
+    if not snapshot.get("current_visible_formal_client"):
+        reason = str(current_client.get("visibility_reason") or "not_visible_formal_client")
+        raise RuntimeError(
+            "tmux-skills positive flow requires current_visible_formal_client=true; "
+            f"refusing to proceed from {reason}"
+        )
+    if not current_client.get("inside_tmux"):
+        raise RuntimeError("tmux-skills positive flow requires current client to be inside tmux")
+    if current_client.get("session_name") != formal_session:
+        raise RuntimeError(
+            f"tmux-skills positive flow requires current session={formal_session}; "
+            f"got {current_client.get('session_name') or '<none>'}"
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Label one or more tmux panes without any Claude or scene validation."
@@ -205,6 +223,9 @@ def main() -> int:
     try:
         entries, batched = build_plan_entries(args)
         validate_plan_entries(entries)
+        formal_session = str(entries[0]["target"]).split(":", 1)[0]
+        pre_snapshot = inspect_runtime(formal_session)
+        require_visible_formal_client(pre_snapshot, formal_session)
         entry_results = [initialize_entry(entry) for entry in entries]
     except (RuntimeError, ValueError) as exc:
         result = {

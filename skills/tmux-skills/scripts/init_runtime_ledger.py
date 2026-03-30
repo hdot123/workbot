@@ -13,6 +13,7 @@ from runtime_ledger import (
     init_current_runtime_ledger,
     parse_slot_binding_entry,
 )
+from tmux_runtime_common import inspect_runtime
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,8 +101,27 @@ def build_watcher(args: argparse.Namespace) -> dict[str, object]:
     return watcher
 
 
+def require_visible_formal_client(snapshot: dict[str, object], formal_session: str) -> None:
+    current_client = snapshot.get("current_client") or {}
+    if not snapshot.get("current_visible_formal_client"):
+        reason = str(current_client.get("visibility_reason") or "not_visible_formal_client")
+        raise SystemExit(
+            "tmux-skills positive flow requires current_visible_formal_client=true; "
+            f"refusing to proceed from {reason}"
+        )
+    if not current_client.get("inside_tmux"):
+        raise SystemExit("tmux-skills positive flow requires current client to be inside tmux")
+    if current_client.get("session_name") != formal_session:
+        raise SystemExit(
+            f"tmux-skills positive flow requires current session={formal_session}; "
+            f"got {current_client.get('session_name') or '<none>'}"
+        )
+
+
 def main() -> int:
     args = parse_args()
+    pre_snapshot = inspect_runtime(args.formal_session_name)
+    require_visible_formal_client(pre_snapshot, args.formal_session_name)
     ledger = init_current_runtime_ledger(
         task_id=args.task_id,
         pane_count=args.pane_count,

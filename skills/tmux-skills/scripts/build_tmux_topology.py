@@ -16,6 +16,23 @@ def run_tmux(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["tmux", *args], capture_output=True, text=True, check=False)
 
 
+def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str) -> None:
+    current_client = snapshot.get("current_client") or {}
+    if not snapshot.get("current_visible_formal_client"):
+        reason = str(current_client.get("visibility_reason") or "not_visible_formal_client")
+        raise SystemExit(
+            "tmux-skills positive flow requires current_visible_formal_client=true; "
+            f"refusing to proceed from {reason}"
+        )
+    if not current_client.get("inside_tmux"):
+        raise SystemExit("tmux-skills positive flow requires current client to be inside tmux")
+    if current_client.get("session_name") != formal_session:
+        raise SystemExit(
+            f"tmux-skills positive flow requires current session={formal_session}; "
+            f"got {current_client.get('session_name') or '<none>'}"
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build or normalize tmux pane topology for tmux-skills.")
     parser.add_argument(
@@ -224,6 +241,8 @@ def main() -> int:
         [args.session, args.formal_session],
         default=DEFAULT_FORMAL_SESSION_NAME,
     )
+    pre_snapshot = inspect_runtime(formal_session)
+    require_visible_formal_client(pre_snapshot, formal_session)
     entry = reconcile_topology(formal_session, args.target_pane_count)
     entry["session_mode"] = "formal-single"
 

@@ -22,6 +22,8 @@ import check_tmux_ready  # noqa: E402
 import arm_tmux_handoff_watcher  # noqa: E402
 import deliver_tmux_handoff_notification  # noqa: E402
 import init_tmux_env  # noqa: E402
+import init_tmux_panes  # noqa: E402
+import init_runtime_ledger  # noqa: E402
 import start_formal_runtime_chain  # noqa: E402
 import tmux_handoff_app_bridge  # noqa: E402
 import tmux_runtime_common  # noqa: E402
@@ -64,6 +66,7 @@ def runtime_snapshot(
     bootstrap_sessions: list[str] | None = None,
     runtime_ledger: dict[str, object] | None = None,
     codex_thread_id: str = "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
+    current_visible_formal_client: bool | None = None,
 ) -> dict[str, object]:
     session_entries = sessions or []
     current = current_client or {"inside_tmux": False, "session_name": "", "client_tty": ""}
@@ -111,9 +114,13 @@ def runtime_snapshot(
         "formal_client_count": len(active_formal_clients),
         "current_client_is_formal": current_client_is_formal,
         "current_visible_formal_client": (
-            current_client_is_formal
-            and len(active_formal_clients) == 1
-            and bool(current.get("visible_terminal_client"))
+            current_visible_formal_client
+            if current_visible_formal_client is not None
+            else (
+                current_client_is_formal
+                and len(active_formal_clients) == 1
+                and bool(current.get("visible_terminal_client"))
+            )
         ),
     }
     if runtime_ledger is not None:
@@ -1427,6 +1434,8 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
         def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
             nonlocal env_command
+            if step == "pre_continuation_guard":
+                return formal_snapshot
             if step == "env":
                 env_command = command
                 return {"phase": "env", "runtime_status": "INIT_IN_PROGRESS"}
@@ -1505,6 +1514,8 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         )
 
         def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+            if step == "pre_continuation_guard":
+                return inspect_after_env
             if step == "env":
                 return {"phase": "env", "runtime_status": "INIT_IN_PROGRESS"}
             if step == "inspect_after_env":
@@ -1801,6 +1812,155 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("success", response["resultType"])
         self.assertEqual(1, len(client._backlog))
         self.assertEqual("client-status-changed", client._backlog[0]["method"])
+
+    def test_build_tmux_topology_main_rejects_hidden_context(self) -> None:
+        hidden_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+            current_visible_formal_client=False,
+        )
+        args = Namespace(session=None, formal_session="formal-session", target_pane_count=2, pretty=False)
+        with patch("build_tmux_topology.parse_args", return_value=args):
+            with patch("build_tmux_topology.inspect_runtime", return_value=hidden_snapshot):
+                with patch("build_tmux_topology.reconcile_topology") as mock_reconcile:
+                    with self.assertRaises(SystemExit) as exc:
+                        build_tmux_topology.main()
+        self.assertIn("current_visible_formal_client=true", str(exc.exception))
+        mock_reconcile.assert_not_called()
+
+    def test_init_tmux_panes_main_rejects_hidden_context(self) -> None:
+        hidden_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+            current_visible_formal_client=False,
+        )
+        args = Namespace(
+            target="formal-session:1.1",
+            slot=None,
+            window_title=None,
+            pane_title="dev-bot",
+            batch_file=None,
+            pretty=False,
+        )
+        with patch("init_tmux_panes.parse_args", return_value=args):
+            with patch("init_tmux_panes.inspect_runtime", return_value=hidden_snapshot):
+                with patch("init_tmux_panes.initialize_entry") as mock_initialize_entry:
+                    with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = init_tmux_panes.main()
+        self.assertEqual(1, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("current_visible_formal_client=true", payload["error"])
+        mock_initialize_entry.assert_not_called()
+
+    def test_init_runtime_ledger_main_rejects_hidden_context(self) -> None:
+        hidden_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+            current_visible_formal_client=False,
+        )
+        args = Namespace(
+            task_id="tmux-skills-public-run",
+            pane_count=2,
+            topology_fingerprint="fingerprint",
+            formal_session_name="formal-session",
+            runtime_status="READY",
+            slot_binding=[],
+            slot_bindings_json="",
+            watcher_armed=False,
+            watcher_target=[],
+            watcher_pid=None,
+            codex_thread_bound=True,
+            worker_ceiling=3,
+            pretty=False,
+        )
+        with patch("init_runtime_ledger.parse_args", return_value=args):
+            with patch("init_runtime_ledger.inspect_runtime", return_value=hidden_snapshot):
+                with patch("init_runtime_ledger.init_current_runtime_ledger") as mock_init_ledger:
+                    with self.assertRaises(SystemExit) as exc:
+                        init_runtime_ledger.main()
+        self.assertIn("current_visible_formal_client=true", str(exc.exception))
+        mock_init_ledger.assert_not_called()
+
+    def test_start_formal_runtime_chain_continuation_fails_in_hidden_context(self) -> None:
+        """Rule 3: hidden context only allows failure validation, not positive changes.
+
+        When current_visible_formal_client is False, the continuation path must fail fast
+        before any topology/init_panes/ledger/watcher steps.
+        """
+        hidden_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1", "window_index": "1", "pane_index": "1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+                "visible_terminal_client": False,
+                "visibility_reason": "codex_hidden_pty",
+            },
+            visible_terminal_client=False,
+            current_visible_formal_client=False,
+            formal_sessions=["formal-session"],
+            bootstrap_sessions=[],
+        )
+
+        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+            if step == "pre_continuation_guard":
+                return hidden_snapshot
+            raise AssertionError(f"unexpected step after guard: {step}")
+
+        with patch("start_formal_runtime_chain.inspect_runtime_snapshot", return_value=hidden_snapshot):
+            with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "start_formal_runtime_chain.py",
+                        "--codex-thread-id",
+                        "test-thread",
+                        "--pane-title",
+                        "dev-bot",
+                        "--continue-inside-formal",
+                        "--pretty",
+                    ],
+                ):
+                    with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = start_formal_runtime_chain.main()
+
+        self.assertEqual(1, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertIn("current_visible_formal_client=true", payload["error"])
+        self.assertNotIn("topology", payload.get("steps", {}))
+        self.assertNotIn("titles", payload.get("steps", {}))
+        self.assertNotIn("ledger", payload.get("steps", {}))
+        self.assertNotIn("watcher", payload.get("steps", {}))
 
 
 if __name__ == "__main__":

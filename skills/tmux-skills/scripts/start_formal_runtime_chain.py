@@ -296,6 +296,30 @@ def inspect_runtime_snapshot(*, step: str) -> dict[str, Any]:
     return run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
 
 
+def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str) -> None:
+    """Fail-fast guard: require current_visible_formal_client == true before any positive changes.
+
+    This enforces the rule that no topology/init_panes/ledger/watcher steps may proceed
+    unless the current client is a visible formal client.
+    """
+    current_client = snapshot.get("current_client") or {}
+    if not snapshot.get("current_visible_formal_client"):
+        reason = str(current_client.get("visibility_reason") or "not_visible_formal_client")
+        raise RuntimeError(
+            f"tmux-skills positive flow requires current_visible_formal_client=true; "
+            f"refusing to proceed from {reason}"
+        )
+    if not current_client.get("inside_tmux"):
+        raise RuntimeError(
+            "tmux-skills positive flow requires current client to be inside tmux"
+        )
+    if current_client.get("session_name") != formal_session:
+        raise RuntimeError(
+            f"tmux-skills positive flow requires current session={formal_session}; "
+            f"got {current_client.get('session_name') or '<none>'}"
+        )
+
+
 def require_visible_terminal_launcher(snapshot: dict[str, Any]) -> None:
     current_client = snapshot.get("current_client") or {}
     if current_client.get("inside_tmux"):
@@ -722,6 +746,10 @@ def main() -> int:
             return 1
 
     try:
+        # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes
+        pre_continuation_snapshot = inspect_runtime_snapshot(step="pre_continuation_guard")
+        require_visible_formal_client(pre_continuation_snapshot, args.formal_session)
+
         # Phase 1: pane_creation_phase
         # visible launcher check -> preflight cleanup -> env setup -> topology -> inspect_after_topology -> select_formal_targets
         run_formal_env_setup(args.formal_session, steps)
