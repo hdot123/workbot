@@ -424,6 +424,207 @@ def cleanup_hidden_formal_session_on_failure(formal_session: str, error_text: st
     return result
 
 
+def inspect_visible_formal_session(
+    formal_session: str,
+    *,
+    step: str,
+    require_no_bootstrap: bool = False,
+) -> dict[str, Any]:
+    snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
+    ensure_attached_formal_session(snapshot, formal_session)
+    if require_no_bootstrap and snapshot.get("bootstrap_sessions"):
+        raise RuntimeError(
+            "bootstrap tmux residue remains after formal env setup: "
+            + ", ".join(str(name) for name in snapshot["bootstrap_sessions"])
+        )
+    return snapshot
+
+
+def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str, Any]:
+    steps["tmux_preflight"] = preflight_formal_session_cleanup(formal_session)
+    steps["cleanup"] = cleanup_previous_runtime_state()
+    steps["env"] = run_json(
+        [
+            sys.executable,
+            str(ENV_SCRIPT),
+            "--formal-session",
+            formal_session,
+            "--formal-cwd",
+            str(ROOT),
+            "--create-formal-session",
+            "--kill-detached",
+            "--initialize-formal-surfaces",
+            "--formal-window-title",
+            formal_session,
+            "--pretty",
+        ],
+        step="env",
+    )
+    inspect_after_env = inspect_visible_formal_session(
+        formal_session,
+        step="inspect_after_env",
+        require_no_bootstrap=True,
+    )
+    steps["inspect_after_env"] = {
+        "formal_session_count": inspect_after_env.get("formal_session_count"),
+        "attached_formal": True,
+        "bootstrap_sessions": inspect_after_env.get("bootstrap_sessions", []),
+    }
+    return inspect_after_env
+
+
+def bind_tmux_thread_id(codex_thread_id: str) -> dict[str, str]:
+    set_env_proc = run(["tmux", "set-environment", "-g", "CODEX_THREAD_ID", codex_thread_id])
+    if set_env_proc.returncode != 0:
+        detail = (set_env_proc.stderr or set_env_proc.stdout or "tmux set-environment failed").strip()
+        raise RuntimeError(detail)
+    verify_env_proc = run(["tmux", "show-environment", "-g", "CODEX_THREAD_ID"])
+    if verify_env_proc.returncode != 0:
+        detail = (
+            verify_env_proc.stderr
+            or verify_env_proc.stdout
+            or "tmux show-environment failed after CODEX_THREAD_ID binding"
+        ).strip()
+        raise RuntimeError(detail)
+    bound_value = verify_env_proc.stdout.strip().partition("=")[2].strip()
+    if bound_value != codex_thread_id:
+        raise RuntimeError(
+            "CODEX_THREAD_ID binding did not persist into tmux: "
+            f"expected={codex_thread_id}, actual={bound_value or '<empty>'}"
+        )
+    return {"CODEX_THREAD_ID": codex_thread_id}
+
+
+def write_batch_plan_file(batch_plan: list[dict[str, str]]) -> str:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="tmux-pane-plan-",
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        json.dump(batch_plan, handle, ensure_ascii=False, indent=2)
+        return handle.name
+
+
+def apply_pane_titles(batch_plan: list[dict[str, str]]) -> dict[str, Any]:
+    plan_path = write_batch_plan_file(batch_plan)
+    return run_json(
+        [
+            sys.executable,
+            str(PANE_INIT_SCRIPT),
+            "--batch-file",
+            plan_path,
+            "--pretty",
+        ],
+        step="pane-title-application",
+    )
+
+
+def run_topology_and_titles(
+    formal_session: str,
+    pane_count: int,
+    pane_titles: list[str],
+    steps: dict[str, Any],
+) -> tuple[list[str], list[dict[str, str]], str]:
+    steps["topology"] = run_json(
+        [
+            sys.executable,
+            str(TOPOLOGY_SCRIPT),
+            "--formal-session",
+            formal_session,
+            "--target-pane-count",
+            str(pane_count),
+            "--pretty",
+        ],
+        step="topology",
+    )
+
+    inspect_after_topology = inspect_visible_formal_session(
+        formal_session,
+        step="inspect_after_topology",
+    )
+    targets = select_formal_targets(inspect_after_topology, formal_session)
+    batch_plan = build_batch_plan(targets, pane_titles)
+    steps["inspect_after_topology"] = {"targets": targets}
+
+    title_application = apply_pane_titles(batch_plan)
+    steps["titles"] = title_application
+    if not bool(title_application.get("verified")):
+        raise RuntimeError("pane title application did not fully verify")
+
+    inspect_after_titles = inspect_visible_formal_session(
+        formal_session,
+        step="inspect_after_titles",
+    )
+    topology_fingerprint = str(inspect_after_titles.get("topology_fingerprint", "")).strip()
+    steps["inspect_after_titles"] = {
+        "targets": select_formal_targets(inspect_after_titles, formal_session),
+        "topology_fingerprint": topology_fingerprint,
+    }
+    return targets, batch_plan, topology_fingerprint
+
+
+def run_runtime_activation(
+    formal_session: str,
+    task_id: str,
+    pane_count: int,
+    batch_plan: list[dict[str, str]],
+    topology_fingerprint: str,
+    targets: list[str],
+    steps: dict[str, Any],
+) -> None:
+    ledger_command = [
+        sys.executable,
+        str(LEDGER_SCRIPT),
+        "--task-id",
+        task_id,
+        "--formal-session-name",
+        formal_session,
+        "--pane-count",
+        str(pane_count),
+        "--topology-fingerprint",
+        topology_fingerprint,
+        "--codex-thread-bound",
+        "--runtime-status",
+        "READY",
+        "--pretty",
+    ]
+    ledger_command.extend(build_slot_binding_args(batch_plan))
+    steps["ledger"] = run_json(ledger_command, step="ledger")
+
+    watcher_command = [
+        sys.executable,
+        str(WATCHER_SCRIPT),
+        "--formal-session-name",
+        formal_session,
+        "--pretty",
+    ]
+    for target in targets:
+        watcher_command.extend(["--target", target])
+    steps["watcher"] = run_json(watcher_command, step="watcher")
+
+    ready_check_command = [
+        sys.executable,
+        str(READY_CHECK_SCRIPT),
+        "--formal-session-name",
+        formal_session,
+        "--require-formal",
+        "--require-watcher",
+        "--pretty",
+    ]
+    ready_check_result, ready_check_rc = run_json_with_status(
+        ready_check_command,
+        step="ready_check",
+    )
+    steps["ready_check"] = ready_check_result
+    if ready_check_rc != 0:
+        raise RuntimeError(
+            "ready_check failed: "
+            + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
+        )
+
+
 def main() -> int:
     args = parse_args()
     pane_titles = resolve_pane_titles(args)
@@ -436,167 +637,23 @@ def main() -> int:
 
     steps: dict[str, Any] = {"formal_session": args.formal_session}
     try:
-        steps["tmux_preflight"] = preflight_formal_session_cleanup(args.formal_session)
-        steps["cleanup"] = cleanup_previous_runtime_state()
-        steps["env"] = run_json(
-            [
-                sys.executable,
-                str(ENV_SCRIPT),
-                "--formal-session",
-                args.formal_session,
-                "--formal-cwd",
-                str(ROOT),
-                "--create-formal-session",
-                "--kill-detached",
-                "--initialize-formal-surfaces",
-                "--formal-window-title",
-                args.formal_session,
-                "--pretty",
-            ],
-            step="env",
+        run_formal_env_setup(args.formal_session, steps)
+        steps["thread_binding"] = bind_tmux_thread_id(args.codex_thread_id)
+        targets, batch_plan, topology_fingerprint = run_topology_and_titles(
+            args.formal_session,
+            pane_count,
+            pane_titles,
+            steps,
         )
-
-        inspect_after_env = run_json(
-            [sys.executable, str(INSPECT_SCRIPT), "--pretty"],
-            step="inspect_after_env",
-        )
-        ensure_attached_formal_session(inspect_after_env, args.formal_session)
-        if inspect_after_env.get("bootstrap_sessions"):
-            raise RuntimeError(
-                "bootstrap tmux residue remains after formal env setup: "
-                + ", ".join(str(name) for name in inspect_after_env["bootstrap_sessions"])
-            )
-        steps["inspect_after_env"] = {
-            "formal_session_count": inspect_after_env.get("formal_session_count"),
-            "attached_formal": True,
-            "bootstrap_sessions": inspect_after_env.get("bootstrap_sessions", []),
-        }
-
-        set_env_proc = run(["tmux", "set-environment", "-g", "CODEX_THREAD_ID", args.codex_thread_id])
-        if set_env_proc.returncode != 0:
-            detail = (set_env_proc.stderr or set_env_proc.stdout or "tmux set-environment failed").strip()
-            raise RuntimeError(detail)
-        verify_env_proc = run(["tmux", "show-environment", "-g", "CODEX_THREAD_ID"])
-        if verify_env_proc.returncode != 0:
-            detail = (
-                verify_env_proc.stderr
-                or verify_env_proc.stdout
-                or "tmux show-environment failed after CODEX_THREAD_ID binding"
-            ).strip()
-            raise RuntimeError(detail)
-        bound_value = verify_env_proc.stdout.strip().partition("=")[2].strip()
-        if bound_value != args.codex_thread_id:
-            raise RuntimeError(
-                "CODEX_THREAD_ID binding did not persist into tmux: "
-                f"expected={args.codex_thread_id}, actual={bound_value or '<empty>'}"
-            )
-        steps["thread_binding"] = {"CODEX_THREAD_ID": args.codex_thread_id}
-
-        steps["topology"] = run_json(
-            [
-                sys.executable,
-                str(TOPOLOGY_SCRIPT),
-                "--formal-session",
-                args.formal_session,
-                "--target-pane-count",
-                str(pane_count),
-                "--pretty",
-            ],
-            step="topology",
-        )
-
-        inspect_after_topology = run_json(
-            [sys.executable, str(INSPECT_SCRIPT), "--pretty"],
-            step="inspect_after_topology",
-        )
-        ensure_attached_formal_session(inspect_after_topology, args.formal_session)
-        targets = select_formal_targets(inspect_after_topology, args.formal_session)
-        batch_plan = build_batch_plan(targets, pane_titles)
-        steps["inspect_after_topology"] = {"targets": targets}
-
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".json",
-            prefix="tmux-pane-plan-",
-            delete=False,
-            encoding="utf-8",
-        ) as handle:
-            json.dump(batch_plan, handle, ensure_ascii=False, indent=2)
-            plan_path = handle.name
-
-        title_application = run_json(
-            [
-                sys.executable,
-                str(PANE_INIT_SCRIPT),
-                "--batch-file",
-                plan_path,
-                "--pretty",
-            ],
-            step="pane-title-application",
-        )
-        steps["titles"] = title_application
-        if not bool(title_application.get("verified")):
-            raise RuntimeError("pane title application did not fully verify")
-
-        inspect_after_titles = run_json(
-            [sys.executable, str(INSPECT_SCRIPT), "--pretty"],
-            step="inspect_after_titles",
-        )
-        ensure_attached_formal_session(inspect_after_titles, args.formal_session)
-        topology_fingerprint = str(inspect_after_titles.get("topology_fingerprint", "")).strip()
-        steps["inspect_after_titles"] = {
-            "targets": select_formal_targets(inspect_after_titles, args.formal_session),
-            "topology_fingerprint": topology_fingerprint,
-        }
-        ledger_command = [
-            sys.executable,
-            str(LEDGER_SCRIPT),
-            "--task-id",
+        run_runtime_activation(
+            args.formal_session,
             args.task_id,
-            "--formal-session-name",
-            args.formal_session,
-            "--pane-count",
-            str(pane_count),
-            "--topology-fingerprint",
+            pane_count,
+            batch_plan,
             topology_fingerprint,
-            "--codex-thread-bound",
-            "--runtime-status",
-            "READY",
-            "--pretty",
-        ]
-        ledger_command.extend(build_slot_binding_args(batch_plan))
-        steps["ledger"] = run_json(ledger_command, step="ledger")
-
-        watcher_command = [
-            sys.executable,
-            str(WATCHER_SCRIPT),
-            "--formal-session-name",
-            args.formal_session,
-            "--pretty",
-        ]
-        for target in targets:
-            watcher_command.extend(["--target", target])
-        steps["watcher"] = run_json(watcher_command, step="watcher")
-
-        ready_check_command = [
-            sys.executable,
-            str(READY_CHECK_SCRIPT),
-            "--formal-session-name",
-            args.formal_session,
-            "--require-formal",
-            "--require-watcher",
-            "--pretty",
-        ]
-        ready_check_result, ready_check_rc = run_json_with_status(
-            ready_check_command,
-            step="ready_check",
+            targets,
+            steps,
         )
-        steps["ready_check"] = ready_check_result
-        if ready_check_rc != 0:
-            raise RuntimeError(
-                "ready_check failed: "
-                + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
-            )
     except Exception as exc:
         result = build_result("failed", steps, pane_titles, str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
