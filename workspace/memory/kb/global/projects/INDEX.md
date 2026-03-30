@@ -7,8 +7,8 @@
 ## Active Project Canonical
 - `workbot.md`
 - `AEdu.md`
-- `opencli.md`
 - `platform-capabilities.md`
 
 ## Historical Project Sources
 - 历史项目 canonical 已从当前入口层移出，统一暂存到 `../../../history-projects/`
+- `opencli.md` 已于 2026-03-29 标记为 removed，不再属于 active project canonical

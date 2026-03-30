@@ -2,14 +2,14 @@
 type: [KB:PROJECT]
 title: "platform-capabilities"
 created: 2026-03-24 10:13
-updated: 2026-03-24 10:13
+updated: 2026-03-29 22:27
 source: [Manual]
 confidence: high
 tags: [platform, capabilities, agents, skills, app]
-related: [workbot, opencli, openclaw-molt]
+related: [workbot, openclaw-molt]
 version: v1.0
 status: active
-last_verified: 2026-03-24
+last_verified: 2026-03-29
 ---
 
 # platform-capabilities
@@ -33,6 +33,6 @@ last_verified: 2026-03-24
 
 ### skills-gpt-web-to
 - `gpt-web-to/` 是 skill 能力包，不按一级业务项目管理。
-- 它通过 `SKILL.md` 暴露能力，并依赖 opencli 的网页执行链路。
+- 它通过 `SKILL.md` 暴露能力。
 - 物理目录：`/Users/busiji/workbot/gpt-web-to`
 - 总控项目区：`/Users/busiji/workbot/workspace/projects/skills`

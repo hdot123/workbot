@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         "--slot-binding",
         action="append",
         default=[],
-        help="slot=role@target binding. Repeatable.",
+        help="slot=pane_title@target binding. Repeatable.",
     )
     init_parser.add_argument("--runtime-status", default="INIT_IN_PROGRESS", help="Initial runtime status.")
     init_parser.add_argument(

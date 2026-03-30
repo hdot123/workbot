@@ -3,9 +3,8 @@
 
 # pane_stopped 统一口径：
 # 1. pane_dead > 0
-# 2. 首次采样建立 baseline 后，必须先观察到 pane 出现过一次有效输出变化
-# 3. 进入过工作状态后，按轮询间隔连续 3 次比较最近 5 行输出 hash 都无变化
-#    默认轮询间隔为 10 秒，因此默认约 30 秒后触发 pane_stopped
+# 2. 不再使用“输出长时间无变化”作为停止依据，因为空闲 shell / 等待输入的 pane 仍然是活着的
+# 3. 会话脱离前台和 pane 不可达分别上报为 session_detached / pane_unreachable
 
 from __future__ import annotations
 
@@ -25,7 +24,6 @@ from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
 
 DEFAULT_POLL_INTERVAL_SECONDS = 10.0
 DEFAULT_CAPTURE_START = -5
-DEFAULT_UNCHANGED_OUTPUT_THRESHOLD = 3
 DEFAULT_DELIVERY_QUEUE_DIR = Path(
     "/Users/busiji/workbot/workspace/artifacts/tmux-skills/delivery-queue"
 )
@@ -173,66 +171,6 @@ def build_state_event(
         event.update(extra_fields)
     event["event_id"] = event_id_for(event)
     return event
-
-
-def reset_output_hash_state(
-    target: str,
-    *,
-    last_output_hash: dict[str, str],
-    unchanged_output_count: dict[str, int],
-    observed_activity: dict[str, bool],
-) -> None:
-    last_output_hash.pop(target, None)
-    unchanged_output_count.pop(target, None)
-    observed_activity.pop(target, None)
-
-
-def advance_output_hash_state(
-    target: str,
-    snapshot: dict[str, object],
-    *,
-    last_output_hash: dict[str, str],
-    unchanged_output_count: dict[str, int],
-    observed_activity: dict[str, bool],
-) -> int:
-    current_hash = str(snapshot.get("recent_output_hash", "")).strip()
-    previous_hash = last_output_hash.get(target, "")
-    observed_activity.setdefault(target, False)
-
-    # 首次采样只建立 baseline，不计入“无变化比较”。
-    if previous_hash and current_hash != previous_hash:
-        observed_activity[target] = True
-        unchanged_output_count[target] = 0
-    elif current_hash and current_hash == previous_hash:
-        unchanged_output_count[target] = unchanged_output_count.get(target, 0) + 1
-    else:
-        unchanged_output_count[target] = 0
-
-    last_output_hash[target] = current_hash
-    return unchanged_output_count[target]
-
-
-def build_hash_stopped_event(
-    snapshot: dict[str, object],
-    *,
-    codex_thread_id: str,
-    unchanged_count: int,
-    interval_seconds: float,
-    capture_lines: int,
-) -> dict[str, object]:
-    return build_state_event(
-        snapshot,
-        event_name="pane_stopped",
-        state_label=(
-            "pane 已停止工作"
-            f"（首次采样后按 {interval_seconds:g} 秒间隔连续 {unchanged_count} 次比较无变化，"
-            f"最近 {capture_lines} 行输出未变化）"
-        ),
-        state="pane_stopped",
-        reachable=True,
-        codex_thread_id=codex_thread_id,
-        extra_fields={"stop_reason": "hash_unchanged_threshold"},
-    )
 
 
 def build_unreachable_event(
@@ -451,12 +389,8 @@ def main() -> int:
     if args.deliver and not bound_codex_thread_id:
         raise SystemExit("CODEX_THREAD_ID is not bound; refusing to deliver watcher events")
 
-    capture_lines = capture_line_count_from_start(args.start)
     last_report_signature: dict[str, str] = {}
     cached_snapshots: dict[str, dict[str, object]] = {}
-    last_output_hash: dict[str, str] = {}
-    unchanged_output_count: dict[str, int] = {}
-    observed_activity: dict[str, bool] = {}
 
     while True:
         unavailable_targets = 0
@@ -467,12 +401,6 @@ def main() -> int:
                 cached_snapshots[target] = snapshot
             except (subprocess.CalledProcessError, RuntimeError):
                 unavailable_targets += 1
-                reset_output_hash_state(
-                    target,
-                    last_output_hash=last_output_hash,
-                    unchanged_output_count=unchanged_output_count,
-                    observed_activity=observed_activity,
-                )
                 event = build_unreachable_event(
                     target,
                     reason="pane 不可达",
@@ -496,44 +424,14 @@ def main() -> int:
 
             classification = classify_snapshot(snapshot)
             if classification is None:
-                unchanged_count = advance_output_hash_state(
-                    target,
-                    snapshot,
-                    last_output_hash=last_output_hash,
-                    unchanged_output_count=unchanged_output_count,
-                    observed_activity=observed_activity,
-                )
-                if not observed_activity.get(target, False):
-                    last_report_signature.pop(target, None)
-                    continue
-                if unchanged_count < DEFAULT_UNCHANGED_OUTPUT_THRESHOLD:
-                    last_report_signature.pop(target, None)
-                    continue
-                event = build_hash_stopped_event(
-                    snapshot,
-                    codex_thread_id=bound_codex_thread_id,
-                    unchanged_count=unchanged_count,
-                    interval_seconds=args.interval,
-                    capture_lines=capture_lines,
-                )
+                last_report_signature.pop(target, None)
+                continue
             else:
                 event_name, state_label, state = classification
                 extra_fields: dict[str, object] | None = None
                 if event_name == "session_detached":
                     detached_targets += 1
-                    reset_output_hash_state(
-                        target,
-                        last_output_hash=last_output_hash,
-                        unchanged_output_count=unchanged_output_count,
-                        observed_activity=observed_activity,
-                    )
                 elif event_name == "pane_stopped":
-                    reset_output_hash_state(
-                        target,
-                        last_output_hash=last_output_hash,
-                        unchanged_output_count=unchanged_output_count,
-                        observed_activity=observed_activity,
-                    )
                     extra_fields = {"stop_reason": "pane_dead"}
                 event = build_state_event(
                     snapshot,

@@ -214,6 +214,26 @@ def queue_input_payload(
     return path
 
 
+def ensure_queue_event_file(
+    *,
+    payload: dict[str, Any],
+    bundle: dict[str, Any],
+    event_file: str | None,
+    queue_dir: str,
+) -> Path:
+    if not event_file:
+        return queue_input_payload(payload=payload, bundle=bundle, queue_dir=queue_dir)
+
+    source_path = Path(event_file)
+    queue_path = Path(queue_dir)
+    try:
+        if source_path.parent.resolve() == queue_path.resolve():
+            return source_path
+    except FileNotFoundError:
+        pass
+    return queue_input_payload(payload=payload, bundle=bundle, queue_dir=queue_dir)
+
+
 def maybe_ack_event_file(path: str | None, *, enabled: bool) -> None:
     if not enabled or not path:
         return
@@ -285,9 +305,10 @@ def main() -> int:
         sys.stdout.write("\n")
         return 0
 
-    event_file = Path(args.event_file) if args.event_file else queue_input_payload(
+    event_file = ensure_queue_event_file(
         payload=payload,
         bundle=bundle,
+        event_file=args.event_file,
         queue_dir=args.queue_dir,
     )
 

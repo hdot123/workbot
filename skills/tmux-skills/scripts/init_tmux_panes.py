@@ -171,7 +171,7 @@ def collect_slot_bindings(entry_results: list[dict[str, Any]]) -> dict[str, dict
         if not slot_name or not result.get("title_applied"):
             continue
         bindings[str(slot_name)] = {
-            "role": str(result["pane_title"]),
+            "pane_title": str(result["pane_title"]),
             "target": str(result["target"]),
         }
     return bindings

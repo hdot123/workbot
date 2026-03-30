@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Deprecated compatibility stub for removed tmux-skills pane identity verification."""
+"""Deprecated compatibility stub for removed tmux-skills pane-session verification."""
 
 from __future__ import annotations
 
 
 def main() -> int:
     raise SystemExit(
-        "verify_pane_identity.py is deprecated: tmux-skills no longer verifies Claude scenes or identities. "
+        "verify_pane_identity.py is deprecated: tmux-skills no longer verifies external session markers. "
         "Use init_tmux_panes.py to apply pane titles and check_tmux_ready.py for tmux-only validation."
     )
 

@@ -144,3 +144,11 @@ gpt-web-to/
 tests/autoresearch/
 tests/.gitignore
 node11-mihomo-config.yaml
+
+# Python caches
+**/__pycache__/
+*.pyc
+
+# tmux-skills runtime artifacts
+workspace/artifacts/tmux-runtime/current-runtime.json
+workspace/artifacts/tmux-skills/*.jsonl

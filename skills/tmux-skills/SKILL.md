@@ -19,6 +19,7 @@ description: |
 - `tmux-skills` 是纯 tmux 技能，不负责 Claude、agent、scene 或 prompt
 - pane 数量与 pane 标题由 Codex 调用时显式传入
 - `tmux-skills` 不自己决定 pane 数量，也不自己决定 pane 标题
+- pane 标题只是当前 attached runtime 的临时标签，不承载项目级身份定义
 - 正式 tmux 运行面只承认一个前台 attached 的 `formal-session`
 - detached tmux session 不算正式运行面，必须先被前台 client 接管，`session_attached > 0` 才成立
 - 对外主展示格式固定为 `target = formal-session:window.pane`
@@ -58,7 +59,7 @@ description: |
 - 角色切换
 - system prompt 注入
 - 身份 payload 注入
-- Claude scene 校验
+- 外部会话校验
 - 业务任务下发
 
 ## 调用合同
@@ -71,14 +72,14 @@ Codex 调用 `tmux-skills` 时必须显式提供：
 常见示例：
 
 - `pane_count = 4`
-- `pane_titles = ["dev-bot", "dev-bot", "qa-bot", "doc-bot"]`
+- `pane_titles = ["task-1", "task-2", "notes", "monitor"]`
 
 这表示：
 
 - 生成 4 个 pane
-- 第 1、2 个 pane 标题设为 `dev-bot`
-- 第 3 个 pane 标题设为 `qa-bot`
-- 第 4 个 pane 标题设为 `doc-bot`
+- 第 1、2 个 pane 标题设为 `task-1`、`task-2`
+- 第 3 个 pane 标题设为 `notes`
+- 第 4 个 pane 标题设为 `monitor`
 
 ## 报告合同
 
@@ -114,10 +115,10 @@ pane 监控阶段只保留一个对外动作：
 python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_chain.py \
   --codex-thread-id "$CODEX_THREAD_ID" \
   --formal-session formal-session \
-  --pane-title dev-bot \
-  --pane-title dev-bot \
-  --pane-title qa-bot \
-  --pane-title doc-bot \
+  --pane-title task-1 \
+  --pane-title task-2 \
+  --pane-title notes \
+  --pane-title monitor \
   --pretty
 ```
 

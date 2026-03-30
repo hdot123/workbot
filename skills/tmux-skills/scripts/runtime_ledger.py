@@ -50,7 +50,7 @@ def normalize_target(value: Any | None) -> str:
     return str(value).strip()
 
 
-def normalize_role(value: Any | None) -> str:
+def normalize_pane_title(value: Any | None) -> str:
     if value is None:
         return ""
     return str(value).strip()
@@ -68,39 +68,39 @@ def is_valid_target(value: str) -> bool:
 
 def build_slot_bindings_from_targets(targets: list[str], pane_titles: list[str]) -> dict[str, dict[str, str]]:
     bindings: dict[str, dict[str, str]] = {}
-    for index, (target, role) in enumerate(zip(targets, pane_titles), start=1):
+    for index, (target, pane_title) in enumerate(zip(targets, pane_titles), start=1):
         slot_name = f"pane_{index}"
-        bindings[slot_name] = {"role": role, "target": target}
+        bindings[slot_name] = {"pane_title": pane_title, "target": target}
     return bindings
 
 
 def parse_slot_binding_entry(entry: str) -> tuple[str, dict[str, str]]:
     if "=" not in entry:
-        raise ValueError("slot binding must be in the form slot=role@target")
+        raise ValueError("slot binding must be in the form slot=pane_title@target")
     slot_name, _, raw_value = entry.partition("=")
     normalized_slot = slot_name.strip()
     if not normalized_slot:
         raise ValueError("slot name cannot be empty")
-    role_text, separator, target_text = raw_value.partition("@")
-    role = normalize_role(role_text)
+    pane_title_text, separator, target_text = raw_value.partition("@")
+    pane_title = normalize_pane_title(pane_title_text)
     target = normalize_target(target_text if separator else "")
-    if not role:
-        raise ValueError("slot binding role cannot be empty")
+    if not pane_title:
+        raise ValueError("slot binding pane_title cannot be empty")
     if target and not is_valid_target(target):
         raise ValueError(f"slot binding target is invalid: {target}")
-    return normalized_slot, {"role": role, "target": target}
+    return normalized_slot, {"pane_title": pane_title, "target": target}
 
 
 def _normalize_slot_binding(value: Any) -> dict[str, str]:
     if isinstance(value, dict):
-        role = normalize_role(value.get("role"))
+        pane_title = normalize_pane_title(value.get("pane_title"))
         target = normalize_target(value.get("target"))
     else:
-        role = normalize_role(value)
+        pane_title = normalize_pane_title(value)
         target = ""
-    if not role:
+    if not pane_title:
         return {}
-    return {"role": role, "target": target}
+    return {"pane_title": pane_title, "target": target}
 
 
 def coerce_slot_bindings(value: Any) -> dict[str, dict[str, str]]:
@@ -241,9 +241,9 @@ def apply_slot_assignment_updates(
     allow_reassign: bool = False,
 ) -> dict[str, Any]:
     translated = {
-        str(slot_name).strip(): {"role": normalize_role(role), "target": ""}
-        for slot_name, role in (updates or {}).items()
-        if str(slot_name).strip() and normalize_role(role)
+        str(slot_name).strip(): {"pane_title": normalize_pane_title(pane_title), "target": ""}
+        for slot_name, pane_title in (updates or {}).items()
+        if str(slot_name).strip() and normalize_pane_title(pane_title)
     }
     return apply_slot_binding_updates(translated, allow_reassign=allow_reassign)
 
@@ -321,11 +321,11 @@ def evaluate_runtime_ledger_coherence(ledger: dict[str, Any]) -> tuple[list[str]
                 f"expected={pane_count_value}, actual={len(slot_bindings)}"
             )
         for slot_name, binding in slot_bindings.items():
-            role = normalize_role(binding.get("role"))
+            pane_title = normalize_pane_title(binding.get("pane_title"))
             target = normalize_target(binding.get("target"))
-            if not role:
+            if not pane_title:
                 reasons.append(
-                    f"runtime ledger slot_bindings.{slot_name}.role is invalid: {role or '<empty>'}"
+                    f"runtime ledger slot_bindings.{slot_name}.pane_title is invalid: {pane_title or '<empty>'}"
                 )
             if not target:
                 reasons.append(f"runtime ledger slot_bindings.{slot_name}.target is missing")

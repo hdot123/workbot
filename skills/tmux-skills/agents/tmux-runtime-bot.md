@@ -9,12 +9,12 @@ maxTurns: 4
 
 # Deprecated
 
-`tmux-runtime-bot` 不再承担旧的四阶段 runtime / identity / verify 编排职责。
+`tmux-runtime-bot` 不再承担旧的四阶段 runtime / handoff / verify 编排职责。
 
 当前 `tmux-skills` 的正式口径只有两件事：
 
 1. 接收 Codex 提供的 `pane_count` 与 `pane_titles`
-2. 在前台 `formal-session` 中生成 pane，并在 pane 停止时通过 window IPC bridge 回报给 monitor thread 的 `CODEX_THREAD_ID` 对应当前窗口 thread
+2. 在前台 `formal-session` 中生成当前会话期的临时工作 pane，并在 pane 停止时通过 window IPC bridge 回报给 monitor thread 的 `CODEX_THREAD_ID` 对应当前窗口 thread
 
 补充口径：
 
@@ -28,4 +28,4 @@ maxTurns: 4
 - `arm_tmux_handoff_watcher.py`
 - `tmux_handoff_app_bridge.py`
 
-不要再调用旧的 Claude / identity / scene 相关流程。
+不要再调用旧的 handoff 流程。

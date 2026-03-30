@@ -41,6 +41,33 @@ def session_targets(session_name: str) -> list[str]:
     return [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
 
 
+def session_panes(session_name: str) -> list[dict[str, int | str]]:
+    proc = run_tmux(
+        "list-panes",
+        "-t",
+        session_name,
+        "-F",
+        "#{session_name}:#{window_index}.#{pane_index}\t#{pane_width}\t#{pane_height}",
+    )
+    if proc.returncode != 0:
+        raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to list tmux panes")
+
+    panes: list[dict[str, int | str]] = []
+    for raw in proc.stdout.splitlines():
+        if not raw.strip():
+            continue
+        target, width_text, height_text = raw.split("\t")
+        panes.append(
+            {
+                "target": target.strip(),
+                "width": int(width_text),
+                "height": int(height_text),
+            }
+        )
+    panes.sort(key=lambda pane: parse_target(str(pane["target"])))
+    return panes
+
+
 def parse_target(target: str) -> tuple[int, int]:
     pane = target.split(":", 1)[1]
     window_index, pane_index = pane.split(".", 1)
@@ -68,6 +95,54 @@ def apply_layout(session_name: str, pane_count: int) -> str | None:
     return f"select-layout:{layout}:{grid}"
 
 
+def split_flag_for_pane(pane: dict[str, int | str]) -> str:
+    width = int(pane["width"])
+    height = int(pane["height"])
+    return "-h" if width >= (height * 2) else "-v"
+
+
+def preferred_split_step(
+    session_name: str,
+    target_pane_count: int,
+    next_pane_count: int,
+    available_targets: list[str],
+) -> tuple[str, str] | None:
+    plans: dict[int, dict[int, tuple[str, str]]] = {
+        4: {
+            2: (f"{session_name}:1.1", "-h"),
+            3: (f"{session_name}:1.1", "-v"),
+            4: (f"{session_name}:1.2", "-v"),
+        },
+        6: {
+            2: (f"{session_name}:1.1", "-h"),
+            3: (f"{session_name}:1.1", "-v"),
+            4: (f"{session_name}:1.1", "-v"),
+            5: (f"{session_name}:1.2", "-v"),
+            6: (f"{session_name}:1.2", "-v"),
+        },
+    }
+    preferred = plans.get(target_pane_count, {}).get(next_pane_count)
+    if preferred is None:
+        return None
+    if preferred[0] not in available_targets:
+        return None
+    return preferred
+
+
+def select_split_pane(panes: list[dict[str, int | str]]) -> dict[str, int | str]:
+    if not panes:
+        raise SystemExit("cannot split tmux topology without panes")
+    return max(
+        panes,
+        key=lambda pane: (
+            int(pane["width"]) * int(pane["height"]),
+            int(pane["width"]),
+            int(pane["height"]),
+            tuple(-part for part in parse_target(str(pane["target"]))),
+        ),
+    )
+
+
 def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, Any]:
     if target_pane_count < 1:
         raise SystemExit("target-pane-count must be >= 1")
@@ -79,12 +154,29 @@ def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, A
     current_count = len(before_targets)
     actions: list[str] = []
     if target_pane_count > current_count:
-        anchor = sorted(before_targets, key=parse_target)[0]
-        for _ in range(target_pane_count - current_count):
-            proc = run_tmux("split-window", "-t", anchor)
+        live_targets = sorted(before_targets, key=parse_target)
+        for next_pane_count in range(current_count + 1, target_pane_count + 1):
+            preferred = preferred_split_step(
+                session_name,
+                target_pane_count,
+                next_pane_count,
+                live_targets,
+            )
+            if preferred is None:
+                candidate = select_split_pane(session_panes(session_name))
+                anchor = str(candidate["target"])
+                split_flag = split_flag_for_pane(candidate)
+            else:
+                anchor, split_flag = preferred
+            proc = run_tmux("split-window", split_flag, "-t", anchor)
             if proc.returncode != 0:
                 raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to split tmux pane")
-            actions.append("split-window")
+            actions.append(f"split-window:{split_flag}:{anchor}")
+            layout_action = apply_layout(session_name, next_pane_count)
+            if layout_action:
+                actions.append(layout_action)
+            live_targets = session_targets(session_name)
+            live_targets.sort(key=parse_target)
     elif target_pane_count < current_count:
         removable = sorted(before_targets, key=parse_target, reverse=True)
         for target in removable[: current_count - target_pane_count]:
@@ -96,9 +188,10 @@ def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, A
     snapshot = inspect_runtime()
     after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
     after_targets.sort(key=parse_target)
-    layout_action = apply_layout(session_name, len(after_targets))
-    if layout_action:
-        actions.append(layout_action)
+    if target_pane_count <= current_count:
+        layout_action = apply_layout(session_name, len(after_targets))
+        if layout_action:
+            actions.append(layout_action)
 
     snapshot = inspect_runtime()
     after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]

@@ -27,14 +27,15 @@
 ```json
 {
   "pane_count": 4,
-  "pane_titles": ["dev-bot", "dev-bot", "qa-bot", "doc-bot"]
+  "pane_titles": ["task-1", "task-2", "notes", "monitor"]
 }
 ```
 
 这表示：
 
 - 在前台 `formal-session` 中生成 4 个 pane
-- 依次把 pane 标题设置为 `dev-bot`、`dev-bot`、`qa-bot`、`doc-bot`
+- 依次把 pane 标题设置为 `task-1`、`task-2`、`notes`、`monitor`
+- 这些标题只是本次 runtime 的临时局部标签，不是项目级身份名
 
 ## 3. 运行模型
 
@@ -108,7 +109,7 @@ pane 监控阶段只关心 pane 是否仍在运行：
 - `claude --agent`
 - agent 身份切换
 - system prompt 注入
-- Claude scene 校验
+- 外部会话校验
 - 业务任务分发
 
 ## 5. 报告模型
