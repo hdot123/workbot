@@ -107,6 +107,23 @@ def kill_session(session_name: str) -> bool:
     return proc.returncode == 0
 
 
+def reset_existing_formal_session(
+    snapshot: dict[str, Any],
+    current_client: dict[str, Any],
+    session_name: str,
+) -> dict[str, Any]:
+    if session_name not in snapshot.get("session_names", []):
+        return snapshot
+    if current_client.get("session_name") == session_name:
+        raise RuntimeError(
+            "historical formal-session residue is already attached to the current client; "
+            "kill it before recreating the tmux runtime"
+        )
+    if not kill_session(session_name):
+        raise RuntimeError(f"failed to kill existing formal-session residue: {session_name}")
+    return inspect_runtime()
+
+
 def find_bootstrap_panel_path(snapshot: dict[str, Any], bootstrap_name: str) -> str | None:
     for pane in snapshot.get("panes", []):
         if pane.get("session_name") == bootstrap_name:
@@ -256,10 +273,8 @@ def main() -> int:
     created_formal: dict[str, Any] | None = None
     if create_formal_session:
         current_client = require_tmux_client_for_formal_session_change(snapshot_current, formal_session)
+        snapshot_current = reset_existing_formal_session(snapshot_current, current_client, formal_session)
         if formal_session not in snapshot_current["session_names"]:
-            created_formal = create_or_switch_visible_formal_session(formal_session, formal_cwd)
-            snapshot_current = wait_for_attached_formal_session(formal_session)
-        elif current_client.get("session_name") != formal_session:
             created_formal = create_or_switch_visible_formal_session(formal_session, formal_cwd)
             snapshot_current = wait_for_attached_formal_session(formal_session)
 
