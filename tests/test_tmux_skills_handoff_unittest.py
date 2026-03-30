@@ -21,6 +21,7 @@ import build_tmux_topology  # noqa: E402
 import check_tmux_ready  # noqa: E402
 import arm_tmux_handoff_watcher  # noqa: E402
 import deliver_tmux_handoff_notification  # noqa: E402
+import init_tmux_env  # noqa: E402
 import start_formal_runtime_chain  # noqa: E402
 import tmux_handoff_app_bridge  # noqa: E402
 import tmux_runtime_common  # noqa: E402
@@ -57,9 +58,13 @@ def runtime_snapshot(
     panes: list[dict[str, object]] | None = None,
     clients: list[dict[str, object]] | None = None,
     current_client: dict[str, object] | None = None,
+    session_names: list[str] | None = None,
+    formal_sessions: list[str] | None = None,
+    bootstrap_sessions: list[str] | None = None,
     runtime_ledger: dict[str, object] | None = None,
     codex_thread_id: str = "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
 ) -> dict[str, object]:
+    session_entries = sessions or []
     client_entries = clients or []
     active_formal_clients = [
         client for client in client_entries if client.get("session_name") == "formal-session"
@@ -71,13 +76,24 @@ def runtime_snapshot(
         and any(client.get("client_tty") == current.get("client_tty") for client in active_formal_clients)
     )
     snapshot: dict[str, object] = {
-        "sessions": sessions or [],
+        "sessions": session_entries,
         "panes": panes or [],
-        "session_count": len(sessions or []),
+        "session_count": len(session_entries),
         "pane_count": len(panes or []),
         "CODEX_THREAD_ID": codex_thread_id,
         "clients": client_entries,
         "current_client": current,
+        "session_names": session_names or [str(session.get("session_name", "")) for session in session_entries],
+        "formal_sessions": formal_sessions or [
+            str(session.get("session_name", ""))
+            for session in session_entries
+            if session.get("session_name") == "formal-session"
+        ],
+        "bootstrap_sessions": bootstrap_sessions or [
+            str(session.get("session_name", ""))
+            for session in session_entries
+            if session.get("session_name") == "tbot"
+        ],
         "formal_client_count": len(active_formal_clients),
         "current_client_is_formal": current_client_is_formal,
         "current_visible_formal_client": current_client_is_formal and len(active_formal_clients) == 1,
@@ -798,6 +814,127 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     arm_tmux_handoff_watcher.main()
 
         self.assertIn("has no attached tmux client", str(exc.exception))
+
+    def test_init_tmux_env_rejects_formal_creation_outside_tmux(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[],
+            panes=[],
+            current_client={"inside_tmux": False, "session_name": "", "client_tty": ""},
+        )
+        with patch("init_tmux_env.inspect_runtime", return_value=snapshot):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "init_tmux_env.py",
+                    "--formal-session",
+                    "formal-session",
+                    "--create-formal-session",
+                ],
+            ):
+                with self.assertRaises(RuntimeError) as exc:
+                    init_tmux_env.main()
+
+        self.assertIn("refusing to create or switch formal-session from a non-tmux context", str(exc.exception))
+
+    def test_init_tmux_env_switches_current_tmux_client_without_osascript(self) -> None:
+        snapshots = [
+            runtime_snapshot(
+                sessions=[{"session_name": "bootstrap", "attached": 1}],
+                panes=[],
+                clients=[{"session_name": "bootstrap", "client_tty": "/dev/ttys048"}],
+                current_client={
+                    "inside_tmux": True,
+                    "session_name": "bootstrap",
+                    "client_tty": "/dev/ttys048",
+                },
+            ),
+            runtime_snapshot(
+                sessions=[{"session_name": "formal-session", "attached": 1}],
+                panes=[],
+                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+                current_client={
+                    "inside_tmux": True,
+                    "session_name": "formal-session",
+                    "client_tty": "/dev/ttys048",
+                },
+            ),
+            runtime_snapshot(
+                sessions=[{"session_name": "formal-session", "attached": 1}],
+                panes=[
+                    {
+                        "session_name": "formal-session",
+                        "target": "formal-session:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                    }
+                ],
+                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+                current_client={
+                    "inside_tmux": True,
+                    "session_name": "formal-session",
+                    "client_tty": "/dev/ttys048",
+                },
+                formal_sessions=["formal-session"],
+            ),
+            runtime_snapshot(
+                sessions=[{"session_name": "formal-session", "attached": 1}],
+                panes=[
+                    {
+                        "session_name": "formal-session",
+                        "target": "formal-session:1.1",
+                        "window_index": "1",
+                        "pane_index": "1",
+                    }
+                ],
+                clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+                current_client={
+                    "inside_tmux": True,
+                    "session_name": "formal-session",
+                    "client_tty": "/dev/ttys048",
+                },
+                formal_sessions=["formal-session"],
+            ),
+        ]
+
+        def fake_inspect_runtime(*_args, **_kwargs):
+            if fake_inspect_runtime.calls < len(snapshots):
+                value = snapshots[fake_inspect_runtime.calls]
+            else:
+                value = snapshots[-1]
+            fake_inspect_runtime.calls += 1
+            return value
+
+        fake_inspect_runtime.calls = 0
+
+        calls: list[tuple[str, ...]] = []
+
+        def fake_run_tmux(*args: str):
+            calls.append(args)
+            proc = Mock()
+            proc.returncode = 0
+            proc.stdout = ""
+            proc.stderr = ""
+            return proc
+
+        with patch("init_tmux_env.inspect_runtime", side_effect=fake_inspect_runtime):
+            with patch("init_tmux_env.run_tmux", side_effect=fake_run_tmux):
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "init_tmux_env.py",
+                        "--formal-session",
+                        "formal-session",
+                        "--create-formal-session",
+                        "--initialize-formal-surfaces",
+                    ],
+                ):
+                    rc = init_tmux_env.main()
+
+        self.assertEqual(0, rc)
+        self.assertIn(("new-session", "-Ad", "-s", "formal-session", "-c", "/Users/busiji/workbot"), calls)
+        self.assertIn(("switch-client", "-t", "formal-session"), calls)
 
     def test_arm_watcher_rejects_attached_session_without_formal_client(self) -> None:
         snapshot = runtime_snapshot(

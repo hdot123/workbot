@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import time
 from typing import Any
@@ -41,30 +40,37 @@ def reject_background_session_creation(session_name: str) -> None:
     )
 
 
-def run_osascript(lines: list[str]) -> subprocess.CompletedProcess[str]:
-    args: list[str] = ["osascript"]
-    for line in lines:
-        args.extend(["-e", line])
-    return subprocess.run(args, capture_output=True, text=True, check=False)
-
-
-def create_foreground_formal_session(session_name: str, cwd: str) -> dict[str, Any]:
-    command = (
-        f"cd {shlex.quote(cwd)} && "
-        f"exec tmux new-session -A -s {shlex.quote(session_name)} -c {shlex.quote(cwd)}"
-    )
-    proc = run_osascript(
-        [
-            'tell application "Terminal" to activate',
-            f'tell application "Terminal" to do script {json.dumps(command)}',
-        ]
-    )
+def create_or_switch_visible_formal_session(session_name: str, cwd: str) -> dict[str, Any]:
+    proc = run_tmux("new-session", "-Ad", "-s", session_name, "-c", cwd)
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "failed to open Terminal.app")
+        raise RuntimeError(
+            proc.stderr.strip() or proc.stdout.strip() or f"failed to create tmux session {session_name}"
+        )
+    switch_proc = run_tmux("switch-client", "-t", session_name)
+    if switch_proc.returncode != 0:
+        raise RuntimeError(
+            switch_proc.stderr.strip()
+            or switch_proc.stdout.strip()
+            or f"failed to switch current client to {session_name}"
+        )
     return {
-        "transport": "terminal_app",
-        "command": command,
+        "transport": "current_tmux_client",
+        "session_name": session_name,
+        "cwd": cwd,
     }
+
+
+def require_tmux_client_for_formal_session_change(
+    snapshot: dict[str, Any],
+    formal_session: str,
+) -> dict[str, Any]:
+    current_client = snapshot.get("current_client") or {}
+    if not current_client.get("inside_tmux"):
+        raise RuntimeError(
+            "foreground tmux changes must run from inside the visible tmux client; "
+            f"refusing to create or switch {formal_session} from a non-tmux context"
+        )
+    return current_client
 
 
 def wait_for_attached_formal_session(session_name: str, timeout_seconds: float = 8.0) -> dict[str, Any]:
@@ -190,7 +196,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--create-formal-session",
         action="store_true",
-        help="Create or attach the formal session in a visible Terminal.app window when missing.",
+        help="Create or attach the formal session using the current visible tmux client.",
     )
     parser.add_argument(
         "--initialize-formal-surfaces",
@@ -243,8 +249,12 @@ def main() -> int:
 
     created_formal: dict[str, Any] | None = None
     if create_formal_session:
+        current_client = require_tmux_client_for_formal_session_change(snapshot_current, formal_session)
         if formal_session not in snapshot_current["session_names"]:
-            created_formal = create_foreground_formal_session(formal_session, formal_cwd)
+            created_formal = create_or_switch_visible_formal_session(formal_session, formal_cwd)
+            snapshot_current = wait_for_attached_formal_session(formal_session)
+        elif current_client.get("session_name") != formal_session:
+            created_formal = create_or_switch_visible_formal_session(formal_session, formal_cwd)
             snapshot_current = wait_for_attached_formal_session(formal_session)
 
     formal_session_policy_actions: list[str] = []
