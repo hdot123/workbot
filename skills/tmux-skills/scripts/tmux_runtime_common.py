@@ -136,14 +136,20 @@ def list_clients(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list
         if not raw.strip():
             continue
         client_tty, session_name, client_pid, width, height = raw.split("\t")
+        client_pid_value = int(client_pid or 0)
+        provenance = resolve_terminal_provenance(client_pid_value or None)
         clients.append(
             {
                 "client_tty": client_tty,
                 "session_name": session_name,
-                "client_pid": int(client_pid or 0),
+                "client_pid": client_pid_value,
                 "client_width": int(width or 0),
                 "client_height": int(height or 0),
                 "is_formal": session_name == formal_session_name,
+                "visible_terminal_client": provenance["visible_terminal_client"],
+                "visibility_reason": provenance["visibility_reason"],
+                "known_terminal_marker": provenance["known_terminal_marker"],
+                "codex_hosted": provenance["codex_hosted"],
             }
         )
     return clients
@@ -467,7 +473,12 @@ def describe_formal_client_state(
 ) -> dict[str, Any]:
     sessions = snapshot.get("sessions", [])
     current_client = snapshot.get("current_client") or {}
-    formal_client_count = int(snapshot.get("formal_client_count", 0) or 0)
+    formal_clients = [
+        client
+        for client in snapshot.get("clients", [])
+        if client.get("session_name") == formal_session_name
+    ]
+    formal_client_count = len(formal_clients)
     formal_attached = any(
         session.get("session_name") == formal_session_name and int(session.get("attached", 0)) > 0
         for session in sessions
@@ -479,19 +490,23 @@ def describe_formal_client_state(
         current_caller_inside_tmux and current_caller_session == formal_session_name
     )
     single_attached_formal_client = formal_attached and formal_client_count == 1
-    startup_transition_ready = (
-        single_attached_formal_client and not current_visible_formal_client
+    visible_formal_client_count = 1 if current_visible_formal_client else 0
+    single_visible_formal_client = (
+        formal_attached and formal_client_count == 1 and current_visible_formal_client
     )
-    startup_client_ready = current_visible_formal_client or startup_transition_ready
+    startup_transition_ready = False
+    startup_client_ready = current_visible_formal_client
     return {
         "formal_session_name": formal_session_name,
         "formal_attached": formal_attached,
         "formal_client_count": formal_client_count,
+        "visible_formal_client_count": visible_formal_client_count,
         "current_visible_formal_client": current_visible_formal_client,
         "current_caller_inside_tmux": current_caller_inside_tmux,
         "current_caller_session": current_caller_session,
         "current_caller_in_formal": current_caller_in_formal,
         "single_attached_formal_client": single_attached_formal_client,
+        "single_visible_formal_client": single_visible_formal_client,
         "startup_transition_ready": startup_transition_ready,
         "startup_client_ready": startup_client_ready,
     }
@@ -553,9 +568,12 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
             for client in formal_clients
         )
     )
+    visible_formal_clients = [
+        client for client in formal_clients if bool(client.get("visible_terminal_client"))
+    ]
     current_visible_formal_client = (
         current_client_is_formal
-        and len(formal_clients) == 1
+        and len(visible_formal_clients) == 1
         and bool(current_client.get("visible_terminal_client"))
     )
     official_formal_session = select_official_formal_session(
@@ -598,6 +616,8 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         "formal_session_count": formal_session_count,
         "formal_clients": formal_clients,
         "formal_client_count": len(formal_clients),
+        "visible_formal_clients": visible_formal_clients,
+        "visible_formal_client_count": len(visible_formal_clients),
         "current_client_is_formal": current_client_is_formal,
         "current_visible_formal_client": current_visible_formal_client,
         "single_formal_session": formal_session_count == 1 and bool(primary_formal_session),

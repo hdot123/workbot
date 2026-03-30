@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -38,6 +39,7 @@ HANDOFF_SQLITE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.sqlite3"
 WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.log"
 DELIVERY_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "deliver-tmux-handoff.stdout.log"
 DELIVERY_QUEUE_DIR = TMUX_SKILLS_ARTIFACT_DIR / "delivery-queue"
+CHAIN_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "start-formal-runtime-chain.stdout.log"
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         "--task-id",
         default="tmux-skills-public-run",
         help="Task identifier stored in the runtime ledger.",
+    )
+    parser.add_argument(
+        "--continue-inside-formal",
+        action="store_true",
+        help="Internal continuation mode that runs inside a freshly created visible formal-session.",
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print result JSON.")
     return parser.parse_args()
@@ -183,6 +190,7 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
         HANDOFF_SQLITE_PATH,
         WATCHER_STDOUT_LOG_PATH,
         DELIVERY_STDOUT_LOG_PATH,
+        CHAIN_STDOUT_LOG_PATH,
     ):
         if safe_unlink(path):
             removed_files.append(str(path))
@@ -197,27 +205,21 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
     }
 
 
-def ensure_attached_formal_session(
-    snapshot: dict[str, Any],
-    formal_session: str,
-    *,
-    allow_startup_transition: bool = False,
-) -> None:
+def ensure_attached_formal_session(snapshot: dict[str, Any], formal_session: str) -> None:
     formal_state = describe_formal_client_state(snapshot, formal_session)
     formal_client_count = int(formal_state["formal_client_count"])
     if formal_client_count <= 0:
         raise RuntimeError(
             f"formal session '{formal_session}' has no attached tmux client; foreground tmux is not visible"
         )
-    if formal_client_count != 1:
+    visible_formal_client_count = int(formal_state["visible_formal_client_count"])
+    if visible_formal_client_count != 1:
         raise RuntimeError(
-            f"formal session '{formal_session}' must have exactly one visible tmux client; got {formal_client_count}"
+            f"formal session '{formal_session}' must have exactly one visible tmux client; got {visible_formal_client_count}"
         )
-    if allow_startup_transition and formal_state["startup_client_ready"]:
-        return
-    if not formal_state["current_visible_formal_client"]:
+    if not formal_state["startup_client_ready"]:
         raise RuntimeError(
-            f"current caller is not inside the visible formal session '{formal_session}'"
+            f"formal session '{formal_session}' is attached but not visible in a real terminal client"
         )
 
 
@@ -290,86 +292,69 @@ def build_result(
     return result
 
 
-def preflight_formal_session_cleanup(formal_session: str) -> dict[str, Any]:
+def inspect_runtime_snapshot(*, step: str) -> dict[str, Any]:
+    return run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
+
+
+def require_visible_terminal_launcher(snapshot: dict[str, Any]) -> None:
+    current_client = snapshot.get("current_client") or {}
+    if current_client.get("inside_tmux"):
+        raise RuntimeError(
+            "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
+        )
+    if not current_client.get("visible_terminal_client"):
+        reason = str(current_client.get("visibility_reason") or "invisible_terminal_client")
+        raise RuntimeError(
+            "new tmux-skills tasks must start from a real visible terminal client; "
+            f"refusing startup from {reason}"
+        )
+
+
+def preflight_kill_all_tmux_sessions() -> dict[str, Any]:
     try:
-        snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step="tmux_preflight_inspect")
+        snapshot = inspect_runtime_snapshot(step="tmux_preflight_inspect")
     except Exception as exc:
         return {"attempted": False, "reason": f"inspect_failed: {exc}"}
 
     current_client = snapshot.get("current_client") or {}
-    current_inside_tmux = bool(current_client.get("inside_tmux"))
-    current_session_name = (
-        str(current_client.get("session_name", "")).strip() if current_inside_tmux else ""
-    )
-    current_visible_terminal_client = bool(current_client.get("visible_terminal_client"))
-    formal_sessions = [
-        str(name).strip()
-        for name in snapshot.get("formal_sessions", [])
-        if str(name).strip()
+    if current_client.get("inside_tmux"):
+        return {
+            "attempted": False,
+            "blocked": True,
+            "reason": "current_tmux_launcher",
+            "current_session_name": str(current_client.get("session_name") or "").strip(),
+            "session_count_before": int(snapshot.get("session_count", 0) or 0),
+            "session_names": [
+                str(session.get("session_name") or "").strip()
+                for session in snapshot.get("sessions", [])
+                if str(session.get("session_name") or "").strip()
+            ],
+        }
+
+    session_names = [
+        str(session.get("session_name") or "").strip()
+        for session in snapshot.get("sessions", [])
+        if str(session.get("session_name") or "").strip()
     ]
-    bootstrap_sessions = [
-        str(name).strip()
-        for name in snapshot.get("bootstrap_sessions", [])
-        if str(name).strip()
-    ]
-    formal_exists = formal_session in formal_sessions
-    current_in_formal = bool(
-        current_client.get("inside_tmux") and current_client.get("session_name") == formal_session
-    )
-    stale_formal_session = formal_exists and not bool(snapshot.get("current_visible_formal_client"))
-    cleanup_targets: list[str] = []
-    pending_cleanup_targets: list[str] = []
+    ordered_sessions: list[str] = []
+    for session_name in session_names:
+        if session_name not in ordered_sessions:
+            ordered_sessions.append(session_name)
+
     result: dict[str, Any] = {
-        "attempted": False,
-        "formal_session": formal_session,
-        "formal_exists": formal_exists,
-        "bootstrap_sessions": bootstrap_sessions,
-        "current_visible_formal_client": bool(snapshot.get("current_visible_formal_client")),
-        "current_in_formal": current_in_formal,
-        "current_session_name": current_session_name,
+        "attempted": bool(ordered_sessions),
+        "session_names": ordered_sessions,
+        "session_count_before": int(snapshot.get("session_count", 0) or 0),
     }
-    if stale_formal_session:
-        if current_in_formal:
-            pending_cleanup_targets.append(formal_session)
-        else:
-            cleanup_targets.append(formal_session)
-
-    for session_name in bootstrap_sessions:
-        protected_current_bootstrap = (
-            session_name == current_session_name and current_visible_terminal_client
-        )
-        if protected_current_bootstrap:
-            pending_cleanup_targets.append(session_name)
-            continue
-        cleanup_targets.append(session_name)
-
-    ordered_cleanup_targets: list[str] = []
-    for session_name in cleanup_targets:
-        if session_name and session_name not in ordered_cleanup_targets:
-            ordered_cleanup_targets.append(session_name)
-
-    ordered_pending_targets: list[str] = []
-    for session_name in pending_cleanup_targets:
-        if session_name and session_name not in ordered_pending_targets:
-            ordered_pending_targets.append(session_name)
-
-    result["cleanup_targets"] = ordered_cleanup_targets
-    if ordered_pending_targets:
-        result["pending_cleanup_targets"] = ordered_pending_targets
-        result["pending_cleanup"] = True
-
-    if not ordered_cleanup_targets:
-        if current_in_formal and stale_formal_session:
-            result["reason"] = "defer_current_formal_cleanup"
-        elif ordered_pending_targets:
-            result["reason"] = "defer_current_bootstrap_cleanup"
-        else:
-            result["reason"] = "no_stale_tmux_sessions"
+    if not ordered_sessions:
+        result["reason"] = "no_tmux_sessions"
+        result["cleaned"] = True
+        result["killed_sessions"] = []
         return result
 
     kill_results: list[dict[str, Any]] = []
     cleaned = True
-    for session_name in ordered_cleanup_targets:
+    for session_name in ordered_sessions:
         kill_proc = run(["tmux", "kill-session", "-t", session_name])
         detail = (kill_proc.stderr or kill_proc.stdout or "").strip()
         kill_results.append(
@@ -382,7 +367,6 @@ def preflight_formal_session_cleanup(formal_session: str) -> dict[str, Any]:
         if kill_proc.returncode != 0:
             cleaned = False
 
-    result["attempted"] = True
     result["cleaned"] = cleaned
     result["killed_sessions"] = [item["session_name"] for item in kill_results]
     result["kill_results"] = kill_results
@@ -437,25 +421,22 @@ def inspect_visible_formal_session(
     formal_session: str,
     *,
     step: str,
-    require_no_bootstrap: bool = False,
 ) -> dict[str, Any]:
-    snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
-    ensure_attached_formal_session(
-        snapshot,
-        formal_session,
-        allow_startup_transition=True,
-    )
-    if require_no_bootstrap and snapshot.get("bootstrap_sessions"):
+    snapshot = inspect_runtime_snapshot(step=step)
+    extra_sessions = [
+        str(session_name).strip()
+        for session_name in snapshot.get("session_names", [])
+        if str(session_name).strip() and str(session_name).strip() != formal_session
+    ]
+    if extra_sessions:
         raise RuntimeError(
-            "bootstrap tmux residue remains after formal env setup: "
-            + ", ".join(str(name) for name in snapshot["bootstrap_sessions"])
+            "unexpected tmux residue remains after startup: " + ", ".join(extra_sessions)
         )
+    ensure_attached_formal_session(snapshot, formal_session)
     return snapshot
 
 
 def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str, Any]:
-    steps["tmux_preflight"] = preflight_formal_session_cleanup(formal_session)
-    steps["cleanup"] = cleanup_previous_runtime_state()
     steps["env"] = run_json(
         [
             sys.executable,
@@ -464,8 +445,6 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
             formal_session,
             "--formal-cwd",
             str(ROOT),
-            "--create-formal-session",
-            "--kill-detached",
             "--initialize-formal-surfaces",
             "--formal-window-title",
             formal_session,
@@ -476,14 +455,80 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
     inspect_after_env = inspect_visible_formal_session(
         formal_session,
         step="inspect_after_env",
-        require_no_bootstrap=True,
     )
     steps["inspect_after_env"] = {
         "formal_session_count": inspect_after_env.get("formal_session_count"),
         "attached_formal": True,
-        "bootstrap_sessions": inspect_after_env.get("bootstrap_sessions", []),
+        "session_count": inspect_after_env.get("session_count"),
     }
     return inspect_after_env
+
+
+def apply_formal_session_policy(formal_session: str) -> list[str]:
+    proc = run(["tmux", "set-option", "-t", formal_session, "destroy-unattached", "on"])
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "failed to enable destroy-unattached").strip()
+        raise RuntimeError(detail)
+    return ["destroy_unattached=on"]
+
+
+def verify_tmux_cleared() -> dict[str, Any]:
+    snapshot = inspect_runtime_snapshot(step="tmux_preflight_verify")
+    if int(snapshot.get("session_count", 0) or 0) != 0:
+        raise RuntimeError(
+            "tmux residue remains after preflight cleanup: "
+            + ", ".join(str(session.get("session_name") or "") for session in snapshot.get("sessions", []))
+        )
+    return snapshot
+
+
+def build_inside_formal_command(args: argparse.Namespace) -> str:
+    command: list[str] = [
+        sys.executable,
+        str(Path(__file__)),
+        "--codex-thread-id",
+        args.codex_thread_id,
+        "--formal-session",
+        args.formal_session,
+        "--task-id",
+        args.task_id,
+        "--continue-inside-formal",
+    ]
+    if args.pane_count is not None:
+        command.extend(["--pane-count", str(args.pane_count)])
+    for title in args.pane_titles:
+        command.extend(["--pane-title", str(title)])
+    if args.pretty:
+        command.append("--pretty")
+    shell_path = os.environ.get("SHELL") or "/bin/zsh"
+    quoted_command = " ".join(shlex.quote(part) for part in command)
+    return f"{quoted_command}; exec {shlex.quote(shell_path)} -l"
+
+
+def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any]) -> int:
+    steps["tmux_preflight"] = preflight_kill_all_tmux_sessions()
+    if steps["tmux_preflight"].get("blocked"):
+        raise RuntimeError(
+            "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
+        )
+    verify_tmux_cleared()
+    launcher_snapshot = inspect_runtime_snapshot(step="launcher_inspect")
+    require_visible_terminal_launcher(launcher_snapshot)
+    steps["cleanup"] = cleanup_previous_runtime_state()
+    tmux_command = [
+        "tmux",
+        "new-session",
+        "-s",
+        args.formal_session,
+        "-c",
+        str(ROOT),
+        build_inside_formal_command(args),
+    ]
+    steps["launcher"] = {
+        "mode": "fresh_visible_terminal",
+        "tmux_command": tmux_command,
+    }
+    return subprocess.run(tmux_command, check=False).returncode
 
 
 def bind_tmux_thread_id(codex_thread_id: str) -> dict[str, str]:
@@ -649,8 +694,17 @@ def main() -> int:
         return 2
 
     steps: dict[str, Any] = {"formal_session": args.formal_session}
+    if not args.continue_inside_formal:
+        try:
+            return launch_clean_formal_session(args, steps)
+        except Exception as exc:
+            result = build_result("failed", steps, pane_titles, str(exc))
+            print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+            return 1
+
     try:
         run_formal_env_setup(args.formal_session, steps)
+        steps["formal_session_policy"] = apply_formal_session_policy(args.formal_session)
         steps["thread_binding"] = bind_tmux_thread_id(args.codex_thread_id)
         targets, batch_plan, topology_fingerprint = run_topology_and_titles(
             args.formal_session,
