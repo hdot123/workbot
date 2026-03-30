@@ -11,7 +11,7 @@ import subprocess
 import time
 from typing import Any
 
-from tmux_runtime_common import inspect_runtime
+from tmux_runtime_common import inspect_runtime, is_legacy_bootstrap_session
 
 
 def run_tmux(*args: str) -> subprocess.CompletedProcess[str]:
@@ -196,7 +196,7 @@ def initialize_formal_surface(
 def cleanup_bootstrap_sessions() -> list[str]:
     removed: list[str] = []
     for session in list_sessions():
-        if not session.get("is_bootstrap", session.get("session_name") == "tbot"):
+        if not session.get("is_bootstrap", is_legacy_bootstrap_session(str(session.get("session_name") or ""))):
             continue
         if kill_session(session["session_name"]):
             removed.append(session["session_name"])

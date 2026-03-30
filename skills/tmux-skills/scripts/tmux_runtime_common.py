@@ -46,6 +46,7 @@ KNOWN_TERMINAL_BUNDLE_IDS = {
     "com.googlecode.iterm2": "iTerm",
 }
 NON_VISIBLE_TERMINAL_PROGRAMS = {"tmux"}
+LEGACY_BOOTSTRAP_SESSION_NAME = "tbot"
 
 TMUX_RUNTIME_COMMAND = [
     "tmux",
@@ -96,6 +97,10 @@ def resolve_formal_session_name(
     return DEFAULT_FORMAL_SESSION_NAME
 
 
+def is_legacy_bootstrap_session(session_name: str) -> bool:
+    return session_name == LEGACY_BOOTSTRAP_SESSION_NAME
+
+
 def list_sessions(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[dict[str, Any]]:
     try:
         output = run(TMUX_SESSION_COMMAND)
@@ -113,7 +118,7 @@ def list_sessions(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> lis
                 "attached": int(attached or 0),
                 "windows": int(windows or 0),
                 "session_id": session_id,
-                "is_bootstrap": session_name == "tbot",
+                "is_bootstrap": is_legacy_bootstrap_session(session_name),
                 "is_formal": session_name == formal_session_name,
             }
         )
@@ -182,7 +187,7 @@ def list_panes(formal_session_name: str = DEFAULT_FORMAL_SESSION_NAME) -> list[d
                 "current_path": current_path,
                 "window_id": window_id,
                 "pane_active": int(pane_active or 0),
-                "is_bootstrap": session_name == "tbot",
+                "is_bootstrap": is_legacy_bootstrap_session(session_name),
                 "is_formal": session_name == formal_session_name,
             }
         )
