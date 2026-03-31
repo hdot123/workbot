@@ -12,11 +12,22 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Add parent directory to path for module imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from runtime_ledger import DEFAULT_FORMAL_SESSION_NAME
 from tmux_runtime_common import describe_formal_client_state
+from tmux_scheduler import (
+    run_json_script,
+    set_orchestrator_context,
+    load_registry,
+    get_script_meta,
+    validate_script,
+)
 
 
 ROOT = Path("/Users/busiji/workbot")
@@ -34,6 +45,7 @@ TMUX_RUNTIME_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
 TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-skills"
 CURRENT_RUNTIME_LEDGER_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "current-runtime.json"
 LAST_RUNTIME_ISSUES_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-runtime-issues.json"
+HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
 HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
 HANDOFF_SQLITE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.sqlite3"
 WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.log"
@@ -441,6 +453,82 @@ def cleanup_hidden_formal_session_on_failure(formal_session: str, error_text: st
     return result
 
 
+def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles: list[str]) -> None:
+    """Persist failure details to last-runtime-issues.json for post-mortem analysis."""
+    LAST_RUNTIME_ISSUES_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Infer last completed phase from steps
+    phase_order = ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"]
+    last_completed_phase = "unknown"
+    for phase in phase_order:
+        if phase in steps:
+            last_completed_phase = phase
+
+    issue_record = {
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "error": error_text,
+        "steps_completed": {k: v for k, v in steps.items() if v and isinstance(v, (dict, list, str, int, bool))},
+        "pane_titles_requested": pane_titles,
+        "failure_context": {
+            "formal_session": steps.get("formal_session"),
+            "last_completed_phase": last_completed_phase,
+        },
+    }
+
+    # Append to issues file (keep last 10 failures)
+    existing_issues = []
+    if LAST_RUNTIME_ISSUES_PATH.exists():
+        try:
+            existing_issues = json.loads(LAST_RUNTIME_ISSUES_PATH.read_text(encoding="utf-8"))
+            if not isinstance(existing_issues, list):
+                existing_issues = []
+        except (json.JSONDecodeError, FileNotFoundError):
+            existing_issues = []
+
+    existing_issues.append(issue_record)
+    LAST_RUNTIME_ISSUES_PATH.write_text(
+        json.dumps(existing_issues[-10:], ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+
+
+def run_detect_phase() -> dict[str, Any]:
+    """Run detect_old_state phase and return detection report (read-only, no mutations)."""
+    snapshot = inspect_runtime_snapshot(step="detect_old_state")
+
+    # Build detection report
+    formal_sessions = [s for s in snapshot.get("sessions", []) if s.get("session_name") == "formal-session"]
+    attached_formal_count = sum(1 for s in formal_sessions if int(s.get("attached", 0)) > 0)
+
+    report = {
+        "detection_status": "CLEAN",
+        "tmux_server_exists": True,
+        "sessions": snapshot.get("sessions", []),
+        "session_count": snapshot.get("session_count", 0),
+        "formal_session_detected": {
+            "exists": len(formal_sessions) > 0,
+            "count": len(formal_sessions),
+            "attached_count": attached_formal_count,
+        },
+        "watcher_processes": snapshot.get("bell_processes", []),
+        "state_files": {
+            "ledger_exists": snapshot.get("runtime_ledger_present", False),
+            "issues_exists": LAST_RUNTIME_ISSUES_PATH.exists(),
+            "handoff_log_exists": HANDOFF_LOG_PATH.exists(),
+        },
+        "current_caller_context": snapshot.get("current_client", {}),
+        "cleanup_required": bool(snapshot.get("sessions", [])),  # Cleanup if any sessions exist
+    }
+
+    # Determine detection status
+    if snapshot.get("sessions", []):
+        report["detection_status"] = "RESIDUE_DETECTED"
+    elif not snapshot.get("runtime_ledger_present"):
+        report["detection_status"] = "CLEAN"
+
+    return report
+
+
 def inspect_visible_formal_session(
     formal_session: str,
     *,
@@ -461,10 +549,12 @@ def inspect_visible_formal_session(
 
 
 def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str, Any]:
-    steps["env"] = run_json(
+    # Set orchestrator context before calling phase script
+    set_orchestrator_context()
+
+    steps["env"] = run_json_script(
+        "init_tmux_env.py",
         [
-            sys.executable,
-            str(ENV_SCRIPT),
             "--formal-session",
             formal_session,
             "--formal-cwd",
@@ -472,7 +562,6 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
             "--initialize-formal-surfaces",
             "--formal-window-title",
             formal_session,
-            "--pretty",
         ],
         step="env",
     )
@@ -598,13 +687,14 @@ def write_batch_plan_file(batch_plan: list[dict[str, str]]) -> str:
 
 def apply_pane_titles(batch_plan: list[dict[str, str]]) -> dict[str, Any]:
     plan_path = write_batch_plan_file(batch_plan)
-    return run_json(
+    # Set orchestrator context before calling phase script
+    set_orchestrator_context()
+
+    return run_json_script(
+        "init_tmux_panes.py",
         [
-            sys.executable,
-            str(PANE_INIT_SCRIPT),
             "--batch-file",
             plan_path,
-            "--pretty",
         ],
         step="pane-title-application",
     )
@@ -615,15 +705,16 @@ def run_topology_setup(
     pane_count: int,
     steps: dict[str, Any],
 ) -> tuple[list[str], dict[str, Any]]:
-    steps["topology"] = run_json(
+    # Set orchestrator context before calling phase script
+    set_orchestrator_context()
+
+    steps["topology"] = run_json_script(
+        "build_tmux_topology.py",
         [
-            sys.executable,
-            str(TOPOLOGY_SCRIPT),
             "--formal-session",
             formal_session,
             "--target-pane-count",
             str(pane_count),
-            "--pretty",
         ],
         step="topology",
     )
@@ -673,11 +764,13 @@ def run_runtime_activation(
     targets: list[str],
     steps: dict[str, Any],
 ) -> None:
+    # Set orchestrator context before calling phase scripts
+    set_orchestrator_context()
+
     steps["thread_binding"] = bind_tmux_thread_id(codex_thread_id)
 
-    ledger_command = [
-        sys.executable,
-        str(LEDGER_SCRIPT),
+    # Ledger initialization through scheduler
+    ledger_args = [
         "--task-id",
         task_id,
         "--formal-session-name",
@@ -689,37 +782,40 @@ def run_runtime_activation(
         "--codex-thread-bound",
         "--runtime-status",
         "READY",
-        "--pretty",
     ]
-    ledger_command.extend(build_slot_binding_args(batch_plan))
-    steps["ledger"] = run_json(ledger_command, step="ledger")
+    ledger_args.extend(build_slot_binding_args(batch_plan))
+    steps["ledger"] = run_json_script(
+        "init_runtime_ledger.py",
+        ledger_args,
+        step="ledger",
+    )
 
-    watcher_command = [
-        sys.executable,
-        str(WATCHER_SCRIPT),
+    # Watcher arm through scheduler
+    watcher_args = [
         "--formal-session-name",
         formal_session,
-        "--pretty",
     ]
     for target in targets:
-        watcher_command.extend(["--target", target])
-    steps["watcher"] = run_json(watcher_command, step="watcher")
+        watcher_args.extend(["--target", target])
+    steps["watcher"] = run_json_script(
+        "arm_tmux_handoff_watcher.py",
+        watcher_args,
+        step="watcher",
+    )
 
-    ready_check_command = [
-        sys.executable,
-        str(READY_CHECK_SCRIPT),
-        "--formal-session-name",
-        formal_session,
-        "--require-formal",
-        "--require-watcher",
-        "--pretty",
-    ]
-    ready_check_result, ready_check_rc = run_json_with_status(
-        ready_check_command,
+    # Ready check through scheduler
+    ready_check_result = run_json_script(
+        "check_tmux_ready.py",
+        [
+            "--formal-session-name",
+            formal_session,
+            "--require-formal",
+            "--require-watcher",
+        ],
         step="ready_check",
     )
     steps["ready_check"] = ready_check_result
-    if ready_check_rc != 0:
+    if ready_check_result.get("runtime_status") != "READY":
         raise RuntimeError(
             "ready_check failed: "
             + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
@@ -737,12 +833,23 @@ def main() -> int:
         return 2
 
     steps: dict[str, Any] = {"formal_session": args.formal_session}
+
+    # ========== GATE 0: detect_old_state (read-only) ==========
+    detect_report = run_detect_phase()
+    steps["detect"] = detect_report
+
     if not args.continue_inside_formal:
         try:
             return launch_clean_formal_session(args, steps)
         except Exception as exc:
             result = build_result("failed", steps, pane_titles, str(exc))
             print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+            sys.stdout.flush()
+            record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
+            steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
+                args.formal_session,
+                str(exc),
+            )
             return 1
 
     try:
@@ -786,6 +893,7 @@ def main() -> int:
         result = build_result("failed", steps, pane_titles, str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
         sys.stdout.flush()
+        record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
         steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
             args.formal_session,
             str(exc),

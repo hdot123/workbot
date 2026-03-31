@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -335,3 +337,24 @@ def evaluate_runtime_ledger_coherence(ledger: dict[str, Any]) -> tuple[list[str]
                 )
 
     return reasons, warnings
+
+
+# ==============================================================================
+# ENFORCEMENT: internal_only - cannot be called directly
+# ==============================================================================
+if __name__ == "__main__":
+    import os
+    internal_call = os.environ.get("TMUX_INTERNAL_CALL", "")
+    if internal_call != "true":
+        import sys
+        sys.stderr.write("""
+ERROR: runtime_ledger.py is for internal use only.
+
+This script is marked as internal_only and cannot be called directly.
+
+Usage:
+    python3 run_script.py --script runtime_ledger.py [args...]
+
+Or set TMUX_INTERNAL_CALL=true if calling from internal code.
+""")
+        sys.exit(1)

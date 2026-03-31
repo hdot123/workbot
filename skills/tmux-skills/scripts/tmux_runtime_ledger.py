@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+
+
 import argparse
 import json
 from typing import Any
@@ -127,4 +129,15 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Enforce internal_only - cannot be called directly
+    import os
+    internal_call = os.environ.get("TMUX_INTERNAL_CALL", "")
+    if internal_call != "true":
+        import sys
+        sys.stderr.write("""
+ERROR: tmux_runtime_ledger.py is for internal use only.
+
+This script is marked as internal_only and cannot be called directly.
+""")
+        sys.exit(1)
     raise SystemExit(main())

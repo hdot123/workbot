@@ -3,6 +3,16 @@
 
 from __future__ import annotations
 
+# ==============================================================================
+# ENFORCEMENT: This script must be called through the scheduler
+# ==============================================================================
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from runtime_enforcement import enforce_via_scheduler
+enforce_via_scheduler("arm_tmux_handoff_watcher.py")
+# ==============================================================================
+
 import argparse
 import json
 import os

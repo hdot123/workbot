@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# ==============================================================================
+# DEPRECATED: This script is deprecated as of 2026-03-31
+# ==============================================================================
+# Reason: Switched to window IPC bridge mechanism
+# Alternative: Use tmux_handoff_app_bridge.py instead
+# This file is retained for backward compatibility only.
+# ==============================================================================
+
 from __future__ import annotations
 
 import argparse

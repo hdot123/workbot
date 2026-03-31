@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+
+
 import hashlib
 import json
 import os
@@ -655,3 +657,24 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
         configured_formal_session_name,
     )
     return snapshot
+
+
+# ==============================================================================
+# ENFORCEMENT: internal_only - cannot be called directly
+# ==============================================================================
+if __name__ == "__main__":
+    import os
+    internal_call = os.environ.get("TMUX_INTERNAL_CALL", "")
+    if internal_call != "true":
+        import sys
+        sys.stderr.write("""
+ERROR: tmux_runtime_common.py is for internal use only.
+
+This script is marked as internal_only and cannot be called directly.
+
+Usage:
+    python3 run_script.py --script tmux_runtime_common.py [args...]
+
+Or set TMUX_INTERNAL_CALL=true if calling from internal code.
+""")
+        sys.exit(1)

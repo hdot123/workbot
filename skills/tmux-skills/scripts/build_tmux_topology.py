@@ -3,6 +3,16 @@
 
 from __future__ import annotations
 
+# ==============================================================================
+# ENFORCEMENT: This script is orchestrator_only - cannot be called directly
+# ==============================================================================
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from runtime_enforcement import enforce_orchestrator_only
+enforce_orchestrator_only("build_tmux_topology.py")
+# ==============================================================================
+
 import argparse
 import json
 import subprocess
