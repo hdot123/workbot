@@ -1,5 +1,9 @@
 # tmux Runtime 系统治理 - 阶段 5 注册制实现与脚本迁移
 
+> 当前文档角色：历史阶段实现记录。
+> 当前代码口径请优先查看 `/Users/busiji/workbot/docs/tmux-docs-index.md` 与当前技能文档。
+> 文中“已交付 / 通过 / 已达成”等表述，默认表示阶段 5 当次实现与验收结论；若与当前代码演进后产生偏差，以当前真源文档和代码为准。
+
 **文档编号**: GOVERN-001-PH5  
 **创建日期**: 2026-03-31  
 **实现范围**: 脚本注册表、调度器、迁移执行  
@@ -24,7 +28,7 @@
 
 | 验收项 | 预期结果 | 实际结果 | 判定 |
 |--------|----------|----------|------|
-| 注册表包含所有脚本元数据 | 23 个脚本完整注册 | 23 个脚本已注册 | ✅ 通过 |
+| 注册表包含所有脚本元数据 | 22 个注册脚本完整注册 | 22 个注册脚本已注册 | ✅ 通过 |
 | 调度器支持 5 层验证 | 注册/状态/可见性/环境/前置条件 | 5 层验证已实现 | ✅ 通过 |
 | 调度器可列出所有脚本 | `--list` 命令正常输出 | 命令正常工作 | ✅ 通过 |
 | 未注册脚本被拒绝 | 返回错误并退出 | 错误处理正常 | ✅ 通过 |
@@ -38,6 +42,9 @@
 ### 2.1 注册表结构
 
 **文件路径**: `skills/tmux-skills/SCRIPT_REGISTRY.json`
+
+> 当前代码说明：`SCRIPT_REGISTRY.json` 当前包含 22 个注册项。
+> `run_script.py` 和 `tmux_scheduler.py` 属于调度器实现文件，不计入注册项总数。
 
 **脚本分类统计**:
 
@@ -79,9 +86,14 @@
 
 ### 2.3 弃用脚本清单
 
+> 当前代码现状补充：
+> `deliver_tmux_handoff_notification.py` 在注册表里仍是 `deprecated`，
+> 但 watcher 当前通过 queue 文件把事件交给它，再由它确保 bridge 常驻。
+> 这与脚本头部的 deprecation 注释一致：该文件当前仍保留在代码里。
+
 | 脚本 | 替代方案 | 废弃原因 |
 |------|----------|----------|
-| `deliver_tmux_handoff_notification.py` | `tmux_handoff_app_bridge.py` | 已切换到 window IPC bridge |
+| `deliver_tmux_handoff_notification.py` | `tmux_handoff_app_bridge.py` | 头部注释标记为 `deprecated`；当前代码里 watcher 仍会调用它，它会确保 bridge 常驻并把 queue item 留给 bridge |
 | `build_tmux_handoff_notification.py` | `build_tmux_handoff_bundle.py` | 已切换到 bundle 机制 |
 | `build_tmux_db_write_instruction.py` | 无 | 旧 delivery 链路废弃 |
 | `write_tmux_notifications_sqlite.py` | 无 | 已切换到 JSONL |
@@ -142,6 +154,8 @@ $ python3 run_script.py --script deliver_tmux_handoff_notification.py
 WARNING: Script 'deliver_tmux_handoff_notification.py' is deprecated
 WARNING:   -> Use 'tmux_handoff_app_bridge.py' instead
 ```
+
+> 说明：上面的 warning 与脚本头部 `Alternative: Use 'tmux_handoff_app_bridge.py' instead` 一致。
 
 #### 3.2.3 可见性检查
 
@@ -209,12 +223,12 @@ if visibility == "orchestrator_only":
 
 | 原调用方式 | 新调用方式 | 迁移状态 |
 |------------|------------|----------|
-| `python3 start_formal_runtime_chain.py` | 不变（公开入口） | ✅ 无需迁移 |
-| `python3 check_tmux_ready.py` | 不变（公开入口） | ✅ 无需迁移 |
-| `python3 arm_tmux_handoff_watcher.py` | 不变（公开入口） | ✅ 无需迁移 |
+| `python3 start_formal_runtime_chain.py` | 不变（公开主入口） | ✅ 当前仍可直接启动 |
+| `python3 check_tmux_ready.py` | `python3 run_script.py --script check_tmux_ready.py --args "..."` | ✅ 当前更应通过调度器 |
+| `python3 arm_tmux_handoff_watcher.py` | `python3 run_script.py --script arm_tmux_handoff_watcher.py --args "..."` | ✅ 当前更应通过调度器 |
 | `python3 build_tmux_topology.py` | 由主链内部调用 | ✅ 由主链管理 |
 | `python3 init_tmux_panes.py` | 由主链内部调用 | ✅ 由主链管理 |
-| `python3 deliver_tmux_handoff_notification.py` | `tmux_handoff_app_bridge.py` | ⚠️ 待用户迁移 |
+| `python3 deliver_tmux_handoff_notification.py` | 对外改为交由 delivery 路径确保 bridge 或通过调度器启动 bridge；内部兼容链路仍可能保留该脚本 | ⚠️ 待用户迁移 |
 | `python3 verify_tmux_runtime.py` | `check_tmux_ready.py` | ⚠️ 待用户迁移 |
 
 ---

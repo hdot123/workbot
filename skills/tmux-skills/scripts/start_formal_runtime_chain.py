@@ -42,6 +42,8 @@ LEDGER_SCRIPT = SCRIPTS_DIR / "init_runtime_ledger.py"
 WATCHER_SCRIPT = SCRIPTS_DIR / "arm_tmux_handoff_watcher.py"
 READY_CHECK_SCRIPT = SCRIPTS_DIR / "check_tmux_ready.py"
 WATCHER_WORKER_SCRIPT = SCRIPTS_DIR / "watch_tmux_handoff.py"
+DELIVERY_RUNNER_SCRIPT = SCRIPTS_DIR / "deliver_tmux_handoff_notification.py"
+BRIDGE_WORKER_SCRIPT = SCRIPTS_DIR / "tmux_handoff_app_bridge.py"
 TMUX_RUNTIME_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
 TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-skills"
 CURRENT_RUNTIME_LEDGER_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "current-runtime.json"
@@ -56,6 +58,13 @@ WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.
 DELIVERY_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "deliver-tmux-handoff.stdout.log"
 DELIVERY_QUEUE_DIR = TMUX_SKILLS_ARTIFACT_DIR / "delivery-queue"
 CHAIN_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "start-formal-runtime-chain.stdout.log"
+BRIDGE_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.stdout.log"
+BRIDGE_PID_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.pid"
+BRIDGE_LOCK_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.lock"
+BRIDGE_STARTUP_LOCK_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge-startup.lock"
+BRIDGE_RECEIPTS_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "window-ipc-delivery-receipts.jsonl"
+TERMINAL_APP_WINDOW_BOUNDS = (20, 40, 1720, 1120)
+TERMINAL_APP_RESULT_TIMEOUT_SECONDS = 60.0
 
 
 # ==============================================================================
@@ -138,6 +147,160 @@ def emit_surface_summary(result: dict[str, Any], *, continue_inside_formal: bool
     print(json.dumps(result, ensure_ascii=False, indent=2 if pretty else None))
 
 
+def build_launch_path_explanation(
+    args: argparse.Namespace,
+    *,
+    pane_titles: list[str],
+    pane_count: int,
+    hidden_pty: bool,
+) -> dict[str, Any]:
+    pane_count_matches_titles = pane_count == len(pane_titles)
+    will_use_terminal_app = bool(hidden_pty and not args.continue_inside_formal)
+    if hidden_pty:
+        if args.continue_inside_formal:
+            reason = "Hidden PTY detected - tmux-skills continuation must run from a visible terminal"
+            next_step = "fail_fast"
+        else:
+            reason = "Public hidden PTY must route through Terminal.app to create a visible tmux client"
+            next_step = "launch_via_terminal_app"
+    elif args.continue_inside_formal:
+        reason = "Continuation can run inside the already visible formal tmux client"
+        next_step = "run_inside_formal"
+    else:
+        reason = "Public entry can continue in the current visible terminal"
+        next_step = "launch_clean_formal_session"
+
+    explanation = {
+        "mode": "launch_path_explanation",
+        "entry_mode": "inside_formal_continuation" if args.continue_inside_formal else "public_entry",
+        "formal_session": args.formal_session,
+        "pane_count": pane_count,
+        "pane_titles": pane_titles,
+        "pane_count_matches_titles": pane_count_matches_titles,
+        "continue_inside_formal": bool(args.continue_inside_formal),
+        "hidden_pty": bool(hidden_pty),
+        "will_use_terminal_app": will_use_terminal_app,
+        "terminal_app_window_bounds": list(TERMINAL_APP_WINDOW_BOUNDS) if will_use_terminal_app else [],
+        "codex_thread_id_supplied": bool(str(args.codex_thread_id or "").strip()),
+        "next_step": next_step,
+        "reason": reason,
+    }
+    if not pane_count_matches_titles:
+        explanation["input_issue"] = (
+            f"pane-count must be {len(pane_titles)} for this run (got {pane_count})"
+        )
+    return explanation
+
+
+def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, start_ms: str) -> str:
+    command = [
+        str(Path(sys.executable or "/usr/bin/python3").resolve()),
+        str(Path(__file__).resolve()),
+        "--codex-thread-id",
+        args.codex_thread_id,
+        "--formal-session",
+        args.formal_session,
+        "--task-id",
+        args.task_id,
+    ]
+    if args.pane_count is not None:
+        command.extend(["--pane-count", str(args.pane_count)])
+    for title in args.pane_titles:
+        command.extend(["--pane-title", str(title)])
+    if args.pretty:
+        command.append("--pretty")
+
+    env_prefix = " ".join(
+        [
+            f"{START_RESULT_PATH_ENV}={shlex.quote(str(result_path))}",
+            f"{START_TEST_START_MS_ENV}={shlex.quote(start_ms)}",
+        ]
+    )
+    quoted_command = " ".join(shlex.quote(part) for part in command)
+    shell_path = os.environ.get("SHELL") or "/bin/zsh"
+    return (
+        f"cd {shlex.quote(str(ROOT))} && "
+        f"{env_prefix} {quoted_command}; rc=$?; "
+        "printf '\\n__TMUX_SKILLS_EXIT__=%s\\n' \"$rc\"; "
+        f"if [ $rc -ne 0 ]; then exec {shlex.quote(shell_path)} -l; fi"
+    )
+
+
+def wait_for_result_file(path: Path, timeout_seconds: float = TERMINAL_APP_RESULT_TIMEOUT_SECONDS) -> dict[str, Any]:
+    deadline = time.monotonic() + max(1.0, timeout_seconds)
+    while time.monotonic() < deadline:
+        if path.exists():
+            try:
+                raw = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                raw = ""
+            if raw:
+                try:
+                    payload = json.loads(raw)
+                except json.JSONDecodeError:
+                    time.sleep(0.2)
+                    continue
+                if isinstance(payload, dict):
+                    return payload
+        time.sleep(0.2)
+    raise TimeoutError(f"timed out waiting for startup result at {path}")
+
+
+def launch_via_terminal_app(args: argparse.Namespace, steps: dict[str, Any]) -> dict[str, Any]:
+    result_path = result_output_path()
+    try:
+        result_path.unlink()
+    except FileNotFoundError:
+        pass
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+
+    start_ms = str(os.environ.get(START_TEST_START_MS_ENV, "")).strip()
+    if not start_ms.isdigit():
+        start_ms = str(now_ms())
+
+    command_text = build_terminal_app_command(args, result_path=result_path, start_ms=start_ms)
+    left, top, right, bottom = TERMINAL_APP_WINDOW_BOUNDS
+    apple_script = f"""on run argv
+  set commandText to item 1 of argv
+  tell application "Terminal"
+    activate
+    do script ""
+    delay 0.3
+    set bounds of front window to {{{left}, {top}, {right}, {bottom}}}
+    do script commandText in front window
+  end tell
+end run
+"""
+    steps["launcher_visibility"] = {
+        "mode": "terminal_app_autoroute",
+        "visible_terminal_client": False,
+        "app": "Terminal.app",
+    }
+    steps["launcher"] = {
+        "mode": "terminal_app_autoroute",
+        "result_path": str(result_path),
+        "window_bounds": [left, top, right, bottom],
+        "command_text": command_text,
+    }
+
+    proc = subprocess.run(
+        ["osascript", "-", command_text],
+        input=apple_script,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "failed to launch Terminal.app").strip()
+        raise RuntimeError(f"failed to launch Terminal.app: {detail}")
+
+    launch_output = (proc.stdout or "").strip()
+    if launch_output:
+        steps["launcher"]["osascript_stdout"] = launch_output
+
+    return wait_for_result_file(result_path)
+
+
 def write_chain_context(steps: dict[str, Any]) -> str:
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -185,7 +348,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--codex-thread-id",
         dest="codex_thread_id",
-        required=True,
         help="Thread id of the dedicated monitor-thread delivery target. Bound into tmux as CODEX_THREAD_ID.",
     )
     parser.add_argument(
@@ -215,12 +377,34 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Internal continuation mode that runs inside a freshly created visible formal-session.",
     )
+    parser.add_argument(
+        "--explain-launch-path",
+        action="store_true",
+        help="Explain whether the current invocation will route through Terminal.app or continue directly.",
+    )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print result JSON.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.explain_launch_path and not str(args.codex_thread_id or "").strip():
+        parser.error("--codex-thread-id is required unless --explain-launch-path is set")
+    return args
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, check=False)
+
+
+def run_json_with_status(command: list[str], *, step: str) -> tuple[dict[str, Any], int]:
+    proc = run(command)
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        raise RuntimeError(f"{step} returned empty output")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{step} returned non-JSON output: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{step} returned non-object JSON output")
+    return payload, int(proc.returncode)
 
 
 def wait_for_pid_exit(pid: int, timeout_seconds: float = 3.0) -> None:
@@ -240,6 +424,7 @@ def wait_for_pid_exit(pid: int, timeout_seconds: float = 3.0) -> None:
 def list_existing_watcher_processes() -> list[dict[str, Any]]:
     proc = run(["ps", "ax", "-o", "pid=,command="])
     processes: list[dict[str, Any]] = []
+    watcher_path = str(WATCHER_WORKER_SCRIPT)
     for raw in proc.stdout.splitlines():
         if not raw.strip():
             continue
@@ -247,15 +432,15 @@ def list_existing_watcher_processes() -> list[dict[str, Any]]:
         if not pid_text.isdigit():
             continue
         command = command.strip()
-        if WATCHER_WORKER_SCRIPT.name not in command:
+        if watcher_path not in command:
             continue
         processes.append({"pid": int(pid_text), "command": command})
     return processes
 
 
-def stop_existing_watchers() -> list[int]:
+def stop_processes(processes: list[dict[str, Any]]) -> list[int]:
     stopped: list[int] = []
-    for process in list_existing_watcher_processes():
+    for process in processes:
         pid = int(process["pid"])
         try:
             os.kill(pid, signal.SIGTERM)
@@ -264,6 +449,82 @@ def stop_existing_watchers() -> list[int]:
         stopped.append(pid)
         wait_for_pid_exit(pid)
     return stopped
+
+
+def stop_existing_watchers() -> list[int]:
+    return stop_processes(list_existing_watcher_processes())
+
+
+def list_existing_delivery_runner_processes() -> list[dict[str, Any]]:
+    proc = run(["ps", "ax", "-o", "pid=,command="])
+    processes: list[dict[str, Any]] = []
+    delivery_path = str(DELIVERY_RUNNER_SCRIPT)
+    for raw in proc.stdout.splitlines():
+        if not raw.strip():
+            continue
+        pid_text, _, command = raw.strip().partition(" ")
+        if not pid_text.isdigit():
+            continue
+        command = command.strip()
+        if delivery_path not in command:
+            continue
+        processes.append({"pid": int(pid_text), "command": command})
+    return processes
+
+
+def list_existing_bridge_processes() -> list[dict[str, Any]]:
+    proc = run(["ps", "ax", "-o", "pid=,command="])
+    processes: list[dict[str, Any]] = []
+    bridge_path = str(BRIDGE_WORKER_SCRIPT)
+    for raw in proc.stdout.splitlines():
+        if not raw.strip():
+            continue
+        pid_text, _, command = raw.strip().partition(" ")
+        if not pid_text.isdigit():
+            continue
+        command = command.strip()
+        if bridge_path not in command:
+            continue
+        processes.append({"pid": int(pid_text), "command": command})
+    return processes
+
+
+def stop_existing_bridges() -> list[int]:
+    return stop_processes(list_existing_bridge_processes())
+
+
+def list_runtime_cleanup_artifacts() -> dict[str, list[str]]:
+    artifact_files: list[str] = []
+    for path in (
+        CURRENT_RUNTIME_LEDGER_PATH,
+        LAST_RUNTIME_ISSUES_PATH,
+        HANDOFF_LOG_PATH,
+        HANDOFF_SQLITE_PATH,
+        WATCHER_STDOUT_LOG_PATH,
+        DELIVERY_STDOUT_LOG_PATH,
+        CHAIN_STDOUT_LOG_PATH,
+        BRIDGE_STDOUT_LOG_PATH,
+        BRIDGE_PID_FILE_PATH,
+        BRIDGE_LOCK_FILE_PATH,
+        BRIDGE_STARTUP_LOCK_FILE_PATH,
+        BRIDGE_RECEIPTS_LOG_PATH,
+    ):
+        if path.exists():
+            artifact_files.append(str(path))
+    queue_files = sorted(str(path) for path in DELIVERY_QUEUE_DIR.glob("*.json") if path.is_file())
+    return {
+        "artifact_files": artifact_files,
+        "delivery_queue_files": queue_files,
+    }
+
+
+def list_runtime_cleanup_inventory() -> dict[str, Any]:
+    return {
+        "watcher_processes": list_existing_watcher_processes(),
+        "bridge_processes": list_existing_bridge_processes(),
+        "delivery_runner_processes": list_existing_delivery_runner_processes(),
+        **list_runtime_cleanup_artifacts(),
+    }
 
 
 def safe_unlink(path: Path) -> bool:
@@ -297,6 +558,10 @@ def unset_tmux_env(name: str) -> str:
 
 
 def cleanup_previous_runtime_state() -> dict[str, Any]:
+    inventory = list_runtime_cleanup_inventory()
+    stopped_watcher_pids = stop_processes(list(inventory["watcher_processes"]))
+    stopped_bridge_pids = stop_processes(list(inventory["bridge_processes"]))
+    stopped_delivery_runner_pids = stop_processes(list(inventory["delivery_runner_processes"]))
     removed_files: list[str] = []
     for path in (
         CURRENT_RUNTIME_LEDGER_PATH,
@@ -306,14 +571,26 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
         WATCHER_STDOUT_LOG_PATH,
         DELIVERY_STDOUT_LOG_PATH,
         CHAIN_STDOUT_LOG_PATH,
+        BRIDGE_STDOUT_LOG_PATH,
+        BRIDGE_PID_FILE_PATH,
+        BRIDGE_LOCK_FILE_PATH,
+        BRIDGE_STARTUP_LOCK_FILE_PATH,
+        BRIDGE_RECEIPTS_LOG_PATH,
     ):
         if safe_unlink(path):
             removed_files.append(str(path))
     removed_files.extend(clear_directory(DELIVERY_QUEUE_DIR))
     tmux_env_status = unset_tmux_env("CODEX_THREAD_ID")
     return {
+        "existing_watcher_processes": inventory["watcher_processes"],
+        "existing_bridge_processes": inventory["bridge_processes"],
+        "existing_delivery_runner_processes": inventory["delivery_runner_processes"],
+        "existing_artifact_files": inventory["artifact_files"],
+        "existing_delivery_queue_files": inventory["delivery_queue_files"],
         "removed_files": removed_files,
-        "stopped_watcher_pids": stop_existing_watchers(),
+        "stopped_watcher_pids": stopped_watcher_pids,
+        "stopped_bridge_pids": stopped_bridge_pids,
+        "stopped_delivery_runner_pids": stopped_delivery_runner_pids,
         "tmux_env": {
             "CODEX_THREAD_ID": tmux_env_status,
         },
@@ -1044,6 +1321,21 @@ def main() -> int:
     args = parse_args()
     pane_titles = resolve_pane_titles(args)
     pane_count = args.pane_count or len(pane_titles)
+    hidden_pty = is_hidden_pty()
+    if args.explain_launch_path:
+        print(
+            json.dumps(
+                build_launch_path_explanation(
+                    args,
+                    pane_titles=pane_titles,
+                    pane_count=pane_count,
+                    hidden_pty=hidden_pty,
+                ),
+                ensure_ascii=False,
+                indent=2 if args.pretty else None,
+            )
+        )
+        return 0
     if pane_count != len(pane_titles):
         result = build_result(
             "failed",
@@ -1059,17 +1351,29 @@ def main() -> int:
     steps.setdefault("formal_session", args.formal_session)
 
     # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
-    # Hidden PTY must immediately route to visible terminal launcher
-    if is_hidden_pty():
+    # Hidden PTY must route the public entry through Terminal.app.
+    if hidden_pty:
+        if not args.continue_inside_formal:
+            try:
+                result = launch_via_terminal_app(args, steps)
+            except Exception as exc:
+                result = build_result(
+                    "failed",
+                    steps,
+                    pane_titles,
+                    str(exc),
+                )
+                persist_chain_result(result)
+            emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
+            return 0 if result.get("status") == "ok" else 1
         result = build_result(
             "failed",
             steps,
             pane_titles,
-            "Hidden PTY detected - tmux-skills must run from a visible terminal",
+            "Hidden PTY detected - tmux-skills continuation must run from a visible terminal",
         )
         persist_chain_result(result)
-        sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills must run from a visible terminal\n")
-        sys.stderr.write("Please run this command from a real terminal window, not from a hidden context.\n")
+        sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills continuation must run from a visible terminal\n")
         return 1
 
     if not args.continue_inside_formal:

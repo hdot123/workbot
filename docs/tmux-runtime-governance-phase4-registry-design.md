@@ -1,5 +1,9 @@
 # tmux Runtime 系统治理 - 阶段 4 脚本注册制设计
 
+> 当前文档角色：历史阶段设计文档。
+> 当前代码是否仍然按本文细节运行，应以 `/Users/busiji/workbot/docs/tmux-docs-index.md` 和当前代码实现为准。
+> 文中“已满足 / 必须迁移 / 建议迁移”等表述，默认表示阶段 4 的设计判断与迁移建议，不单独覆盖当前实现真相。
+
 **文档编号**: GOVERN-001-PH4  
 **创建日期**: 2026-03-31  
 **设计范围**: 脚本注册表、调度入口、校验规则  
@@ -10,6 +14,10 @@
 ## 1. 阶段 4 目标
 
 设计正式脚本注册制，把"按路径直接调用脚本"升级为"按规则调用受控能力"。
+
+**当前代码现状补充**：
+- 当前注册表中的 `visibility = public` 仍保留在数据结构里
+- 当前代码里，是否能直接 `python3 script.py` 还取决于各脚本顶部 `runtime_enforcement` 的约束
 
 ### 1.1 需要回答的问题
 
@@ -31,11 +39,11 @@
 
 | 脚本名 | 类别 | 调用权限 | 环境约束 | 后台进程 | 状态 |
 |--------|------|----------|----------|----------|------|
-| `start_formal_runtime_chain.py` | orchestrator | 公开 | visible_terminal | 否 | 🟢 stable |
-| `check_tmux_ready.py` | verifier | 公开 | inside_tmux | 否 | 🟢 stable |
-| `arm_tmux_handoff_watcher.py` | watcher_arm | 公开 | inside_tmux, formal_session | 是 (worker) | 🟢 stable |
+| `start_formal_runtime_chain.py` | orchestrator | 公开主入口 | visible_terminal | 否 | 🟢 stable |
+| `check_tmux_ready.py` | verifier | 公开调度入口 | inside_tmux | 否 | 🟢 stable |
+| `arm_tmux_handoff_watcher.py` | watcher_arm | 公开调度入口 | inside_tmux, formal_session | 是 (worker) | 🟢 stable |
 | `watch_tmux_handoff.py` | watcher_worker | orchestrator_only | inside_tmux | 是 (自身) | 🟢 stable |
-| `tmux_handoff_app_bridge.py` | bridge | 公开 | 无 | 是 (常驻) | 🟢 stable |
+| `tmux_handoff_app_bridge.py` | bridge | 由 delivery 路径确保，或通过 scheduler 执行 | 无 | 是 (常驻) | 🟢 stable |
 | `build_tmux_topology.py` | topology | orchestrator_only | inside_tmux, formal_session | 否 | 🟢 stable |
 | `init_tmux_panes.py` | pane_init | orchestrator_only | inside_tmux, formal_session | 否 | 🟢 stable |
 | `init_tmux_env.py` | env_init | orchestrator_only | visible_terminal | 否 | 🟢 stable |
@@ -60,9 +68,14 @@
 
 **定义**：不再推荐使用的脚本，应逐步移除。
 
+> 当前代码现状补充：
+> `deliver_tmux_handoff_notification.py` 虽然在注册表中被标记为 `deprecated`，
+> 但当前代码里 `watch_tmux_handoff.py` 仍会把事件写入 queue 并拉起它；
+> 该脚本随后会确保 `tmux_handoff_app_bridge.py` 常驻，并把 queue item 留给 bridge 处理。
+
 | 脚本名 | 原用途 | 废弃原因 | 替代方案 | 状态 |
 |--------|--------|----------|----------|------|
-| `deliver_tmux_handoff_notification.py` | 旧 delivery runner | 已切换到 window IPC bridge | `tmux_handoff_app_bridge.py` | 🔴 deprecated |
+| `deliver_tmux_handoff_notification.py` | handoff 发送脚本 | 头部注释标记为 `deprecated`；当前代码里 watcher 仍会调用它，它会确保 `tmux_handoff_app_bridge.py` 常驻并把 queue item 留给 bridge | `tmux_handoff_app_bridge.py` | 🔴 deprecated |
 | `build_tmux_handoff_notification.py` | 旧通知构建 | 已切换到 bundle 机制 | `build_tmux_handoff_bundle.py` | 🔴 deprecated |
 | `build_tmux_db_write_instruction.py` | DB 写指令 | 旧 delivery 链路 | 无（功能已废弃） | 🔴 deprecated |
 | `write_tmux_notifications_sqlite.py` | SQLite 持久化 | 已切换到 JSONL | 无（功能已简化） | 🔴 deprecated |
@@ -80,7 +93,7 @@
 
 | 脚本名 | 用途 | 调用权限 | 状态 |
 |--------|------|----------|------|
-| `tmux_handoff_app_bridge.py` | Window IPC bridge 常驻 | 公开（可独立启动） | 🟢 stable |
+| `tmux_handoff_app_bridge.py` | Window IPC bridge 常驻 | 由 delivery 路径确保，或通过 scheduler 执行 | 🟢 stable |
 
 ---
 
@@ -229,6 +242,10 @@
 ### 4.1 统一调度器
 
 **调度器路径**：`/Users/busiji/workbot/skills/tmux-skills/scripts/run_script.py`
+
+**当前代码口径补充**：
+- `public` 脚本表示可作为公开调度入口暴露给 `run_script.py`
+- 但诸如 `check_tmux_ready.py`、`arm_tmux_handoff_watcher.py`、`tmux_handoff_app_bridge.py` 这类脚本在当前代码中仍可能要求通过 scheduler marker 执行
 
 **职责**：
 1. 加载注册表
@@ -402,12 +419,13 @@ def check_environment(script_name: str) -> tuple[bool, list[str]]:
 
 | 原调用方式 | 新调用方式 | 迁移状态 |
 |------------|------------|----------|
-| `python3 start_formal_runtime_chain.py ...` | 不变（公开入口） | 🟢 无需迁移 |
-| `python3 check_tmux_ready.py ...` | 不变（公开入口） | 🟢 无需迁移 |
-| `python3 build_tmux_topology.py ...` | `python3 run_script.py --script build_tmux_topology.py ...` | 🟡 建议迁移 |
-| `python3 init_tmux_panes.py ...` | `python3 run_script.py --script init_tmux_panes.py ...` | 🟡 建议迁移 |
-| `python3 init_tmux_env.py ...` | `python3 run_script.py --script init_tmux_env.py ...` | 🟡 建议迁移 |
-| `python3 deliver_tmux_handoff_notification.py ...` | `python3 tmux_handoff_app_bridge.py` | 🔴 必须迁移 |
+| `python3 start_formal_runtime_chain.py ...` | `python3 start_formal_runtime_chain.py ...` | 🟢 当前仍可直接启动 |
+| `python3 check_tmux_ready.py ...` | `python3 run_script.py --script check_tmux_ready.py --args "..."` | 🟡 当前更应通过调度器 |
+| `python3 arm_tmux_handoff_watcher.py ...` | `python3 run_script.py --script arm_tmux_handoff_watcher.py --args "..."` | 🟡 当前更应通过调度器 |
+| `python3 build_tmux_topology.py ...` | `python3 run_script.py --script build_tmux_topology.py --args "..."` | 🟡 建议迁移 |
+| `python3 init_tmux_panes.py ...` | `python3 run_script.py --script init_tmux_panes.py --args "..."` | 🟡 建议迁移 |
+| `python3 init_tmux_env.py ...` | `python3 run_script.py --script init_tmux_env.py --args "..."` | 🟡 建议迁移 |
+| `python3 deliver_tmux_handoff_notification.py ...` | 交由 delivery 路径确保 bridge 或通过调度器启动 bridge | 🔴 必须迁移 |
 
 ---
 
@@ -420,7 +438,7 @@ def check_environment(script_name: str) -> tuple[bool, list[str]]:
 | **注册制不是简单白名单，而是执行治理机制** | ✅ 已满足 | 注册表包含环境约束、可见性、前置条件等治理规则 |
 | **可以表达脚本职责、入口权限、执行环境约束、状态** | ✅ 已满足 | 元数据字段完整（category / visibility / constraints / status） |
 | **可以阻止错环境执行、跳步骤执行、未注册执行** | ✅ 已满足 | 调度器包含环境校验、前置条件校验、注册校验 |
-| **可以支持后续渐进迁移，而不是一刀切替换** | ✅ 已满足 | 迁移策略分 5 个阶段，公开入口保持不变 |
+| **可以支持后续渐进迁移，而不是一刀切替换** | ✅ 已满足 | 迁移策略分 5 个阶段，公开调度入口与主链入口可渐进收口 |
 
 ---
 

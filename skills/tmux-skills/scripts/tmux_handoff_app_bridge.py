@@ -38,6 +38,9 @@ DEFAULT_STDOUT_LOG = Path(
 DEFAULT_PID_FILE = Path(
     "/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-window-ipc-bridge.pid"
 )
+DEFAULT_LOCK_FILE = Path(
+    "/Users/busiji/workbot/workspace/artifacts/tmux-skills/tmux-handoff-window-ipc-bridge.lock"
+)
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 DEFAULT_CONFIRM_TIMEOUT_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10.0
@@ -98,6 +101,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--queue-dir", default=str(DEFAULT_QUEUE_DIR), help="Directory containing queued event files.")
     parser.add_argument("--receipts-log", default=str(DEFAULT_RECEIPTS_LOG), help="JSONL file recording delivery receipts.")
     parser.add_argument("--pid-file", default=str(DEFAULT_PID_FILE), help="PID file used for singleton bridge ownership.")
+    parser.add_argument("--lock-file", default=str(DEFAULT_LOCK_FILE), help="Stable lock file used for singleton bridge ownership.")
     parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL_SECONDS, help="Queue polling interval.")
     parser.add_argument(
         "--confirm-timeout",
@@ -203,7 +207,7 @@ def turn_contains_user_message(thread: dict[str, Any], turn_id: str, message: st
     return False
 
 
-def acquire_lock(lock_path: Path):
+def acquire_owner_lock(lock_path: Path):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     handle = lock_path.open("a+", encoding="utf-8")
     try:
@@ -216,6 +220,45 @@ def acquire_lock(lock_path: Path):
     handle.write(str(os.getpid()))
     handle.flush()
     return handle
+
+
+def write_pid_file(pid_file: Path, pid: int) -> None:
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(pid), encoding="utf-8")
+
+
+def clear_pid_file(pid_file: Path, pid: int) -> None:
+    try:
+        current = pid_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return
+    if current != str(pid):
+        return
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        return
+
+
+def claim_queue_file(path: Path):
+    try:
+        handle = path.open("r+", encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def load_json_from_handle(handle) -> dict[str, Any]:
+    handle.seek(0)
+    raw = handle.read().strip()
+    if not raw:
+        raise WindowIpcError("queue item is empty")
+    return json.loads(raw)
 
 
 def ipc_method_version(method: str) -> int:
@@ -534,149 +577,158 @@ def process_queue_item(
     idle_timeout: float,
     max_retries: int,
 ) -> None:
-    payload = load_json(path)
-    bundle = ensure_bundle(payload)
-    tmux_handoff = bundle.get("tmux_skills_handoff", {})
-    event_id = str(bundle.get("event_id") or tmux_handoff.get("event_id") or "").strip()
-    message = bundle_message(bundle)
-    thread_id = target_thread_id(bundle)
-
-    if not event_id:
-        raise WindowIpcError(f"event file missing event_id: {path}")
-    if not message:
-        raise WindowIpcError(f"event file missing notification message: {path}")
-    if not thread_id:
-        raise WindowIpcError(f"event file missing target thread id: {path}")
-
-    latest_receipt = receipts_by_event_id.get(event_id)
-    if latest_receipt and latest_receipt.get("status") in {"delivered", "skipped"}:
-        maybe_ack_queue_file(path)
+    queue_handle = claim_queue_file(path)
+    if queue_handle is None:
         return
+    try:
+        payload = load_json_from_handle(queue_handle)
+        bundle = ensure_bundle(payload)
+        tmux_handoff = bundle.get("tmux_skills_handoff", {})
+        event_id = str(bundle.get("event_id") or tmux_handoff.get("event_id") or "").strip()
+        message = bundle_message(bundle)
+        thread_id = target_thread_id(bundle)
 
-    if latest_receipt and latest_receipt.get("status") == "accepted_waiting_idle":
-        handled_by_client_id = str(latest_receipt.get("handled_by_client_id") or "").strip()
-        if not handled_by_client_id:
-            raise WindowIpcError(f"receipt missing handled_by_client_id while waiting for idle: {event_id}")
-        idle_observed = client.wait_for_thread_idle(
-            thread_id=thread_id,
-            handled_by_client_id=handled_by_client_id,
-            timeout=idle_timeout,
-        )
-        if not idle_observed:
+        if not event_id:
+            raise WindowIpcError(f"event file missing event_id: {path}")
+        if not message:
+            raise WindowIpcError(f"event file missing notification message: {path}")
+        if not thread_id:
+            raise WindowIpcError(f"event file missing target thread id: {path}")
+
+        receipts_by_event_id.update(load_receipts(receipts_log))
+        latest_receipt = receipts_by_event_id.get(event_id)
+        if latest_receipt and latest_receipt.get("status") in {"delivered", "skipped"}:
+            maybe_ack_queue_file(path)
             return
-        append_receipt(
-            receipts_log,
-            DeliveryReceipt(
-                event_id,
-                "delivered",
-                thread_id,
-                message,
-                turn_id=str(latest_receipt.get("turn_id") or "").strip() or None,
-                handled_by_client_id=handled_by_client_id,
-                reason="owner_window_response+thread_stream_state_changed+thread_idle",
-            ),
-        )
-        receipts_by_event_id[event_id] = {
-            "status": "delivered",
-            "thread_id": thread_id,
-            "message": message,
-            "turn_id": str(latest_receipt.get("turn_id") or "").strip() or None,
-            "handled_by_client_id": handled_by_client_id,
-            "reason": "owner_window_response+thread_stream_state_changed+thread_idle",
-        }
-        maybe_ack_queue_file(path)
-        return
 
-    if not bundle_deliverable(bundle):
-        append_receipt(
-            receipts_log,
-            DeliveryReceipt(event_id, "skipped", thread_id, message, reason="non_deliverable_event"),
-        )
-        receipts_by_event_id[event_id] = {"status": "skipped", "thread_id": thread_id, "message": message}
-        maybe_ack_queue_file(path)
-        return
-
-    for _ in range(max(1, max_retries)):
-        try:
-            result = client.deliver_turn_to_current_window(
+        if latest_receipt and latest_receipt.get("status") == "accepted_waiting_idle":
+            handled_by_client_id = str(latest_receipt.get("handled_by_client_id") or "").strip()
+            if not handled_by_client_id:
+                raise WindowIpcError(f"receipt missing handled_by_client_id while waiting for idle: {event_id}")
+            idle_observed = client.wait_for_thread_idle(
                 thread_id=thread_id,
-                message=message,
-                confirm_timeout=confirm_timeout,
+                handled_by_client_id=handled_by_client_id,
+                timeout=idle_timeout,
             )
-        except WindowIpcError as exc:
-            reason = str(exc) or "window_ipc_delivery_failed"
-            status = "window_ipc_connect_failed" if "socket" in reason or "connect" in reason else "window_ipc_request_failed"
-            append_receipt(
-                receipts_log,
-                DeliveryReceipt(event_id, status, thread_id, message, reason=reason),
-            )
-            receipts_by_event_id[event_id] = {
-                "status": status,
-                "thread_id": thread_id,
-                "message": message,
-                "reason": reason,
-            }
-            return
-
-        confirmation_reason = "owner_window_response"
-        if result.visibility_broadcast_observed:
-            confirmation_reason = "owner_window_response+thread_stream_state_changed"
-        idle_observed = client.wait_for_thread_idle(
-            thread_id=thread_id,
-            handled_by_client_id=result.handled_by_client_id,
-            timeout=idle_timeout,
-        )
-        if not idle_observed:
+            if not idle_observed:
+                return
             append_receipt(
                 receipts_log,
                 DeliveryReceipt(
                     event_id,
-                    "accepted_waiting_idle",
+                    "delivered",
+                    thread_id,
+                    message,
+                    turn_id=str(latest_receipt.get("turn_id") or "").strip() or None,
+                    handled_by_client_id=handled_by_client_id,
+                    reason="owner_window_response+thread_stream_state_changed+thread_idle",
+                ),
+            )
+            receipts_by_event_id[event_id] = {
+                "status": "delivered",
+                "thread_id": thread_id,
+                "message": message,
+                "turn_id": str(latest_receipt.get("turn_id") or "").strip() or None,
+                "handled_by_client_id": handled_by_client_id,
+                "reason": "owner_window_response+thread_stream_state_changed+thread_idle",
+            }
+            maybe_ack_queue_file(path)
+            return
+
+        if not bundle_deliverable(bundle):
+            append_receipt(
+                receipts_log,
+                DeliveryReceipt(event_id, "skipped", thread_id, message, reason="non_deliverable_event"),
+            )
+            receipts_by_event_id[event_id] = {"status": "skipped", "thread_id": thread_id, "message": message}
+            maybe_ack_queue_file(path)
+            return
+
+        for _ in range(max(1, max_retries)):
+            try:
+                result = client.deliver_turn_to_current_window(
+                    thread_id=thread_id,
+                    message=message,
+                    confirm_timeout=confirm_timeout,
+                )
+            except WindowIpcError as exc:
+                reason = str(exc) or "window_ipc_delivery_failed"
+                status = "window_ipc_connect_failed" if "socket" in reason or "connect" in reason else "window_ipc_request_failed"
+                append_receipt(
+                    receipts_log,
+                    DeliveryReceipt(event_id, status, thread_id, message, reason=reason),
+                )
+                receipts_by_event_id[event_id] = {
+                    "status": status,
+                    "thread_id": thread_id,
+                    "message": message,
+                    "reason": reason,
+                }
+                return
+
+            confirmation_reason = "owner_window_response"
+            if result.visibility_broadcast_observed:
+                confirmation_reason = "owner_window_response+thread_stream_state_changed"
+            idle_observed = client.wait_for_thread_idle(
+                thread_id=thread_id,
+                handled_by_client_id=result.handled_by_client_id,
+                timeout=idle_timeout,
+            )
+            if not idle_observed:
+                append_receipt(
+                    receipts_log,
+                    DeliveryReceipt(
+                        event_id,
+                        "accepted_waiting_idle",
+                        thread_id,
+                        message,
+                        turn_id=result.turn_id,
+                        handled_by_client_id=result.handled_by_client_id,
+                        reason=confirmation_reason,
+                    ),
+                )
+                receipts_by_event_id[event_id] = {
+                    "status": "accepted_waiting_idle",
+                    "thread_id": thread_id,
+                    "message": message,
+                    "turn_id": result.turn_id,
+                    "handled_by_client_id": result.handled_by_client_id,
+                    "reason": confirmation_reason,
+                }
+                return
+            append_receipt(
+                receipts_log,
+                DeliveryReceipt(
+                    event_id,
+                    "delivered",
                     thread_id,
                     message,
                     turn_id=result.turn_id,
                     handled_by_client_id=result.handled_by_client_id,
-                    reason=confirmation_reason,
+                    reason=f"{confirmation_reason}+thread_idle",
                 ),
             )
             receipts_by_event_id[event_id] = {
-                "status": "accepted_waiting_idle",
+                "status": "delivered",
                 "thread_id": thread_id,
                 "message": message,
                 "turn_id": result.turn_id,
                 "handled_by_client_id": result.handled_by_client_id,
-                "reason": confirmation_reason,
+                "reason": f"{confirmation_reason}+thread_idle",
             }
+            maybe_ack_queue_file(path)
             return
-        append_receipt(
-            receipts_log,
-            DeliveryReceipt(
-                event_id,
-                "delivered",
-                thread_id,
-                message,
-                turn_id=result.turn_id,
-                handled_by_client_id=result.handled_by_client_id,
-                reason=f"{confirmation_reason}+thread_idle",
-            ),
-        )
-        receipts_by_event_id[event_id] = {
-            "status": "delivered",
-            "thread_id": thread_id,
-            "message": message,
-            "turn_id": result.turn_id,
-            "handled_by_client_id": result.handled_by_client_id,
-            "reason": f"{confirmation_reason}+thread_idle",
-        }
-        maybe_ack_queue_file(path)
-        return
+    finally:
+        queue_handle.close()
 
 
 def main() -> int:
     args = parse_args()
     queue_dir = Path(args.queue_dir)
     receipts_log = Path(args.receipts_log)
-    _lock_handle = acquire_lock(Path(args.pid_file))
+    pid_file = Path(args.pid_file)
+    lock_handle = acquire_owner_lock(Path(args.lock_file))
+    write_pid_file(pid_file, os.getpid())
     client = CodexWindowIpcClient(request_timeout=args.request_timeout)
     receipts_by_event_id = load_receipts(receipts_log)
     queue_dir.mkdir(parents=True, exist_ok=True)
@@ -702,6 +754,8 @@ def main() -> int:
             time.sleep(max(0.1, args.poll_interval))
     finally:
         client.close()
+        clear_pid_file(pid_file, os.getpid())
+        lock_handle.close()
 
 
 if __name__ == "__main__":

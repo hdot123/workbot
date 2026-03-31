@@ -477,34 +477,82 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertGreaterEqual(len(layout_commands), 5)
 
     def test_list_existing_watcher_processes_parses_ps_output(self) -> None:
+        watcher_path = str(start_formal_runtime_chain.WATCHER_WORKER_SCRIPT)
         with patch("start_formal_runtime_chain.run") as mock_run:
             mock_run.return_value = Mock(
                 stdout=(
-                    "123 /opt/python watch_tmux_handoff.py --target formal-session:1.1\n"
+                    f"123 /opt/python {watcher_path} --target formal-session:1.1\n"
                     "456 /bin/zsh\n"
                 ),
                 returncode=0,
             )
             processes = start_formal_runtime_chain.list_existing_watcher_processes()
-        self.assertEqual([{"pid": 123, "command": "/opt/python watch_tmux_handoff.py --target formal-session:1.1"}], processes)
+        self.assertEqual([{"pid": 123, "command": f"/opt/python {watcher_path} --target formal-session:1.1"}], processes)
+
+    def test_list_existing_bridge_processes_parses_ps_output(self) -> None:
+        bridge_path = str(start_formal_runtime_chain.BRIDGE_WORKER_SCRIPT)
+        with patch("start_formal_runtime_chain.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout=(
+                    f"321 /opt/python {bridge_path} --queue-dir /tmp/q\n"
+                    "654 /opt/python /Users/busiji/workbot/skills/tmux-runtime/scripts/tmux_handoff_app_bridge.py --queue-dir /tmp/q\n"
+                ),
+                returncode=0,
+            )
+            processes = start_formal_runtime_chain.list_existing_bridge_processes()
+        self.assertEqual([{"pid": 321, "command": f"/opt/python {bridge_path} --queue-dir /tmp/q"}], processes)
+
+    def test_list_existing_delivery_runner_processes_parses_ps_output(self) -> None:
+        delivery_path = str(start_formal_runtime_chain.DELIVERY_RUNNER_SCRIPT)
+        with patch("start_formal_runtime_chain.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout=(
+                    f"777 /opt/python {delivery_path} --event-file /tmp/e.json\n"
+                    "888 /opt/python /Users/busiji/workbot/skills/tmux-runtime/scripts/deliver_tmux_handoff_notification.py --event-file /tmp/e.json\n"
+                ),
+                returncode=0,
+            )
+            processes = start_formal_runtime_chain.list_existing_delivery_runner_processes()
+        self.assertEqual([{"pid": 777, "command": f"/opt/python {delivery_path} --event-file /tmp/e.json"}], processes)
 
     def test_cleanup_previous_runtime_state_clears_known_artifacts(self) -> None:
         removed = {
             str(start_formal_runtime_chain.CURRENT_RUNTIME_LEDGER_PATH),
             str(start_formal_runtime_chain.HANDOFF_LOG_PATH),
             str(start_formal_runtime_chain.HANDOFF_SQLITE_PATH),
+            str(start_formal_runtime_chain.BRIDGE_PID_FILE_PATH),
+            str(start_formal_runtime_chain.BRIDGE_LOCK_FILE_PATH),
+            str(start_formal_runtime_chain.BRIDGE_RECEIPTS_LOG_PATH),
+        }
+        inventory = {
+            "watcher_processes": [{"pid": 11, "command": "watch_tmux_handoff.py"}],
+            "bridge_processes": [{"pid": 33, "command": "tmux_handoff_app_bridge.py"}],
+            "delivery_runner_processes": [{"pid": 55, "command": "deliver_tmux_handoff_notification.py"}],
+            "artifact_files": sorted(removed),
+            "delivery_queue_files": ["/tmp/queue/a.json"],
         }
 
         def fake_unlink(path: Path) -> bool:
             return str(path) in removed
 
         with patch("start_formal_runtime_chain.safe_unlink", side_effect=fake_unlink):
-            with patch("start_formal_runtime_chain.stop_existing_watchers", return_value=[11, 22]):
-                with patch("start_formal_runtime_chain.unset_tmux_env", return_value="cleared") as mock_unset:
-                    result = start_formal_runtime_chain.cleanup_previous_runtime_state()
+            with patch("start_formal_runtime_chain.list_runtime_cleanup_inventory", return_value=inventory):
+                with patch(
+                    "start_formal_runtime_chain.stop_processes",
+                    side_effect=[[11, 22], [33, 44], [55, 66]],
+                ):
+                    with patch("start_formal_runtime_chain.unset_tmux_env", return_value="cleared") as mock_unset:
+                        result = start_formal_runtime_chain.cleanup_previous_runtime_state()
 
         self.assertEqual(sorted(removed), sorted(result["removed_files"]))
+        self.assertEqual(inventory["watcher_processes"], result["existing_watcher_processes"])
+        self.assertEqual(inventory["bridge_processes"], result["existing_bridge_processes"])
+        self.assertEqual(inventory["delivery_runner_processes"], result["existing_delivery_runner_processes"])
+        self.assertEqual(inventory["artifact_files"], result["existing_artifact_files"])
+        self.assertEqual(inventory["delivery_queue_files"], result["existing_delivery_queue_files"])
         self.assertEqual([11, 22], result["stopped_watcher_pids"])
+        self.assertEqual([33, 44], result["stopped_bridge_pids"])
+        self.assertEqual([55, 66], result["stopped_delivery_runner_pids"])
         self.assertEqual("cleared", result["tmux_env"]["CODEX_THREAD_ID"])
         mock_unset.assert_called_once_with("CODEX_THREAD_ID")
 
@@ -618,7 +666,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             },
             visible_terminal_client=False,
         )
-        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+        with patch("start_formal_runtime_chain.run_json_script", return_value=snapshot):
             with patch("start_formal_runtime_chain.run") as mock_run:
                 mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
                 with patch(
@@ -647,7 +695,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             },
             visible_terminal_client=True,
         )
-        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+        with patch("start_formal_runtime_chain.run_json_script", return_value=snapshot):
             with patch("start_formal_runtime_chain.run") as mock_run:
                 mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
                 with patch(
@@ -677,7 +725,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             },
             visible_terminal_client=True,
         )
-        with patch("start_formal_runtime_chain.run_json", return_value=snapshot):
+        with patch("start_formal_runtime_chain.run_json_script", return_value=snapshot):
             with patch("start_formal_runtime_chain.run") as mock_run:
                 result = start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure(
                     "formal-session"
@@ -708,6 +756,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             bridge_script="/tmp/tmux_handoff_app_bridge.py",
             queue_dir="/tmp/delivery-queue",
             receipts_log="/tmp/receipts.jsonl",
+            lock_file="/tmp/bridge.lock",
             pid_file="/tmp/bridge.pid",
         )
         self.assertEqual(
@@ -718,11 +767,34 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 "/tmp/delivery-queue",
                 "--receipts-log",
                 "/tmp/receipts.jsonl",
+                "--lock-file",
+                "/tmp/bridge.lock",
                 "--pid-file",
                 "/tmp/bridge.pid",
             ],
             command,
         )
+
+    def test_ensure_bridge_running_rechecks_pid_inside_startup_lock(self) -> None:
+        lock_handle = Mock()
+        with patch("deliver_tmux_handoff_notification.acquire_lock", return_value=lock_handle):
+            with patch(
+                "deliver_tmux_handoff_notification.read_bridge_pid",
+                side_effect=[None, 54321],
+            ):
+                with patch("deliver_tmux_handoff_notification.subprocess.Popen") as mock_popen:
+                    pid, started = deliver_tmux_handoff_notification.ensure_bridge_running(
+                        bridge_script="/tmp/tmux_handoff_app_bridge.py",
+                        queue_dir="/tmp/delivery-queue",
+                        bridge_stdout_log="/tmp/bridge.stdout.log",
+                        bridge_receipts_log="/tmp/receipts.jsonl",
+                        bridge_lock_file="/tmp/bridge.lock",
+                        bridge_pid_file="/tmp/bridge.pid",
+                    )
+        self.assertEqual(54321, pid)
+        self.assertFalse(started)
+        mock_popen.assert_not_called()
+        lock_handle.close.assert_called_once()
 
     def test_target_thread_id_does_not_fallback_to_process_env(self) -> None:
         with patch.dict("os.environ", {"CODEX_THREAD_ID": "env-thread"}, clear=False):
@@ -1164,6 +1236,54 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             result["formal_targets"],
         )
 
+    def test_ready_check_main_emits_summary_payload(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "dev-bot-1",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"]),
+        )
+        snapshot["bell_processes"] = [
+            {
+                "command": "python3 watch_tmux_handoff.py --target formal-session:1.1"
+            }
+        ]
+
+        with patch("check_tmux_ready.inspect_runtime", return_value=snapshot):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "check_tmux_ready.py",
+                    "--summary",
+                    "--require-formal",
+                    "--require-watcher",
+                    "--pretty",
+                ],
+            ):
+                with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    rc = check_tmux_ready.main()
+
+        self.assertEqual(0, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual("ready_summary", payload["mode"])
+        self.assertTrue(payload["client_visible"])
+        self.assertTrue(payload["formal_session_attached"])
+        self.assertTrue(payload["pane_count_matches_expected"])
+        self.assertEqual([], payload["blockers"])
+        self.assertNotIn("watcher_commands", payload)
+
     def test_shell_snapshot_is_not_classified_as_stopped(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(
             {"session_attached": 1, "pane_dead": 0, "current_command": "zsh"}
@@ -1350,17 +1470,52 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             runtime_snapshot(sessions=[], panes=[], clients=[], current_client={"inside_tmux": False}, visible_terminal_client=True),
         ]
 
-        with patch("start_formal_runtime_chain.inspect_runtime_snapshot", side_effect=inspect_snapshots):
-            with patch(
-                "start_formal_runtime_chain.preflight_kill_all_tmux_sessions",
-                return_value={"attempted": True, "cleaned": True, "killed_sessions": ["seed-session"]},
-            ):
+        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=False):
+            with patch("start_formal_runtime_chain.inspect_runtime_snapshot", side_effect=inspect_snapshots):
                 with patch(
-                    "start_formal_runtime_chain.cleanup_previous_runtime_state",
-                    return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+                    "start_formal_runtime_chain.preflight_kill_all_tmux_sessions",
+                    return_value={"attempted": True, "cleaned": True, "killed_sessions": ["seed-session"]},
                 ):
+                    with patch(
+                        "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                        return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+                    ):
+                        with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
+                            mock_run.return_value = Mock(returncode=0)
+                            with patch.object(
+                                sys,
+                                "argv",
+                                [
+                                    "start_formal_runtime_chain.py",
+                                    "--codex-thread-id",
+                                    "test-thread",
+                                    "--pane-title",
+                                    "dev-bot-1",
+                                ],
+                            ):
+                                rc = start_formal_runtime_chain.main()
+
+        self.assertEqual(0, rc)
+        tmux_command = mock_run.call_args.args[0]
+        self.assertEqual(["tmux", "new-session", "-s", "formal-session", "-c", "/Users/busiji/workbot"], tmux_command[:6])
+        self.assertIn("--continue-inside-formal", tmux_command[6])
+        self.assertIn("--codex-thread-id", tmux_command[6])
+
+    def test_start_formal_runtime_chain_routes_hidden_terminal_via_terminal_app(self) -> None:
+        result_payload = {
+            "status": "ok",
+            "formal_session": "formal-session",
+            "pane_count": 1,
+            "pane_titles": ["dev-bot-1"],
+            "chain": ["tmux_preflight", "ready_check"],
+            "steps": {"launcher_visibility": {"mode": "verified_before_cleanup"}},
+            "result_path": "/tmp/tmux-start-result.json",
+        }
+        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
+            with patch("start_formal_runtime_chain.result_output_path", return_value=Path("/tmp/tmux-start-result.json")):
+                with patch("start_formal_runtime_chain.wait_for_result_file", return_value=result_payload):
                     with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
-                        mock_run.return_value = Mock(returncode=0)
+                        mock_run.return_value = Mock(returncode=0, stdout="tab 1 of window id 1\n", stderr="")
                         with patch.object(
                             sys,
                             "argv",
@@ -1370,49 +1525,49 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                                 "test-thread",
                                 "--pane-title",
                                 "dev-bot-1",
+                                "--pretty",
                             ],
                         ):
+                            with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                                rc = start_formal_runtime_chain.main()
+
+        self.assertEqual(0, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual("ok", payload["status"])
+        launcher_call = mock_run.call_args
+        self.assertEqual(["osascript", "-", launcher_call.args[0][2]], launcher_call.args[0])
+        self.assertIn("start_formal_runtime_chain.py", launcher_call.args[0][2])
+        self.assertIn("TMUX_START_RESULT_PATH", launcher_call.args[0][2])
+        self.assertIn("dev-bot-1", launcher_call.args[0][2])
+        self.assertIn("set bounds of front window", launcher_call.kwargs["input"])
+
+    def test_start_formal_runtime_chain_explain_launch_path_avoids_side_effects(self) -> None:
+        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
+            with patch("start_formal_runtime_chain.launch_via_terminal_app") as mock_launcher:
+                with patch("start_formal_runtime_chain.launch_clean_formal_session") as mock_public_launch:
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "start_formal_runtime_chain.py",
+                            "--pane-title",
+                            "dev-bot-1",
+                            "--explain-launch-path",
+                            "--pretty",
+                        ],
+                    ):
+                        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
                             rc = start_formal_runtime_chain.main()
 
         self.assertEqual(0, rc)
-        tmux_command = mock_run.call_args.args[0]
-        self.assertEqual(["tmux", "new-session", "-s", "formal-session", "-c", "/Users/busiji/workbot"], tmux_command[:6])
-        self.assertIn("--continue-inside-formal", tmux_command[6])
-        self.assertIn("--codex-thread-id", tmux_command[6])
-
-    def test_start_formal_runtime_chain_launcher_rejects_hidden_terminal(self) -> None:
-        hidden_snapshot = runtime_snapshot(
-            sessions=[],
-            panes=[],
-            clients=[],
-            current_client={
-                "inside_tmux": False,
-                "session_name": "",
-                "client_tty": "",
-                "visible_terminal_client": False,
-                "visibility_reason": "codex_hidden_pty",
-            },
-            visible_terminal_client=False,
-        )
-        with patch("start_formal_runtime_chain.inspect_runtime_snapshot", return_value=hidden_snapshot):
-            with patch.object(
-                sys,
-                "argv",
-                [
-                    "start_formal_runtime_chain.py",
-                    "--codex-thread-id",
-                    "test-thread",
-                    "--pane-title",
-                    "dev-bot-1",
-                    "--pretty",
-                ],
-            ):
-                with patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                    rc = start_formal_runtime_chain.main()
-
-        self.assertEqual(1, rc)
         payload = json.loads(stdout.getvalue())
-        self.assertIn("refusing startup from codex_hidden_pty", payload["error"])
+        self.assertEqual("launch_path_explanation", payload["mode"])
+        self.assertTrue(payload["hidden_pty"])
+        self.assertTrue(payload["will_use_terminal_app"])
+        self.assertEqual("launch_via_terminal_app", payload["next_step"])
+        self.assertEqual([20, 40, 1720, 1120], payload["terminal_app_window_bounds"])
+        mock_launcher.assert_not_called()
+        mock_public_launch.assert_not_called()
 
     def test_start_formal_runtime_chain_continuation_uses_initialize_only_env(self) -> None:
         env_command: list[str] = []
@@ -1432,17 +1587,17 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         inspect_after_titles = dict(formal_snapshot)
         inspect_after_titles["topology_fingerprint"] = "test-topology"
 
-        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+        def fake_run_json(script_name: str, args: list[str], *, step: str) -> dict[str, object]:
             nonlocal env_command
             if step == "pre_continuation_guard":
                 return formal_snapshot
             if step == "env":
-                env_command = command
+                env_command = [script_name, *args]
                 return {"phase": "env", "runtime_status": "INIT_IN_PROGRESS"}
             if step == "inspect_after_env":
                 return formal_snapshot
             if step == "topology":
-                return {"phase": "topology"}
+                return {"phase": "topology", "pane_targets": ["formal-session:1.1"]}
             if step == "inspect_after_topology":
                 return formal_snapshot
             if step == "pane-title-application":
@@ -1453,6 +1608,8 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 return {"phase": "ledger"}
             if step == "watcher":
                 return {"phase": "watcher"}
+            if step == "ready_check":
+                return {"runtime_status": "READY", "reasons": []}
             raise AssertionError(f"unexpected step: {step}")
 
         def fake_run(command: list[str]) -> Mock:
@@ -1464,26 +1621,28 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 return Mock(returncode=0, stdout="", stderr="")
             raise AssertionError(f"unexpected run command: {command}")
 
-        with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
-            with patch(
-                "start_formal_runtime_chain.run_json_with_status",
-                return_value=({"runtime_status": "READY", "reasons": []}, 0),
-            ):
-                with patch("start_formal_runtime_chain.run", side_effect=fake_run):
-                    with patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "start_formal_runtime_chain.py",
-                            "--codex-thread-id",
-                            "test-thread",
-                            "--pane-title",
-                            "dev-bot-1",
-                            "--continue-inside-formal",
-                        ],
+        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=False):
+            with patch("start_formal_runtime_chain.inspect_runtime_snapshot", return_value=formal_snapshot):
+                with patch("start_formal_runtime_chain.run_json_script", side_effect=fake_run_json):
+                    with patch(
+                        "start_formal_runtime_chain.normalize_pane_surfaces",
+                        return_value={"current_target": "formal-session:1.1", "normalized_targets": []},
                     ):
-                        with patch("sys.stdout", new_callable=io.StringIO):
-                            rc = start_formal_runtime_chain.main()
+                        with patch("start_formal_runtime_chain.run", side_effect=fake_run):
+                            with patch.object(
+                                sys,
+                                "argv",
+                                [
+                                    "start_formal_runtime_chain.py",
+                                    "--codex-thread-id",
+                                    "test-thread",
+                                    "--pane-title",
+                                    "dev-bot-1",
+                                    "--continue-inside-formal",
+                                ],
+                            ):
+                                with patch("sys.stdout", new_callable=io.StringIO):
+                                    rc = start_formal_runtime_chain.main()
 
         self.assertEqual(0, rc)
         self.assertNotIn("--create-formal-session", env_command)
@@ -1513,7 +1672,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             bootstrap_sessions=["tbot"],
         )
 
-        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
+        def fake_run_json(script_name: str, args: list[str], *, step: str) -> dict[str, object]:
             if step == "pre_continuation_guard":
                 return inspect_after_env
             if step == "env":
@@ -1522,26 +1681,27 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 return inspect_after_env
             raise AssertionError(f"unexpected step: {step}")
 
-        with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
-            with patch(
-                "start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure",
-                return_value={"attempted": False, "reason": "skip"},
-            ):
-                with patch.object(
-                    sys,
-                    "argv",
-                    [
-                        "start_formal_runtime_chain.py",
-                        "--codex-thread-id",
-                        "test-thread",
-                        "--pane-title",
-                        "dev-bot-1",
-                        "--continue-inside-formal",
-                        "--pretty",
-                    ],
+        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=False):
+            with patch("start_formal_runtime_chain.run_json_script", side_effect=fake_run_json):
+                with patch(
+                    "start_formal_runtime_chain.cleanup_hidden_formal_session_on_failure",
+                    return_value={"attempted": False, "reason": "skip"},
                 ):
-                    with patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                        rc = start_formal_runtime_chain.main()
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "start_formal_runtime_chain.py",
+                            "--codex-thread-id",
+                            "test-thread",
+                            "--pane-title",
+                            "dev-bot-1",
+                            "--continue-inside-formal",
+                            "--pretty",
+                        ],
+                    ):
+                        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                            rc = start_formal_runtime_chain.main()
 
         self.assertEqual(1, rc)
         payload = json.loads(stdout.getvalue())
@@ -1644,6 +1804,59 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual(0, rc)
         self.assertEqual("", stdout.getvalue())
         mock_record.assert_not_called()
+
+    def test_repeated_unchanged_hash_emits_stopped_event_after_threshold(self) -> None:
+        snapshot = {
+            "target": "formal-session:1.1",
+            "session": "formal-session",
+            "window": "1",
+            "pane_index": "1",
+            "pane_id": "%1",
+            "pane_title": "task-1",
+            "cwd": "/Users/busiji/workbot",
+            "current_command": "node",
+            "pane_dead": 0,
+            "pane_dead_status": "",
+            "session_attached": 1,
+            "recent_output": "waiting for input",
+            "recent_output_hash": "abc123",
+            "reachable": True,
+            "state_signature": "sig-1",
+        }
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "watch_tmux_handoff.py",
+                "--target",
+                "formal-session:1.1",
+            ],
+        ):
+            with patch("watch_tmux_handoff.read_tmux_session_binding", return_value="thread-1"):
+                with patch(
+                    "watch_tmux_handoff.capture_snapshot",
+                    side_effect=[snapshot, snapshot, snapshot, snapshot],
+                ):
+                    with patch("watch_tmux_handoff.record_event") as mock_record:
+                        with patch("watch_tmux_handoff.emit") as mock_emit:
+                            with patch(
+                                "watch_tmux_handoff.time.sleep",
+                                side_effect=[None, None, None, RuntimeError("stop loop")],
+                            ):
+                                with self.assertRaisesRegex(RuntimeError, "stop loop"):
+                                    watch_tmux_handoff.main()
+
+        mock_record.assert_called_once()
+        event = mock_record.call_args.args[1]
+        self.assertEqual("pane_stopped", event["event"])
+        self.assertEqual("hash_unchanged_threshold", event["stop_reason"])
+        self.assertIn("连续 3 次比较无变化", str(event["state_label"]))
+        mock_emit.assert_called_once()
+
+    def test_tmux_skill_doc_points_to_explain_and_summary_entrypoints(self) -> None:
+        skill_doc = Path("/Users/busiji/workbot/skills/tmux-skills/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("start_formal_runtime_chain.py --explain-launch-path", skill_doc)
+        self.assertIn("check_tmux_ready.py --summary", skill_doc)
 
     def test_detached_snapshot_is_classified_as_session_detached(self) -> None:
         classification = watch_tmux_handoff.classify_snapshot(
@@ -1789,6 +2002,71 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("delivered", receipt["status"])
         self.assertEqual("owner_window_response+thread_stream_state_changed+thread_idle", receipt["reason"])
 
+    def test_bridge_refreshes_waiting_receipt_from_log_before_redelivery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_file = Path(tmpdir) / "queued.json"
+            queue_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            receipts_log = Path(tmpdir) / "receipts.jsonl"
+            receipts_log.write_text(
+                json.dumps(
+                    {
+                        "event_id": "0123456789abcdef",
+                        "status": "accepted_waiting_idle",
+                        "thread_id": "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
+                        "message": "notes pane 已停止：formal-session:1.3",
+                        "turn_id": "turn-123",
+                        "handled_by_client_id": "client-123",
+                        "reason": "owner_window_response+thread_stream_state_changed",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            receipts: dict[str, dict[str, object]] = {}
+            client = Mock()
+            client.wait_for_thread_idle.return_value = True
+            tmux_handoff_app_bridge.process_queue_item(
+                queue_file,
+                client=client,
+                receipts_log=receipts_log,
+                receipts_by_event_id=receipts,
+                confirm_timeout=1.0,
+                idle_timeout=1.0,
+                max_retries=1,
+            )
+            lines = receipts_log.read_text(encoding="utf-8").splitlines()
+
+        client.deliver_turn_to_current_window.assert_not_called()
+        client.wait_for_thread_idle.assert_called_once()
+        self.assertFalse(queue_file.exists())
+        receipt = json.loads(lines[-1])
+        self.assertEqual("delivered", receipt["status"])
+        self.assertEqual("client-123", receipt["handled_by_client_id"])
+
+    def test_bridge_skips_queue_item_claimed_by_another_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            queue_file = Path(tmpdir) / "queued.json"
+            queue_file.write_text(json.dumps(sample_event("pane_stopped")), encoding="utf-8")
+            receipts_log = Path(tmpdir) / "receipts.jsonl"
+            client = Mock()
+            with patch("tmux_handoff_app_bridge.claim_queue_file", return_value=None):
+                tmux_handoff_app_bridge.process_queue_item(
+                    queue_file,
+                    client=client,
+                    receipts_log=receipts_log,
+                    receipts_by_event_id={},
+                    confirm_timeout=1.0,
+                    idle_timeout=1.0,
+                    max_retries=1,
+                )
+            queue_exists = queue_file.exists()
+            receipts_exists = receipts_log.exists()
+
+        client.deliver_turn_to_current_window.assert_not_called()
+        client.wait_for_thread_idle.assert_not_called()
+        self.assertTrue(queue_exists)
+        self.assertFalse(receipts_exists)
+
     def test_send_request_does_not_starve_matching_response_behind_broadcast(self) -> None:
         client = tmux_handoff_app_bridge.CodexWindowIpcClient(request_timeout=1.0)
         client.socket = Mock()
@@ -1931,32 +2209,29 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             bootstrap_sessions=[],
         )
 
-        def fake_run_json(command: list[str], *, step: str) -> dict[str, object]:
-            if step == "pre_continuation_guard":
-                return hidden_snapshot
-            raise AssertionError(f"unexpected step after guard: {step}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result_path = Path(tmpdir) / "result.json"
+            with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
+                with patch("start_formal_runtime_chain.result_output_path", return_value=result_path):
+                    with patch("start_formal_runtime_chain.inspect_runtime_snapshot", return_value=hidden_snapshot):
+                        with patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "start_formal_runtime_chain.py",
+                                "--codex-thread-id",
+                                "test-thread",
+                                "--pane-title",
+                                "dev-bot",
+                                "--continue-inside-formal",
+                                "--pretty",
+                            ],
+                        ):
+                            rc = start_formal_runtime_chain.main()
 
-        with patch("start_formal_runtime_chain.inspect_runtime_snapshot", return_value=hidden_snapshot):
-            with patch("start_formal_runtime_chain.run_json", side_effect=fake_run_json):
-                with patch.object(
-                    sys,
-                    "argv",
-                    [
-                        "start_formal_runtime_chain.py",
-                        "--codex-thread-id",
-                        "test-thread",
-                        "--pane-title",
-                        "dev-bot",
-                        "--continue-inside-formal",
-                        "--pretty",
-                    ],
-                ):
-                    with patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                        rc = start_formal_runtime_chain.main()
-
-        self.assertEqual(1, rc)
-        payload = json.loads(stdout.getvalue())
-        self.assertIn("current_visible_formal_client=true", payload["error"])
+            self.assertEqual(1, rc)
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        self.assertIn("continuation must run from a visible terminal", payload["error"])
         self.assertNotIn("topology", payload.get("steps", {}))
         self.assertNotIn("titles", payload.get("steps", {}))
         self.assertNotIn("ledger", payload.get("steps", {}))

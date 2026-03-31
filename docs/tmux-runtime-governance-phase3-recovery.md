@@ -1,5 +1,9 @@
 # tmux Runtime 系统治理 - 阶段 3 主链验收与恢复能力补强
 
+> 当前文档角色：历史阶段验收与恢复记录。
+> 文中“已实现 / 已满足 / 已达成”等表述，默认表示阶段 3 当次验收结论；若与当前代码演进后产生偏差，以当前真源文档和代码为准。
+> 如果本文与当前代码实现存在差异，以 `/Users/busiji/workbot/docs/tmux-docs-index.md` 和当前技能文档为准。
+
 **文档编号**: GOVERN-001-PH3  
 **创建日期**: 2026-03-31  
 **实现范围**: 主链验收机制、失败恢复、重试策略  
@@ -10,6 +14,11 @@
 ## 1. 阶段 3 目标
 
 让主链不仅能跑通，还要具备稳定验收和失败恢复能力。
+
+**当前代码现状补充**：
+- 当前代码已落地验收命令、失败持久化和主链门禁
+- 本文中关于“自动恢复”的表述，更多代表阶段 3 的恢复策略与增强方向
+- 除 fresh start 主链内显式执行的步骤外，恢复动作并未统一收敛成一个独立的自动恢复管理器
 
 ### 1.1 需要完成的事
 
@@ -94,7 +103,7 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/check_tmux_ready.py \
 - 失败时会输出具体 `reasons` 列表
 
 **独立验收**：
-- 可随时运行 `check_tmux_ready.py` 进行独立验收
+- 可随时通过 `run_script.py --script check_tmux_ready.py --args "--require-formal --require-watcher"` 进行独立验收
 - 独立验收不会修改任何状态，只读检查
 
 ---
@@ -176,13 +185,13 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/check_tmux_ready.py \
 
 ---
 
-### 4.3 自动恢复的场景
+### 4.3 恢复策略中可自动化的场景
 
-| 场景 | 是否可自动恢复 | 恢复逻辑 |
+| 场景 | 是否可自动化 | 恢复逻辑 |
 |------|----------------|----------|
-| **watcher 进程意外退出** | ✅ 是 | 检测到进程不存在 → 重新 arm watcher |
-| **pane 标题丢失** | ✅ 是 | 检测到 title 为空 → 重新 apply titles |
-| **ledger 漂移** | ✅ 是 | 检测到 ledger 与 tmux 状态不符 → 重新 init ledger |
+| **watcher 进程意外退出** | 🟡 可自动化 | 检测到进程不存在后重新 arm watcher；当前更常见的是作为显式恢复动作执行 |
+| **pane 标题丢失** | 🟡 可自动化 | 检测到 title 为空后重新 apply titles；当前未形成独立常驻自动修复器 |
+| **ledger 漂移** | 🟡 可自动化 | 检测到 ledger 与 tmux 状态不符后重新 init ledger；当前以显式修复为主 |
 | **CODEX_THREAD_ID 解绑** | ❌ 否 | 需要人工确认是否被外部修改 |
 | **session 被外部杀掉** | ❌ 否 | 需要重新启动完整主链 |
 
@@ -240,7 +249,7 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/check_tmux_ready.py \
 
 ## 6. 实测验证记录
 
-### 6.1 验证场景
+### 6.1 阶段 3 当时规划的验证场景
 
 | 场景 | 验证日期 | 验证结果 | 备注 |
 |------|----------|----------|------|

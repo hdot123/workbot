@@ -1,5 +1,8 @@
 # tmux Runtime 系统治理 - 阶段 1 主链方案设计
 
+> 当前文档角色：历史阶段设计。
+> 本文保留阶段设计与验收语义；若与当前代码实现冲突，以 `/Users/busiji/workbot/docs/tmux-docs-index.md` 和当前技能文档为准。
+
 **文档编号**: GOVERN-001-PH1  
 **创建日期**: 2026-03-31  
 **设计范围**: tmux runtime 主链收敛  
@@ -29,8 +32,8 @@
 | **阶段 0** | `detect_old_state` | `inspect_runtime()` + 预检查逻辑 | `detection_report` |
 | **阶段 1** | `cleanup` | `cleanup_previous_runtime_state()` + `preflight_kill_all_tmux_sessions()` | `cleanup_report` |
 | **阶段 2** | `init` | `init_tmux_env.py` | `init_report` |
-| **阶段 3** | `launch` | `build_tmux_topology.py` → `init_tmux_panes.py` → `bind_tmux_thread_id()` | `launch_report` |
-| **阶段 4** | `verify` | `check_tmux_ready.py` + `arm_tmux_handoff_watcher.py` | `verify_report` |
+| **阶段 3** | `launch` | `build_tmux_topology.py` → `init_tmux_panes.py` → `bind_tmux_thread_id()` → `init_runtime_ledger.py` → `arm_tmux_handoff_watcher.py` | `launch_report` |
+| **阶段 4** | `verify` | `check_tmux_ready.py` | `verify_report` |
 
 ---
 
@@ -119,7 +122,6 @@
   "cleanup_status": "COMPLETED" | "PARTIAL" | "BLOCKED" | "NOT_REQUIRED",
   "sessions_killed": ["formal-session", "tbot"],
   "watcher_processes_stopped": [12345],
-  "bridge_process_stopped": 12346,
   "files_removed": [
     "/workspace/artifacts/tmux-runtime/current-runtime.json",
     "/workspace/artifacts/tmux-skills/handoff-notifications.jsonl"
@@ -143,6 +145,11 @@
 - 所有状态文件被删除
 - delivery queue 被清空
 - `CODEX_THREAD_ID` tmux 环境变量被 unset
+
+**当前代码现状补充**：
+- cleanup 当前会显式停止 watcher，并清理 ledger / issues / handoff / delivery queue / tmux env
+- bridge 当前**不**在 cleanup 中显式 `kill -TERM`
+- bridge 现状由 PID 文件检查和单实例锁兜底，发送阶段按需 `ensure_bridge_running()`
 
 **失败条件**：
 - 当前调用者本身在 tmux 内（无法杀掉自己的 session）
@@ -219,7 +226,7 @@
 
 ### 2.4 阶段 3: launch
 
-**职责**：构建 pane 拓扑、应用标题、绑定 thread ID、初始化 ledger、启动 watcher。
+**职责**：构建 pane 拓扑、应用标题、绑定 thread ID、初始化 ledger、做 pane surface normalization、启动 watcher。
 
 **输入**：
 - `init_report`（来自阶段 2）
@@ -273,6 +280,15 @@
     "codex_thread_bound": true,
     "created_at": "2026-03-31T10:00:00Z"
   },
+  "surface_normalization": {
+    "normalized_targets": [
+      "formal-session:1.1",
+      "formal-session:1.2",
+      "formal-session:1.3",
+      "formal-session:1.4"
+    ],
+    "ok": true
+  },
   "watcher": {
     "status": "armed",
     "targets": [
@@ -293,6 +309,7 @@
 - 所有 pane 标题已应用并验证
 - `CODEX_THREAD_ID` 已绑定到 tmux env
 - ledger 已初始化并写入
+- pane surface 已收敛到统一初始表面
 - watcher 已启动并记录 PID
 
 **失败条件**：
@@ -450,7 +467,7 @@
 |----------|----------|----------|
 | **所有 tmux sessions** | `tmux kill-session -t <name>` | 无任何 session 残留 |
 | **所有 watcher 进程** | `kill -TERM` → `kill -KILL` | 无 watcher 进程残留 |
-| **Bridge 进程** | `kill -TERM` + 删除 PID 文件 | 无 bridge 进程残留 |
+| **Bridge 进程** | 当前 cleanup 不显式 kill；由 PID 文件检查 + 单实例锁避免重复实例 | 不产生重复 bridge 实例 |
 | **Ledger 文件** | `unlink()` | 文件不存在 |
 | **Issues 文件** | `unlink()` | 文件不存在 |
 | **Handoff 日志** | `unlink()` | 文件不存在 |
@@ -466,7 +483,7 @@
   "verification": {
     "tmux_sessions_remaining": 0,
     "watcher_processes_remaining": 0,
-    "bridge_process_running": false,
+    "bridge_singleton_state": "singleton_managed",
     "state_files_remaining": 0,
     "queue_items_remaining": 0,
     "codex_thread_id_bound": false

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import subprocess
@@ -20,6 +21,7 @@ from typing import Any
 
 from build_tmux_handoff_bundle import build_bundle
 from tmux_handoff_app_bridge import (
+    DEFAULT_LOCK_FILE as DEFAULT_BRIDGE_LOCK_FILE,
     DEFAULT_PID_FILE as DEFAULT_BRIDGE_PID_FILE,
     DEFAULT_QUEUE_DIR,
     DEFAULT_RECEIPTS_LOG as DEFAULT_BRIDGE_RECEIPTS_LOG,
@@ -64,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         "--bridge-script",
         default=str(DEFAULT_BRIDGE_SCRIPT),
         help="Bridge/sidecar script responsible for Codex window IPC delivery.",
+    )
+    parser.add_argument(
+        "--bridge-lock-file",
+        default=str(DEFAULT_BRIDGE_LOCK_FILE),
+        help="Stable lock file used for singleton bridge ownership.",
     )
     parser.add_argument(
         "--bridge-pid-file",
@@ -139,6 +146,7 @@ def build_bridge_command(
     bridge_script: str,
     queue_dir: str,
     receipts_log: str,
+    lock_file: str,
     pid_file: str,
 ) -> list[str]:
     return [
@@ -148,9 +156,36 @@ def build_bridge_command(
         queue_dir,
         "--receipts-log",
         receipts_log,
+        "--lock-file",
+        lock_file,
         "--pid-file",
         pid_file,
     ]
+
+
+def acquire_lock(lock_path: Path, *, blocking: bool) -> object:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    operation = fcntl.LOCK_EX
+    if not blocking:
+        operation |= fcntl.LOCK_NB
+    try:
+        fcntl.flock(handle.fileno(), operation)
+    except OSError:
+        handle.close()
+        raise
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    return handle
+
+
+def bridge_startup_lock_path(bridge_lock_file: str) -> Path:
+    lock_path = Path(bridge_lock_file)
+    suffix = lock_path.suffix or ".lock"
+    stem = lock_path.stem if lock_path.suffix else lock_path.name
+    return lock_path.with_name(f"{stem}-startup{suffix}")
 
 
 def ensure_bridge_running(
@@ -159,6 +194,7 @@ def ensure_bridge_running(
     queue_dir: str,
     bridge_stdout_log: str,
     bridge_receipts_log: str,
+    bridge_lock_file: str,
     bridge_pid_file: str,
 ) -> tuple[int, bool]:
     pid_file = Path(bridge_pid_file)
@@ -166,43 +202,55 @@ def ensure_bridge_running(
     if existing_pid is not None:
         return existing_pid, False
 
-    bridge_command = build_bridge_command(
-        bridge_script=bridge_script,
-        queue_dir=queue_dir,
-        receipts_log=bridge_receipts_log,
-        pid_file=bridge_pid_file,
-    )
-    stdout_log_path = Path(bridge_stdout_log)
-    stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = stdout_log_path.open("a", encoding="utf-8")
     try:
-        process = subprocess.Popen(
-            bridge_command,
-            stdin=subprocess.DEVNULL,
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            text=True,
-        )
-    finally:
-        handle.close()
+        startup_lock = acquire_lock(bridge_startup_lock_path(bridge_lock_file), blocking=True)
+    except OSError as exc:
+        raise RuntimeError(f"failed to acquire bridge startup lock: {exc}") from exc
+    try:
+        existing_pid = read_bridge_pid(pid_file)
+        if existing_pid is not None:
+            return existing_pid, False
 
-    deadline = time.monotonic() + DEFAULT_BRIDGE_START_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        pid = read_bridge_pid(pid_file)
-        if pid is not None:
-            return pid, True
+        bridge_command = build_bridge_command(
+            bridge_script=bridge_script,
+            queue_dir=queue_dir,
+            receipts_log=bridge_receipts_log,
+            lock_file=bridge_lock_file,
+            pid_file=bridge_pid_file,
+        )
+        stdout_log_path = Path(bridge_stdout_log)
+        stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = stdout_log_path.open("a", encoding="utf-8")
+        try:
+            process = subprocess.Popen(
+                bridge_command,
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                text=True,
+            )
+        finally:
+            handle.close()
+
+        deadline = time.monotonic() + DEFAULT_BRIDGE_START_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            pid = read_bridge_pid(pid_file)
+            if pid is not None:
+                return pid, True
+            if process.poll() is not None:
+                raise RuntimeError(
+                    f"tmux handoff app bridge exited before startup finished (code {process.returncode})"
+                )
+            time.sleep(DEFAULT_BRIDGE_START_POLL_SECONDS)
+
         if process.poll() is not None:
             raise RuntimeError(
                 f"tmux handoff app bridge exited before startup finished (code {process.returncode})"
             )
-        time.sleep(DEFAULT_BRIDGE_START_POLL_SECONDS)
-
-    if process.poll() is not None:
-        raise RuntimeError(
-            f"tmux handoff app bridge exited before startup finished (code {process.returncode})"
-        )
-    return process.pid, True
+        return process.pid, True
+    finally:
+        startup_lock.close()
 
 
 def queue_input_payload(
@@ -292,6 +340,7 @@ def main() -> int:
             bridge_script=args.bridge_script,
             queue_dir=args.queue_dir,
             receipts_log=args.bridge_receipts_log,
+            lock_file=args.bridge_lock_file,
             pid_file=args.bridge_pid_file,
         )
         json.dump(
@@ -301,6 +350,7 @@ def main() -> int:
                 "session_mode": session_mode,
                 "codex_thread_id": codex_thread_id,
                 "bridge_command": bridge_command,
+                "bridge_lock_file": args.bridge_lock_file,
                 "bridge_pid_file": args.bridge_pid_file,
                 "bridge_receipts_log": args.bridge_receipts_log,
                 "event_file": args.event_file,
@@ -326,6 +376,7 @@ def main() -> int:
             queue_dir=args.queue_dir,
             bridge_stdout_log=args.bridge_stdout_log,
             bridge_receipts_log=args.bridge_receipts_log,
+            bridge_lock_file=args.bridge_lock_file,
             bridge_pid_file=args.bridge_pid_file,
         )
     except RuntimeError as exc:
@@ -341,6 +392,7 @@ def main() -> int:
             "codex_thread_id": codex_thread_id,
             "bridge_pid": bridge_pid,
             "bridge_started": bridge_started,
+            "bridge_lock_file": args.bridge_lock_file,
             "bridge_pid_file": args.bridge_pid_file,
             "bridge_receipts_log": args.bridge_receipts_log,
             "event_file": str(event_file),

@@ -1,5 +1,9 @@
 # tmux Runtime 系统治理 - 阶段 6 最终验收与架构总结
 
+> 当前文档角色：历史项目总结。
+> 当前代码口径请优先查看 `/Users/busiji/workbot/docs/tmux-docs-index.md`、`/Users/busiji/workbot/skills/tmux-skills/SKILL.md` 和 `/Users/busiji/workbot/docs/tmux-skills-design.md`。
+> 文中“通过 / 已完成 / 已达成”等表述，默认表示阶段 6 当次验收结论与当时的架构总结，不单独覆盖当前实现真相。
+
 **文档编号**: GOVERN-001-PH6  
 **创建日期**: 2026-03-31  
 **验收范围**: 完整治理系统验收  
@@ -9,7 +13,7 @@
 
 ## 1. 阶段 6 目标
 
-对 tmux runtime 系统治理进行全面验收，确认所有设计目标已达成，并总结最终架构。
+记录 tmux runtime 系统治理在阶段 6 当次验收中的结论，并总结当时的架构形态。
 
 ---
 
@@ -67,12 +71,14 @@
 │  │  │ SCRIPT_REGISTRY  │───→│  tmux_scheduler.py      │     │   │
 │  │  │ .json            │    │  (scheduler module)     │     │   │
 │  │  │                  │    │                         │     │   │
-│  │  │ - 22 scripts     │    │  Validation:            │     │   │
-│  │  │ - 4 categories   │    │  - Registration         │     │   │
-│  │  └──────────────────┘    │  - Status               │     │   │
-│                              │  - Visibility           │     │   │
-│      ┌──────────────────┐    │  - Environment          │     │   │
-│      │ run_script.py    │    │  - Preconditions        │     │   │
+│  │  │ - 22 registered  │    │  Validation:            │     │   │
+│  │  │   entries        │    │  - Registration         │     │   │
+│  │  │ - current        │    │  - Status               │     │   │
+│  │  │   registry       │    │  - Visibility           │     │   │
+│  │  │   categories     │    │  - Environment          │     │   │
+│  │  └──────────────────┘    │  - Preconditions        │     │   │
+│      ┌──────────────────┐    │                         │     │   │
+│      │ run_script.py    │    │                         │     │   │
 │      │ (CLI scheduler)  │    │                         │     │   │
 │      └──────────────────┘    └─────────────────────────┘     │   │
 │                                                                  │
@@ -87,6 +93,10 @@
 ```
 
 ### 3.2 脚本清单（最终版）
+
+> 当前代码现状补充：
+> `deliver_tmux_handoff_notification.py` 虽然被归入 `deprecated`，
+> 但 watcher 当前仍通过 queue item 把事件交给它，再由它确保 bridge 常驻。
 
 #### 正式脚本（10 个）
 
@@ -115,6 +125,11 @@
 
 #### 弃用脚本（9 个）
 
+> 当前代码现状补充：
+> `deliver_tmux_handoff_notification.py` 仍是当前 watcher 兼容发送链中的编排层，
+> 但它在注册表和头部注释里都被标记为 `deprecated`。
+> 当前代码里 watcher 仍会把 queue item 交给它，再由它确保 bridge 常驻并把 queue item 留给 bridge 处理。
+
 | 脚本 | 替代方案 | 状态 |
 |------|----------|------|
 | `deliver_tmux_handoff_notification.py` | `tmux_handoff_app_bridge.py` | 🔴 deprecated |
@@ -138,6 +153,7 @@
 | `tmux_scheduler.py` | `skills/tmux-skills/` | 调度器模块（可导入） |
 | `start_formal_runtime_chain.py` | `skills/tmux-skills/scripts/` | 主链编排 |
 | `check_tmux_ready.py` | `skills/tmux-skills/scripts/` | 验收脚本 |
+| `deliver_tmux_handoff_notification.py` | `skills/tmux-skills/scripts/` | 当前 watcher 兼容发送链的 delivery runner 编排层 |
 | `phase0-analysis.md` | `docs/` | 现状分析 |
 | `phase1-design.md` | `docs/` | 主链设计 |
 | `phase2-implementation.md` | `docs/` | 实现报告 |
@@ -168,7 +184,7 @@
 
 | 场景 | 灵活性 |
 |------|--------|
-| **公开脚本** | 可直接调用，无需通过调度器（向后兼容） |
+| **公开脚本** | 公开调度入口；是否允许路径直调取决于各脚本的 runtime enforcement |
 | **调试场景** | 可通过 `TMUX_ORCHESTRATOR_CONTEXT=true` 调用 orchestrator_only 脚本 |
 | **弃用脚本** | 暂时保留，提供迁移窗口期 |
 

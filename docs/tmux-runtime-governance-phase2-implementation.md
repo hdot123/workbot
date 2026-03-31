@@ -1,5 +1,9 @@
 # tmux Runtime 系统治理 - 阶段 2 主链落地实现报告
 
+> 当前文档角色：历史阶段实现记录。
+> 当前代码口径请优先查看 `/Users/busiji/workbot/docs/tmux-docs-index.md`、`/Users/busiji/workbot/skills/tmux-skills/SKILL.md` 和 `/Users/busiji/workbot/docs/tmux-skills-design.md`。
+> 文中“已实现 / 已满足 / 已通过”等表述，默认表示阶段 2 当次验收结论；若与当前代码演进后产生偏差，以当前真源文档和代码为准。
+
 **文档编号**: GOVERN-001-PH2  
 **创建日期**: 2026-03-31  
 **实现范围**: `start_formal_runtime_chain.py` 及相关脚本  
@@ -13,7 +17,7 @@
 
 | 设计阶段 | 对应脚本/函数 | 实现状态 | 差距分析 |
 |----------|---------------|----------|----------|
-| **detect_old_state** | `inspect_runtime_snapshot()` + `preflight_kill_all_tmux_sessions()` | ✅ 已实现 | 缺少独立的 `detection_report` 输出 |
+| **detect_old_state** | `run_detect_phase()` + `inspect_runtime_snapshot()` | ✅ 已实现 | 当前代码已输出独立的 `detection_report` |
 | **cleanup** | `cleanup_previous_runtime_state()` | ✅ 已实现 | 已输出 `cleanup_report` |
 | **init** | `run_formal_env_setup()` → `init_tmux_env.py` | ✅ 已实现 | 已输出 `env` 阶段报告 |
 | **launch** | `run_topology_setup()` + `run_pane_title_application()` + `run_runtime_activation()` | ✅ 已实现 | 已输出 `topology`/`titles`/`ledger`/`watcher` 报告 |
@@ -21,17 +25,19 @@
 
 ### 1.2 核心脚本现状
 
+> 下表中的行数已同步到当前仓库代码；本节仍保留“阶段 2 实现报告”的结构，不再使用当时的旧行数。
+
 | 脚本 | 行数 | 状态 | 说明 |
 |------|------|------|------|
-| `start_formal_runtime_chain.py` | 802 | ✅ 正式 | 统一 orchestrator，已实现完整主链 |
-| `check_tmux_ready.py` | 250 | ✅ 正式 | 验收脚本，已实现 9 项检查 |
-| `arm_tmux_handoff_watcher.py` | 331 | ✅ 正式 | Watcher 挂载脚本 |
-| `watch_tmux_handoff.py` | 475 | ✅ 正式 | Watcher worker |
-| `tmux_handoff_app_bridge.py` | 699 | ✅ 正式 | Window IPC bridge |
-| `build_tmux_topology.py` | 275 | ✅ 正式 | Topology 构建 |
-| `init_tmux_panes.py` | 265 | ✅ 正式 | Pane 标题应用 |
-| `init_tmux_env.py` | 244 | ✅ 正式 | 环境初始化 |
-| `init_runtime_ledger.py` | 145 | ✅ 正式 | Ledger 初始化 |
+| `start_formal_runtime_chain.py` | 1168 | ✅ 正式 | 统一 orchestrator，已实现完整主链 |
+| `check_tmux_ready.py` | 262 | ✅ 正式 | 验收脚本，当前代码中通常经 scheduler 执行 |
+| `arm_tmux_handoff_watcher.py` | 349 | ✅ 正式 | Watcher 挂载脚本，当前代码中通常经 scheduler 执行 |
+| `watch_tmux_handoff.py` | 622 | ✅ 正式 | Watcher worker |
+| `tmux_handoff_app_bridge.py` | 708 | ✅ 正式 | Window IPC bridge |
+| `build_tmux_topology.py` | 287 | ✅ 正式 | Topology 构建 |
+| `init_tmux_panes.py` | 425 | ✅ 正式 | Pane 标题应用 |
+| `init_tmux_env.py` | 281 | ✅ 正式 | 环境初始化 |
+| `init_runtime_ledger.py` | 154 | ✅ 正式 | Ledger 初始化 |
 
 ---
 
@@ -57,22 +63,19 @@
 
 **当前实现**：
 ```python
-def preflight_kill_all_tmux_sessions() -> dict[str, Any]:
-    snapshot = inspect_runtime_snapshot(step="tmux_preflight_inspect")
-    # ... 返回检测结果和清理结果
-    return {
-        "attempted": bool(ordered_sessions),
-        "session_names": ordered_sessions,
-        "session_count_before": int(snapshot.get("session_count", 0) or 0),
-        "cleaned": cleaned,
-        "killed_sessions": [...],
+def run_detect_phase(formal_session: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    snapshot = inspect_runtime_snapshot(step="detect_old_state", formal_session=formal_session)
+    report = {
+        "detection_status": ...,
+        "cleanup_required": ...,
+        "sessions": snapshot.get("sessions", []),
+        "state_files": ...,
+        "current_caller_context": ...,
     }
+    return report, snapshot
 ```
 
-**差距**：
-- 当前实现将 `detect` 和 `cleanup` 合并了
-- 缺少独立的 `detection_report` 输出
-- 建议：在 `preflight_kill_all_tmux_sessions()` 前先输出纯只读的 `detection_report`
+**状态**：✅ **当前代码已满足设计要求**
 
 ---
 
@@ -210,13 +213,18 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
 
 ---
 
-## 3. 需要补强的内容
+## 3. 当阶段 2 记录的补强项（现已在当前代码中落地）
 
 ### 3.1 阶段日志结构化
 
-**当前问题**：
+**阶段 2 当时问题**：
 - 各阶段报告分散在 `steps` 字典中，缺少统一的链路口径
 - 没有阶段级别的 `status` 字段（如 `detect_status`, `cleanup_status` 等）
+
+**当前代码现状**：
+- 当前结果已包含 `phase_timings`
+- `build_result()` 已固定主链顺序并输出结构化 `steps`
+- 结果文件还会额外落盘到 `TMUX_START_RESULT_PATH` 指向的位置（若设置）
 
 **建议修改**：
 在 `build_result()` 中增加阶段级别的状态汇总：
@@ -260,9 +268,13 @@ def build_result(
 
 ### 3.2 失败原因记录
 
-**当前问题**：
+**阶段 2 当时问题**：
 - 失败时只输出到 stdout，没有持久化到 `last-runtime-issues.json`
 - 失败时的 `steps` 状态可能丢失
+
+**当前代码现状**：
+- `record_failure_to_issues()` 已落地并在失败路径调用
+- `last-runtime-issues.json` 已作为当前代码的正式失败持久化出口
 
 **建议修改**：
 增加失败记录函数：
@@ -305,9 +317,13 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
 
 ### 3.3 门禁强化
 
-**当前问题**：
+**阶段 2 当时问题**：
 - `detect` 阶段没有独立的门禁输出
 - `cleanup` 成功后直接进入 `init`，中间没有显式确认点
+
+**当前代码现状**：
+- `run_detect_phase()` 已成为显式 detect 门禁
+- `steps["detect"]`、`steps["cleanup"]`、`steps["ready_check"]` 都是当前代码的正式阶段输出
 
 **建议修改**：
 在 `main()` 中增加显式的阶段门禁检查：
@@ -348,17 +364,15 @@ def main() -> int:
 | **启动前清理是显式且可验证的** | ✅ 已满足 | `steps["cleanup"]` 输出清理报告 |
 | **launch 阶段符合 visible terminal 约束** | ✅ 已满足 | `require_visible_terminal_launcher()` |
 | **verify 能阻止假 ready** | ✅ 已满足 | `check_tmux_ready.py` 的 9 项检查 |
-| **出错时能明确指出失败阶段和失败原因** | 🟡 部分满足 | 有 `steps` 和 `error`，但缺少持久化 |
+| **出错时能明确指出失败阶段和失败原因** | ✅ 已满足 | `steps` + `error` + `record_failure_to_issues()` |
 | **系统不再依赖"刚好跑通"的隐式路径** | ✅ 已满足 | 每个阶段都有显式检查 |
 
 ### 4.2 剩余差距
 
 | 差距项 | 优先级 | 修复工作量 |
 |--------|--------|------------|
-| 缺少独立的 `detection_report` 输出 | P2 | 小（增加只读检测函数） |
-| 失败原因未持久化到 `last-runtime-issues.json` | P2 | 小（增加记录函数） |
-| 阶段级别状态汇总缺失 | P3 | 小（修改 `build_result()`） |
-| 显式阶段门禁检查 | P3 | 中（重构 `main()` 结构） |
+| 阶段级别状态汇总仍偏实现导向（`steps` 为主） | P3 | 小 |
+| 历史文档中的阶段映射已落后于当前实现 | P3 | 小 |
 
 ---
 
@@ -445,14 +459,14 @@ def run_detect_phase() -> dict[str, Any]:
 4. ✅ 显式的门禁检查（`require_visible_*`）
 5. ✅ 失败时的错误处理和 cleanup
 
-### 6.2 剩余工作
+### 6.2 阶段 2 当时提出、后续已落地的工作
 
-需要补强的内容（按优先级）：
+以下补强项在后续版本已进入当前代码：
 
 1. **P2**: 失败原因持久化到 `last-runtime-issues.json`
 2. **P2**: 独立的 `detection_report` 输出
-3. **P3**: 阶段级别状态汇总
-4. **P3**: 显式阶段门禁检查重构
+3. **P2**: phase timing / 结果文件落盘
+4. **P3**: 阶段级别状态汇总持续优化
 
 ### 6.3 建议
 
@@ -473,8 +487,8 @@ def run_detect_phase() -> dict[str, Any]:
 - [x] 重构后的启动主链代码（detect → cleanup → init → launch → verify）
 - [x] 阶段日志/状态输出（`steps` 字典）
 - [x] fresh start 实际执行路径（`launch_clean_formal_session()`）
-- [ ] 失败原因持久化（待补强）
-- [ ] 独立检测报告（待补强）
+- [x] 失败原因持久化（后续版本已补）
+- [x] 独立检测报告（后续版本已补）
 
 ---
 

@@ -1,5 +1,8 @@
 # tmux-skills 设计文档
 
+> 当前文档角色：现行设计文档。
+> 本文与 `SKILL.md`、`tmux-skills-duty-boundary.md` 一起构成当前实现的主口径。
+
 ## 1. 定位
 
 `tmux-skills` 是一个纯 tmux 技能。
@@ -55,6 +58,8 @@
 因此 `tmux-skills` 的“创建 session”实际上指的是：
 
 - 先清理旧 watcher、旧 runtime ledger、旧 issues 文件、旧 handoff 数据和旧 watcher 日志
+- 清空 delivery queue，并 unset tmux 环境里的 `CODEX_THREAD_ID`
+- bridge 当前不在 cleanup 中显式 kill；现状由 PID 文件检查与单实例锁避免重复实例
 - 创建并 attach 一个前台 `formal-session`
 - 或接管一个已经 attached 的 `formal-session`
 
@@ -84,6 +89,26 @@ pane 监控阶段只关心 pane 是否仍在运行：
 其中最重要的正式动作是：
 
 - pane 停止后向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
+
+这里采用固定监控口径：
+
+- tmux 原生命令只提供 pane 原始状态与可抓取屏幕内容
+- watcher 不发明新规则，只执行固定规则
+- `round` 表示对全部 watcher targets 的一次完整扫描；如果当前有 `6` 个 pane，则一轮就是 `formal-session:1.1` 到 `formal-session:1.6` 全部采完
+- `pane_stopped` 固定规则：
+  - `pane_dead > 0`
+  - 或首次采样建立 baseline 且已经观察到 pane 出现过一次有效输出变化后，同一个 pane 连续 `3` 轮最近 `5` 行输出 hash 不变
+- watcher 负责控制“怎么放”：
+  - 必须先完成整轮扫描
+  - 这一轮里满足 `pane_stopped` 的 pane 可以有多个
+  - 但同一时刻最多只允许向下游放 `1` 条消息
+  - 如果这一轮有多个 pane 同时满足规则，watcher 只先下放 `1` 条，其余 pane 在后续轮次继续按相同规则重试放行
+
+换句话说：
+
+- watcher 负责“看”和“按固定规则放”
+- `deliver_tmux_handoff_notification.py` 负责确保 bridge 常驻
+- `tmux_handoff_app_bridge.py` 负责按 queue 顺序处理并投递
 
 ## 4. Codex 与 tmux-skills 的边界
 
@@ -122,9 +147,9 @@ pane 监控阶段只关心 pane 是否仍在运行：
 
 delivery 路径固定为：
 
-- watcher 发现事件并落 handoff 队列
-- delivery runner 只负责排队并确保 bridge 常驻
-- window IPC bridge 通过本地 Codex IPC 的 `thread-follower-start-turn` 把消息路由到目标 thread 的 owner 窗口
+- watcher 完成一整轮扫描后，最多只向 handoff 队列下放 `1` 条消息
+- `deliver_tmux_handoff_notification.py` 只负责确保 bridge 常驻；如果输入事件尚未落到 queue，会先写入 queue
+- `tmux_handoff_app_bridge.py` 按顺序处理 queue 文件，并通过本地 Codex IPC 的 `thread-follower-start-turn` 把消息路由到目标 thread 的 owner 窗口
 
 这里明确排除：
 

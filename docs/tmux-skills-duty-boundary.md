@@ -1,5 +1,8 @@
 # tmux-skills 冻结职责边界
 
+> 当前文档角色：现行职责边界文档。
+> 本文与 `SKILL.md`、`tmux-skills-design.md` 一起构成当前实现的主口径。
+
 ## 目的
 
 本文件只定义一件事：
@@ -77,6 +80,19 @@ formal-session:1.4 monitor
 `tmux-skills` 的监控阶段只保留一个正式触发条件：
 
 - pane 停止了
+
+这里采用当前固定口径：
+
+- tmux 原生命令提供 pane 原始状态与可抓取屏幕内容
+- watcher 不发明新规则，只执行固定规则
+- `round` 表示对全部 watcher targets 的一次完整扫描
+- `pane_stopped` 固定规则：
+  - `pane_dead > 0`
+  - 或首次采样建立 baseline 且观察到有效输出变化后，同一个 pane 连续 `3` 轮最近 `5` 行输出 hash 不变
+- watcher 必须先完成整轮扫描，再决定这一轮怎么放
+- 同一时刻最多只允许向下游放 `1` 条消息
+- `deliver_tmux_handoff_notification.py` 只负责确保 bridge 常驻；如果输入事件尚未落到 queue，会先写入 queue
+- `tmux_handoff_app_bridge.py` 按顺序处理 queue 文件，并通过 window IPC 投递
 
 触发后就向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告。
 

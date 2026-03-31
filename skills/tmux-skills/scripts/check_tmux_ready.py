@@ -51,6 +51,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require the tmux-skills stopped-pane watcher to be armed for the formal targets.",
     )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Emit a compact summary that agents can consume without loading the full audit payload.",
+    )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     return parser.parse_args()
 
@@ -247,6 +252,43 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
     }
 
 
+def summarize(result: dict[str, Any], snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    runtime_ledger = snapshot.get("runtime_ledger") or {}
+    current_client = snapshot.get("current_client") or {}
+    formal_panes = actual_formal_panes(snapshot.get("panes", []), args.formal_session_name)
+    formal_clients = [
+        client
+        for client in snapshot.get("clients", [])
+        if client.get("session_name") == args.formal_session_name
+    ]
+    matching_sessions = [
+        session
+        for session in snapshot.get("sessions", [])
+        if session.get("session_name") == args.formal_session_name
+    ]
+    formal_session_attached = bool(
+        len(matching_sessions) == 1 and int(matching_sessions[0].get("attached", 0)) > 0
+    )
+    expected_pane_count = int(result.get("expected_pane_count") or 0)
+    return {
+        "mode": "ready_summary",
+        "runtime_status": result.get("runtime_status"),
+        "formal_session_name": args.formal_session_name,
+        "client_visible": bool(current_client.get("visible_terminal_client")),
+        "current_visible_formal_client": bool(snapshot.get("current_visible_formal_client")),
+        "formal_session_attached": formal_session_attached,
+        "formal_client_count": len(formal_clients),
+        "formal_pane_count": len(formal_panes),
+        "expected_pane_count": expected_pane_count,
+        "pane_count_matches_expected": len(formal_panes) == expected_pane_count,
+        "watcher_armed": bool(result.get("watcher_armed")),
+        "watcher_target_count": len(result.get("watcher_targets", [])),
+        "codex_thread_bound": bool(runtime_ledger.get("codex_thread_bound")) and bool(snapshot.get("CODEX_THREAD_ID")),
+        "blockers": list(result.get("reasons", [])),
+        "next_action": list(result.get("next_action", [])),
+    }
+
+
 def main() -> int:
     args = parse_args()
     snapshot = inspect_runtime(
@@ -254,7 +296,8 @@ def main() -> int:
         include_bell_processes=args.require_watcher,
     )
     result = evaluate(snapshot, args)
-    print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+    payload = summarize(result, snapshot, args) if args.summary else result
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0 if result["runtime_status"] == "READY" else 1
 
 
