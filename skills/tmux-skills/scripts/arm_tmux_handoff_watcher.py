@@ -272,7 +272,7 @@ def maybe_write_ledger(
 
 def main() -> int:
     args = parse_args()
-    snapshot = inspect_runtime(args.formal_session_name)
+    snapshot = inspect_runtime(args.formal_session_name, include_bell_processes=False)
     formal_session_attached = any(
         session.get("session_name") == args.formal_session_name
         and int(session.get("attached", 0)) > 0

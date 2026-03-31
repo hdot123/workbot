@@ -399,7 +399,7 @@ def build_result(
         "formal_session": steps.get("formal_session", DEFAULT_FORMAL_SESSION_NAME),
         "pane_count": len(pane_titles),
         "pane_titles": pane_titles,
-        "chain": ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"],
+        "chain": ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "surface_normalization", "watcher", "ready_check"],
         "steps": steps,
         "phase_timings": get_phase_timings(),
         "total_elapsed_ms": get_total_elapsed_ms(),
@@ -409,10 +409,15 @@ def build_result(
     return result
 
 
-def inspect_runtime_snapshot(*, step: str, formal_session: str | None = None) -> dict[str, Any]:
+def inspect_runtime_snapshot(
+    *,
+    step: str,
+    formal_session: str | None = None,
+    include_bell_processes: bool = False,
+) -> dict[str, Any]:
     """Inspect runtime in-process to avoid deprecated wrapper noise and subprocess overhead."""
     try:
-        return inspect_runtime(formal_session)
+        return inspect_runtime(formal_session, include_bell_processes=include_bell_processes)
     except Exception as exc:
         raise RuntimeError(f"{step} failed: {exc}") from exc
 
@@ -455,12 +460,7 @@ def require_visible_terminal_launcher(snapshot: dict[str, Any]) -> None:
         )
 
 
-def preflight_kill_all_tmux_sessions(formal_session: str) -> dict[str, Any]:
-    try:
-        snapshot = inspect_runtime_snapshot(step="tmux_preflight_inspect", formal_session=formal_session)
-    except Exception as exc:
-        return {"attempted": False, "reason": f"inspect_failed: {exc}"}
-
+def preflight_kill_all_tmux_sessions(snapshot: dict[str, Any]) -> dict[str, Any]:
     current_client = snapshot.get("current_client") or {}
     if current_client.get("inside_tmux"):
         return {
@@ -567,7 +567,7 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
     LAST_RUNTIME_ISSUES_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Infer last completed phase from steps
-    phase_order = ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"]
+    phase_order = ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "surface_normalization", "watcher", "ready_check"]
     last_completed_phase = "unknown"
     for phase in phase_order:
         if phase in steps:
@@ -601,7 +601,7 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
     )
 
 
-def run_detect_phase(formal_session: str) -> dict[str, Any]:
+def run_detect_phase(formal_session: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run detect_old_state phase and return detection report (read-only, no mutations)."""
     start_phase("detect")
     try:
@@ -640,7 +640,7 @@ def run_detect_phase(formal_session: str) -> dict[str, Any]:
             report["detection_status"] = "CLEAN"
 
         end_phase("detect", "ok")
-        return report
+        return report, snapshot
     except Exception as e:
         end_phase("detect", "failed", str(e))
         raise
@@ -729,22 +729,26 @@ def build_inside_formal_command(args: argparse.Namespace, chain_context_path: st
     if args.pretty:
         command.append("--pretty")
     shell_path = os.environ.get("SHELL") or "/bin/zsh"
-    env_prefix = (
-        f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)} "
-        if chain_context_path
-        else ""
-    )
+    env_parts: list[str] = []
+    if chain_context_path:
+        env_parts.append(f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)}")
+    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV):
+        env_value = str(os.environ.get(env_name, "")).strip()
+        if env_value:
+            env_parts.append(f"{env_name}={shlex.quote(env_value)}")
+    env_prefix = f"{' '.join(env_parts)} " if env_parts else ""
     quoted_command = " ".join(shlex.quote(part) for part in command)
+    next_shell_command = f"exec {shlex.quote(shell_path)} -l"
     # Preserve inner continuation failures while still keeping the pane alive on success.
     return (
         f"{env_prefix}{quoted_command}; rc=$?; if [ $rc -ne 0 ]; then exit $rc; fi; "
-        f"exec {shlex.quote(shell_path)} -l"
+        f"exec {shlex.quote(shell_path)} -lc {shlex.quote(next_shell_command)}"
     )
 
 
 def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any]) -> int:
     start_phase("launcher_routing")
-    launcher_snapshot = inspect_runtime_snapshot(
+    launcher_snapshot = steps.get("_detect_snapshot") or inspect_runtime_snapshot(
         step="launcher_inspect",
         formal_session=args.formal_session,
     )
@@ -758,7 +762,7 @@ def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any])
     end_phase("launcher_routing", "ok")
 
     start_phase("tmux_launch")
-    steps["tmux_preflight"] = preflight_kill_all_tmux_sessions(args.formal_session)
+    steps["tmux_preflight"] = preflight_kill_all_tmux_sessions(launcher_snapshot)
     if steps["tmux_preflight"].get("blocked"):
         end_phase("tmux_launch", "blocked", "launcher not in fresh visible terminal")
         raise RuntimeError(
@@ -808,6 +812,61 @@ def bind_tmux_thread_id(codex_thread_id: str) -> dict[str, str]:
             f"expected={codex_thread_id}, actual={bound_value or '<empty>'}"
         )
     return {"CODEX_THREAD_ID": codex_thread_id}
+
+
+def current_tmux_target() -> str:
+    pane_target = str(os.environ.get("TMUX_PANE", "")).strip()
+    if pane_target:
+        proc = run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "-t",
+                pane_target,
+                "#{session_name}:#{window_index}.#{pane_index}",
+            ]
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    proc = run(["tmux", "display-message", "-p", "#{session_name}:#{window_index}.#{pane_index}"])
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "failed to resolve current tmux target")
+    return proc.stdout.strip()
+
+
+def normalize_pane_surfaces(targets: list[str]) -> dict[str, Any]:
+    current_target = current_tmux_target()
+    normalized: list[dict[str, Any]] = []
+    for target in targets:
+        history_proc = run(["tmux", "clear-history", "-t", target])
+        if history_proc.returncode != 0:
+            detail = history_proc.stderr.strip() or history_proc.stdout.strip() or "failed to clear pane history"
+            raise RuntimeError(f"{target}: {detail}")
+        actions = ["clear-history"]
+        if target != current_target:
+            respawn_proc = run(
+                [
+                    "tmux",
+                    "respawn-pane",
+                    "-k",
+                    "-t",
+                    target,
+                    "-c",
+                    str(ROOT),
+                    str(os.environ.get("SHELL") or "/bin/zsh"),
+                    "-l",
+                ]
+            )
+            if respawn_proc.returncode != 0:
+                detail = respawn_proc.stderr.strip() or respawn_proc.stdout.strip() or "failed to respawn pane shell"
+                raise RuntimeError(f"{target}: {detail}")
+            actions.append("respawn-pane:login-shell")
+        normalized.append({"target": target, "actions": actions})
+    return {
+        "current_target": current_target,
+        "normalized_targets": normalized,
+    }
 
 
 def write_batch_plan_file(batch_plan: list[dict[str, str]]) -> str:
@@ -884,19 +943,13 @@ def run_pane_title_application(
         end_phase("titles", "failed", "pane title application did not fully verify")
         raise RuntimeError("pane title application did not fully verify")
     end_phase("titles", "ok")
-
-    start_phase("titles_inspect")
-    inspect_after_titles = inspect_visible_formal_session(
-        formal_session,
-        step="inspect_after_titles",
-    )
-    topology_fingerprint = str(inspect_after_titles.get("topology_fingerprint", "")).strip()
     steps["inspect_after_titles"] = {
-        "targets": select_formal_targets(inspect_after_titles, formal_session),
-        "topology_fingerprint": topology_fingerprint,
+        "targets": [entry["target"] for entry in batch_plan],
+        "topology_fingerprint": str(title_application.get("topology_fingerprint", "")).strip(),
+        "skipped_full_inspect": True,
+        "reason": "title application already verifies live pane titles and computes a lightweight topology fingerprint",
     }
-    end_phase("titles_inspect", "ok")
-    return batch_plan, topology_fingerprint
+    return batch_plan, str(title_application.get("topology_fingerprint", "")).strip()
 
 
 def run_runtime_activation(
@@ -938,6 +991,10 @@ def run_runtime_activation(
         step="ledger",
     )
     end_phase("ledger", "ok")
+
+    start_phase("surface_normalization")
+    steps["surface_normalization"] = normalize_pane_surfaces(targets)
+    end_phase("surface_normalization", "ok")
 
     # Watcher arm through scheduler (degraded - does not block ready)
     start_phase("watcher")
@@ -1017,8 +1074,9 @@ def main() -> int:
 
     if not args.continue_inside_formal:
         # ========== GATE 1: detect_old_state (read-only) ==========
-        detect_report = run_detect_phase(args.formal_session)
+        detect_report, detect_snapshot = run_detect_phase(args.formal_session)
         steps["detect"] = detect_report
+        steps["_detect_snapshot"] = detect_snapshot
         try:
             return launch_clean_formal_session(args, steps)
         except Exception as exc:
@@ -1032,6 +1090,8 @@ def main() -> int:
                 str(exc),
             )
             return 1
+        finally:
+            steps.pop("_detect_snapshot", None)
 
     try:
         # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes

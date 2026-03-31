@@ -130,7 +130,7 @@ def require_visible_formal_client(snapshot: dict[str, object], formal_session: s
 
 def main() -> int:
     args = parse_args()
-    pre_snapshot = inspect_runtime(args.formal_session_name)
+    pre_snapshot = inspect_runtime(args.formal_session_name, include_bell_processes=False)
     require_visible_formal_client(pre_snapshot, args.formal_session_name)
     ledger = init_current_runtime_ledger(
         task_id=args.task_id,

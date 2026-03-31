@@ -197,7 +197,7 @@ def main() -> int:
     )
 
     session_names_before = list_session_names()
-    snapshot_before = inspect_runtime(formal_session) if create_formal_session else None
+    snapshot_before = inspect_runtime(formal_session, include_bell_processes=False) if create_formal_session else None
     snapshot_current = snapshot_before
 
     created_formal: dict[str, Any] | None = None
@@ -206,7 +206,7 @@ def main() -> int:
         require_visible_terminal_launcher(snapshot_current, formal_session)
         require_empty_tmux_runtime(snapshot_current)
         created_formal = create_detached_formal_session(formal_session, formal_cwd)
-        snapshot_current = inspect_runtime(formal_session)
+        snapshot_current = inspect_runtime(formal_session, include_bell_processes=False)
 
     initialized_formal: dict[str, Any] | None = None
     formal_session_present = (
@@ -223,7 +223,7 @@ def main() -> int:
         )
 
     session_names_after = list_session_names()
-    snapshot_after = inspect_runtime(formal_session) if create_formal_session else None
+    snapshot_after = inspect_runtime(formal_session, include_bell_processes=False) if create_formal_session else None
     formal_session_exists = formal_session in session_names_after
     active_formal_sessions = (
         [name for name in snapshot_after.get("formal_sessions", []) if name]

@@ -14,6 +14,7 @@ enforce_orchestrator_only("init_tmux_panes.py")
 # ==============================================================================
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -131,33 +132,164 @@ def read_runtime_signals(target: str) -> dict[str, str]:
         "-p",
         "-t",
         target,
-        "#{pane_title}\t#{session_name}\t#{window_index}\t#{pane_index}",
+        "#{pane_title}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{window_name}",
     )
     if proc.returncode != 0:
         raise RuntimeError(
             proc.stderr.strip() or proc.stdout.strip() or "failed to read pane runtime signals"
         )
     parts = proc.stdout.rstrip("\n").split("\t")
-    if len(parts) != 4:
+    if len(parts) != 5:
         raise RuntimeError("failed to parse pane runtime signals")
-    pane_title, session_name, window_index, pane_index = parts
+    pane_title, session_name, window_index, pane_index, window_name = parts
     return {
         "pane_title": pane_title.strip(),
         "session_name": session_name.strip(),
         "window_index": window_index.strip(),
         "pane_index": pane_index.strip(),
+        "window_name": window_name.strip(),
     }
 
 
-def initialize_entry(entry: PaneInitEntry) -> dict[str, Any]:
+def read_runtime_signals_for_targets(targets: list[str]) -> dict[str, dict[str, str]]:
+    if not targets:
+        return {}
+    proc = run_tmux(
+        "list-panes",
+        "-a",
+        "-F",
+        "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{window_name}",
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            proc.stderr.strip() or proc.stdout.strip() or "failed to read pane runtime signals"
+        )
+    wanted = set(targets)
+    signals_by_target: dict[str, dict[str, str]] = {}
+    for raw in proc.stdout.splitlines():
+        if not raw.strip():
+            continue
+        target, pane_title, session_name, window_index, pane_index, window_name = raw.rstrip("\n").split("\t")
+        target = target.strip()
+        if target not in wanted:
+            continue
+        signals_by_target[target] = {
+            "pane_title": pane_title.strip(),
+            "session_name": session_name.strip(),
+            "window_index": window_index.strip(),
+            "pane_index": pane_index.strip(),
+            "window_name": window_name.strip(),
+        }
+    return signals_by_target
+
+
+def build_desired_state_rows(entries: list[PaneInitEntry]) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    for entry in entries:
+        rows.append(
+            (
+                str(entry["target"]).strip(),
+                str(entry["pane_title"]).strip(),
+                str(entry.get("window_title") or "").strip(),
+            )
+        )
+    return sorted(rows)
+
+
+def build_live_state_rows(entries: list[PaneInitEntry], signals_by_target: dict[str, dict[str, str]]) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    for entry in entries:
+        target = str(entry["target"]).strip()
+        signals = signals_by_target.get(target, {})
+        rows.append(
+            (
+                target,
+                str(signals.get("pane_title", "")).strip(),
+                str(signals.get("window_name", "")).strip(),
+            )
+        )
+    return sorted(rows)
+
+
+def compute_state_hash(rows: list[tuple[str, str, str]]) -> str:
+    return hashlib.sha1(json.dumps(rows, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def compute_topology_fingerprint(formal_session: str) -> str:
+    session_proc = run_tmux(
+        "display-message",
+        "-p",
+        "-t",
+        formal_session,
+        "#{session_name}\t#{session_attached}\t#{session_windows}",
+    )
+    if session_proc.returncode != 0:
+        raise RuntimeError(
+            session_proc.stderr.strip() or session_proc.stdout.strip() or "failed to read tmux session fingerprint state"
+        )
+    session_line = session_proc.stdout.strip()
+    if not session_line:
+        raise RuntimeError("failed to read tmux session fingerprint state")
+    session_name, attached_text, windows_text = session_line.split("\t")
+
+    panes_proc = run_tmux(
+        "list-panes",
+        "-t",
+        formal_session,
+        "-F",
+        "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}\t#{window_name}\t#{pane_current_command}",
+    )
+    if panes_proc.returncode != 0:
+        raise RuntimeError(
+            panes_proc.stderr.strip() or panes_proc.stdout.strip() or "failed to read tmux pane fingerprint state"
+        )
+    pane_rows: list[tuple[str, str, str, str]] = []
+    for raw in panes_proc.stdout.splitlines():
+        if not raw.strip():
+            continue
+        target, pane_title, window_name, current_command = raw.rstrip("\n").split("\t")
+        pane_rows.append((target.strip(), pane_title.strip(), window_name.strip(), current_command.strip()))
+    payload = {
+        "official_session": {
+            "session_name": session_name.strip(),
+            "attached": int(attached_text or 0),
+            "windows": int(windows_text or 0),
+        },
+        "panes": sorted(pane_rows),
+    }
+    return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def apply_entry_title(
+    entry: PaneInitEntry,
+    live_signals: dict[str, str] | None = None,
+) -> tuple[str, str, list[str], str | None]:
     target = str(entry["target"]).strip()
     expected_title = str(entry["pane_title"])
-    actions = maybe_set_titles(target, entry.get("window_title"), expected_title)
-    signals = read_runtime_signals(target)
+    desired_window_title = str(entry.get("window_title") or "").strip() or None
+    current_title = str((live_signals or {}).get("pane_title", "")).strip()
+    current_window_title = str((live_signals or {}).get("window_name", "")).strip()
+    pane_title_to_apply = expected_title if current_title != expected_title else None
+    window_title_to_apply = desired_window_title if desired_window_title and current_window_title != desired_window_title else None
+    actions = maybe_set_titles(target, window_title_to_apply, pane_title_to_apply)
+    if not actions:
+        actions.append("noop:state_hash_match")
+    return target, expected_title, actions, str(entry.get("slot") or "").strip() or None
+
+
+def initialize_entry(
+    target: str,
+    expected_title: str,
+    actions: list[str],
+    slot: str | None,
+    signals: dict[str, str] | None,
+) -> dict[str, Any]:
+    if signals is None:
+        signals = read_runtime_signals(target)
     title_applied = signals["pane_title"] == expected_title
     result: dict[str, Any] = {
         "target": target,
-        "slot": entry.get("slot"),
+        "slot": slot,
         "pane_title": expected_title,
         "actual_pane_title": signals["pane_title"],
         "session_name": signals["session_name"],
@@ -234,9 +366,20 @@ def main() -> int:
         entries, batched = build_plan_entries(args)
         validate_plan_entries(entries)
         formal_session = str(entries[0]["target"]).split(":", 1)[0]
-        pre_snapshot = inspect_runtime(formal_session)
+        pre_snapshot = inspect_runtime(formal_session, include_bell_processes=False)
         require_visible_formal_client(pre_snapshot, formal_session)
-        entry_results = [initialize_entry(entry) for entry in entries]
+        live_signals_before = read_runtime_signals_for_targets([str(entry["target"]).strip() for entry in entries])
+        desired_state_hash = compute_state_hash(build_desired_state_rows(entries))
+        live_state_hash_before = compute_state_hash(build_live_state_rows(entries, live_signals_before))
+        prepared_entries = [
+            apply_entry_title(entry, live_signals_before.get(str(entry["target"]).strip()))
+            for entry in entries
+        ]
+        target_signals = read_runtime_signals_for_targets([item[0] for item in prepared_entries])
+        entry_results = [
+            initialize_entry(target, expected_title, actions, slot, target_signals.get(target))
+            for target, expected_title, actions, slot in prepared_entries
+        ]
     except (RuntimeError, ValueError) as exc:
         result = {
             "verified": False,
@@ -258,6 +401,14 @@ def main() -> int:
         "entries": entry_results,
         "slot_bindings": slot_bindings,
         "slot_bindings_applied": slot_bindings_applied,
+        "topology_fingerprint": compute_topology_fingerprint(formal_session) if verified else "",
+        "desired_state_hash": desired_state_hash if 'desired_state_hash' in locals() else "",
+        "live_state_hash_before": live_state_hash_before if 'live_state_hash_before' in locals() else "",
+        "state_hash_match": (
+            desired_state_hash == live_state_hash_before
+            if 'desired_state_hash' in locals() and 'live_state_hash_before' in locals()
+            else False
+        ),
     }
     if slot_binding_error:
         result["slot_binding_error"] = slot_binding_error

@@ -249,7 +249,10 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
 
 def main() -> int:
     args = parse_args()
-    snapshot = inspect_runtime(args.formal_session_name)
+    snapshot = inspect_runtime(
+        args.formal_session_name,
+        include_bell_processes=args.require_watcher,
+    )
     result = evaluate(snapshot, args)
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0 if result["runtime_status"] == "READY" else 1

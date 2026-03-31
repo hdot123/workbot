@@ -254,12 +254,12 @@ def main() -> int:
         [args.session, args.formal_session],
         default=DEFAULT_FORMAL_SESSION_NAME,
     )
-    pre_snapshot = inspect_runtime(formal_session)
+    pre_snapshot = inspect_runtime(formal_session, include_bell_processes=False)
     require_visible_formal_client(pre_snapshot, formal_session)
     entry = reconcile_topology(formal_session, args.target_pane_count)
     entry["session_mode"] = "formal-single"
 
-    snapshot = inspect_runtime(formal_session)
+    snapshot = inspect_runtime(formal_session, include_bell_processes=False)
     success = bool(entry["ok"])
     result: dict[str, Any] = {
         "phase": "topology",

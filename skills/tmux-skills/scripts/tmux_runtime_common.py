@@ -552,7 +552,11 @@ def build_topology_fingerprint(
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
+def inspect_runtime(
+    formal_session_name: str | None = None,
+    *,
+    include_bell_processes: bool = True,
+) -> dict[str, Any]:
     runtime_ledger = load_current_runtime_ledger()
     configured_formal_session_name = resolve_formal_session_name(runtime_ledger, formal_session_name)
     expected_formal_pane_count = DEFAULT_FORMAL_PANE_COUNT
@@ -566,7 +570,7 @@ def inspect_runtime(formal_session_name: str | None = None) -> dict[str, Any]:
     sessions = list_sessions(configured_formal_session_name)
     clients = list_clients(configured_formal_session_name)
     panes = list_panes(configured_formal_session_name)
-    bell_processes = get_bell_processes()
+    bell_processes = get_bell_processes() if include_bell_processes else []
     current_client = resolve_current_tmux_context()
     session_names = [session["session_name"] for session in sessions]
     formal_sessions = [session["session_name"] for session in sessions if session["is_formal"]]
