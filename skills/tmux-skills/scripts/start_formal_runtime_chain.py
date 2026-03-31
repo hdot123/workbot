@@ -24,16 +24,11 @@ _phase_start_time = None
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from runtime_ledger import DEFAULT_FORMAL_SESSION_NAME
-from tmux_runtime_common import describe_formal_client_state
+from tmux_runtime_common import describe_formal_client_state, inspect_runtime
 from tmux_scheduler import (
     run_json_script,
     set_orchestrator_context,
-    load_registry,
-    get_script_meta,
-    validate_script,
     is_hidden_pty,
-    is_visible_terminal,
-    is_inside_tmux,
 )
 
 
@@ -43,7 +38,6 @@ SCRIPTS_DIR = ROOT / "skills" / "tmux-skills" / "scripts"
 ENV_SCRIPT = SCRIPTS_DIR / "init_tmux_env.py"
 TOPOLOGY_SCRIPT = SCRIPTS_DIR / "build_tmux_topology.py"
 PANE_INIT_SCRIPT = SCRIPTS_DIR / "init_tmux_panes.py"
-INSPECT_SCRIPT = SCRIPTS_DIR / "inspect_tmux_runtime.py"
 LEDGER_SCRIPT = SCRIPTS_DIR / "init_runtime_ledger.py"
 WATCHER_SCRIPT = SCRIPTS_DIR / "arm_tmux_handoff_watcher.py"
 READY_CHECK_SCRIPT = SCRIPTS_DIR / "check_tmux_ready.py"
@@ -55,7 +49,7 @@ LAST_RUNTIME_ISSUES_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-runtime-issues.json
 LAST_START_RESULT_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-start-formal-runtime-result.json"
 START_RESULT_PATH_ENV = "TMUX_START_RESULT_PATH"
 START_TEST_START_MS_ENV = "TMUX_START_TEST_START_MS"
-HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
+CHAIN_CONTEXT_PATH_ENV = "TMUX_CHAIN_CONTEXT_PATH"
 HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
 HANDOFF_SQLITE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.sqlite3"
 WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.log"
@@ -128,6 +122,46 @@ def persist_chain_result(result: dict[str, Any]) -> None:
     )
 
 
+def write_chain_context(steps: dict[str, Any]) -> str:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="tmux-chain-context-",
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        json.dump(
+            {
+                "steps": steps,
+                "phase_timings": get_phase_timings(),
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+        return handle.name
+
+
+def load_chain_context() -> dict[str, Any]:
+    context_path = str(os.environ.get(CHAIN_CONTEXT_PATH_ENV, "")).strip()
+    if not context_path:
+        return {}
+    path = Path(context_path)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    finally:
+        safe_unlink(path)
+
+    saved_timings = payload.get("phase_timings")
+    if isinstance(saved_timings, dict):
+        _phase_timings.update(saved_timings)
+
+    saved_steps = payload.get("steps")
+    return saved_steps if isinstance(saved_steps, dict) else {}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Public tmux-skills flow: formal-session -> pane generation -> title application -> stopped-pane watcher"
@@ -171,27 +205,6 @@ def parse_args() -> argparse.Namespace:
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, capture_output=True, text=True, check=False)
-
-
-def run_json(command: list[str], *, step: str) -> dict[str, Any]:
-    proc = run(command)
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "command failed").strip()
-        raise RuntimeError(f"{step} failed: {detail}")
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"{step} returned non-JSON output: {exc}") from exc
-
-
-def run_json_with_status(command: list[str], *, step: str) -> tuple[dict[str, Any], int]:
-    proc = run(command)
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        detail = (proc.stderr or proc.stdout or "command failed").strip()
-        raise RuntimeError(f"{step} returned non-JSON output: {detail or exc}") from exc
-    return payload, proc.returncode
 
 
 def wait_for_pid_exit(pid: int, timeout_seconds: float = 3.0) -> None:
@@ -380,9 +393,12 @@ def build_result(
     return result
 
 
-def inspect_runtime_snapshot(*, step: str) -> dict[str, Any]:
-    """Inspect runtime through scheduler (enforcement-aware)."""
-    return run_json_script("inspect_tmux_runtime.py", ["--pretty"], step=step)
+def inspect_runtime_snapshot(*, step: str, formal_session: str | None = None) -> dict[str, Any]:
+    """Inspect runtime in-process to avoid deprecated wrapper noise and subprocess overhead."""
+    try:
+        return inspect_runtime(formal_session)
+    except Exception as exc:
+        raise RuntimeError(f"{step} failed: {exc}") from exc
 
 
 def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str) -> None:
@@ -423,9 +439,9 @@ def require_visible_terminal_launcher(snapshot: dict[str, Any]) -> None:
         )
 
 
-def preflight_kill_all_tmux_sessions() -> dict[str, Any]:
+def preflight_kill_all_tmux_sessions(formal_session: str) -> dict[str, Any]:
     try:
-        snapshot = inspect_runtime_snapshot(step="tmux_preflight_inspect")
+        snapshot = inspect_runtime_snapshot(step="tmux_preflight_inspect", formal_session=formal_session)
     except Exception as exc:
         return {"attempted": False, "reason": f"inspect_failed: {exc}"}
 
@@ -494,7 +510,7 @@ def preflight_kill_all_tmux_sessions() -> dict[str, Any]:
 
 def cleanup_hidden_formal_session_on_failure(formal_session: str, error_text: str = "") -> dict[str, Any]:
     try:
-        snapshot = run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step="failure_inspect")
+        snapshot = inspect_runtime_snapshot(step="failure_inspect", formal_session=formal_session)
     except Exception as exc:
         return {"attempted": False, "reason": f"inspect_failed: {exc}"}
 
@@ -569,14 +585,16 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
     )
 
 
-def run_detect_phase() -> dict[str, Any]:
+def run_detect_phase(formal_session: str) -> dict[str, Any]:
     """Run detect_old_state phase and return detection report (read-only, no mutations)."""
     start_phase("detect")
     try:
-        snapshot = inspect_runtime_snapshot(step="detect_old_state")
+        snapshot = inspect_runtime_snapshot(step="detect_old_state", formal_session=formal_session)
 
         # Build detection report
-        formal_sessions = [s for s in snapshot.get("sessions", []) if s.get("session_name") == "formal-session"]
+        formal_sessions = [
+            s for s in snapshot.get("sessions", []) if s.get("session_name") == formal_session
+        ]
         attached_formal_count = sum(1 for s in formal_sessions if int(s.get("attached", 0)) > 0)
 
         report = {
@@ -617,7 +635,7 @@ def inspect_visible_formal_session(
     *,
     step: str,
 ) -> dict[str, Any]:
-    snapshot = inspect_runtime_snapshot(step=step)
+    snapshot = inspect_runtime_snapshot(step=step, formal_session=formal_session)
     extra_sessions = [
         str(session_name).strip()
         for session_name in snapshot.get("session_names", [])
@@ -673,8 +691,8 @@ def apply_formal_session_policy(formal_session: str) -> list[str]:
     return ["destroy_unattached=on"]
 
 
-def verify_tmux_cleared() -> dict[str, Any]:
-    snapshot = inspect_runtime_snapshot(step="tmux_preflight_verify")
+def verify_tmux_cleared(formal_session: str) -> dict[str, Any]:
+    snapshot = inspect_runtime_snapshot(step="tmux_preflight_verify", formal_session=formal_session)
     if int(snapshot.get("session_count", 0) or 0) != 0:
         raise RuntimeError(
             "tmux residue remains after preflight cleanup: "
@@ -683,7 +701,7 @@ def verify_tmux_cleared() -> dict[str, Any]:
     return snapshot
 
 
-def build_inside_formal_command(args: argparse.Namespace) -> str:
+def build_inside_formal_command(args: argparse.Namespace, chain_context_path: str) -> str:
     command: list[str] = [
         sys.executable,
         str(Path(__file__)),
@@ -702,14 +720,25 @@ def build_inside_formal_command(args: argparse.Namespace) -> str:
     if args.pretty:
         command.append("--pretty")
     shell_path = os.environ.get("SHELL") or "/bin/zsh"
+    env_prefix = (
+        f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)} "
+        if chain_context_path
+        else ""
+    )
     quoted_command = " ".join(shlex.quote(part) for part in command)
     # Preserve inner continuation failures while still keeping the pane alive on success.
-    return f"{quoted_command}; rc=$?; if [ $rc -ne 0 ]; then exit $rc; fi; exec {shlex.quote(shell_path)} -l"
+    return (
+        f"{env_prefix}{quoted_command}; rc=$?; if [ $rc -ne 0 ]; then exit $rc; fi; "
+        f"exec {shlex.quote(shell_path)} -l"
+    )
 
 
 def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any]) -> int:
     start_phase("launcher_routing")
-    launcher_snapshot = inspect_runtime_snapshot(step="launcher_inspect")
+    launcher_snapshot = inspect_runtime_snapshot(
+        step="launcher_inspect",
+        formal_session=args.formal_session,
+    )
     require_visible_terminal_launcher(launcher_snapshot)
     steps["launcher_visibility"] = {
         "mode": "verified_before_cleanup",
@@ -720,16 +749,20 @@ def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any])
     end_phase("launcher_routing", "ok")
 
     start_phase("tmux_launch")
-    steps["tmux_preflight"] = preflight_kill_all_tmux_sessions()
+    steps["tmux_preflight"] = preflight_kill_all_tmux_sessions(args.formal_session)
     if steps["tmux_preflight"].get("blocked"):
         end_phase("tmux_launch", "blocked", "launcher not in fresh visible terminal")
         raise RuntimeError(
             "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
         )
-    verify_tmux_cleared()
+    verify_tmux_cleared(args.formal_session)
     end_phase("tmux_launch", "ok")
 
+    start_phase("cleanup")
     steps["cleanup"] = cleanup_previous_runtime_state()
+    end_phase("cleanup", "ok")
+
+    chain_context_path = write_chain_context(steps)
     tmux_command = [
         "tmux",
         "new-session",
@@ -737,7 +770,7 @@ def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any])
         args.formal_session,
         "-c",
         str(ROOT),
-        build_inside_formal_command(args),
+        build_inside_formal_command(args, chain_context_path),
     ]
     steps["launcher"] = {
         "mode": "fresh_visible_terminal",
@@ -955,7 +988,8 @@ def main() -> int:
         sys.stderr.write(result["error"] + "\n")
         return 2
 
-    steps: dict[str, Any] = {"formal_session": args.formal_session}
+    steps: dict[str, Any] = load_chain_context() if args.continue_inside_formal else {}
+    steps.setdefault("formal_session", args.formal_session)
 
     # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
     # Hidden PTY must immediately route to visible terminal launcher
@@ -971,11 +1005,10 @@ def main() -> int:
         sys.stderr.write("Please run this command from a real terminal window, not from a hidden context.\n")
         return 1
 
-    # ========== GATE 1: detect_old_state (read-only) ==========
-    detect_report = run_detect_phase()
-    steps["detect"] = detect_report
-
     if not args.continue_inside_formal:
+        # ========== GATE 1: detect_old_state (read-only) ==========
+        detect_report = run_detect_phase(args.formal_session)
+        steps["detect"] = detect_report
         try:
             return launch_clean_formal_session(args, steps)
         except Exception as exc:
@@ -993,7 +1026,10 @@ def main() -> int:
     try:
         # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes
         start_phase("inside_formal_continuation")
-        pre_continuation_snapshot = inspect_runtime_snapshot(step="pre_continuation_guard")
+        pre_continuation_snapshot = inspect_runtime_snapshot(
+            step="pre_continuation_guard",
+            formal_session=args.formal_session,
+        )
         require_visible_formal_client(pre_continuation_snapshot, args.formal_session)
         end_phase("inside_formal_continuation", "ok")
 

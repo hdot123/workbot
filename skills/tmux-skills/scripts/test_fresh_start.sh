@@ -20,6 +20,19 @@ print(int(time.time() * 1000))
 PY
 }
 
+wait_for_tmux_server_gone() {
+  local attempts=20
+  local delay=0.05
+  local i
+  for ((i = 0; i < attempts; i++)); do
+    if ! tmux list-sessions >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 0
+}
+
 rm -f "$TIMING_LOG" "$OUTPUT_LOG" "$LAUNCH_MARKER"
 exec > >(tee "$OUTPUT_LOG") 2>&1
 
@@ -40,7 +53,7 @@ START_TIME=$(now_ms)
 # Kill any existing tmux sessions to ensure fresh start
 echo "[Pre-flight] Killing existing tmux sessions..."
 tmux kill-server 2>/dev/null || true
-sleep 0.5
+wait_for_tmux_server_gone
 
 # Clean up any existing watcher processes
 echo "[Pre-flight] Stopping existing watcher processes..."
