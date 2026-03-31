@@ -27,6 +27,16 @@ def run_tmux(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["tmux", *args], capture_output=True, text=True, check=False)
 
 
+def list_session_names() -> list[str]:
+    proc = run_tmux("list-sessions", "-F", "#{session_name}")
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().lower()
+        if "no server running" in detail or "failed to connect" in detail:
+            return []
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "failed to list tmux sessions")
+    return [raw.strip() for raw in proc.stdout.splitlines() if raw.strip()]
+
+
 def require_visible_terminal_launcher(snapshot: dict[str, Any], formal_session: str) -> dict[str, Any]:
     current_client = snapshot.get("current_client") or {}
     if current_client.get("inside_tmux"):
@@ -74,12 +84,21 @@ def create_detached_formal_session(session_name: str, cwd: str) -> dict[str, Any
     }
 
 
-def find_primary_pane_target(snapshot: dict[str, Any], session_name: str) -> str | None:
-    panes = [pane for pane in snapshot.get("panes", []) if pane.get("session_name") == session_name]
-    if not panes:
+def find_primary_pane_target(session_name: str) -> str | None:
+    proc = run_tmux(
+        "list-panes",
+        "-t",
+        session_name,
+        "-F",
+        "#{session_name}:#{window_index}.#{pane_index}",
+    )
+    if proc.returncode != 0:
         return None
-    panes.sort(key=lambda pane: (int(pane.get("window_index", "0")), int(pane.get("pane_index", "0"))))
-    return str(panes[0].get("target") or "").strip() or None
+    targets = [raw.strip() for raw in proc.stdout.splitlines() if raw.strip()]
+    if not targets:
+        return None
+    targets.sort(key=lambda target: tuple(int(part) for part in target.split(":", 1)[1].split(".")))
+    return targets[0]
 
 
 def rename_primary_window(session_name: str, window_index: str, title: str) -> str:
@@ -104,14 +123,13 @@ def send_startup_command(target: str, command: str) -> str:
 
 
 def initialize_formal_surface(
-    snapshot: dict[str, Any],
     session_name: str,
     default_window_title: str,
     pane_title: str | None,
     startup_command: str | None,
 ) -> dict[str, Any]:
     actions: list[str] = []
-    pane_target = find_primary_pane_target(snapshot, session_name)
+    pane_target = find_primary_pane_target(session_name)
     if not pane_target:
         raise RuntimeError(f"no panes found for formal session: {session_name}")
     window_index = pane_target.split(":", 1)[1].split(".", 1)[0]
@@ -178,36 +196,46 @@ def main() -> int:
         )
     )
 
-    snapshot_before = inspect_runtime()
+    session_names_before = list_session_names()
+    snapshot_before = inspect_runtime(formal_session) if create_formal_session else None
     snapshot_current = snapshot_before
 
     created_formal: dict[str, Any] | None = None
     if create_formal_session:
+        assert snapshot_current is not None
         require_visible_terminal_launcher(snapshot_current, formal_session)
         require_empty_tmux_runtime(snapshot_current)
         created_formal = create_detached_formal_session(formal_session, formal_cwd)
-        snapshot_current = inspect_runtime()
+        snapshot_current = inspect_runtime(formal_session)
 
     initialized_formal: dict[str, Any] | None = None
-    if init_requested and formal_session in snapshot_current.get("session_names", []):
+    formal_session_present = (
+        formal_session in snapshot_current.get("session_names", [])
+        if snapshot_current is not None
+        else formal_session in session_names_before
+    )
+    if init_requested and formal_session_present:
         initialized_formal = initialize_formal_surface(
-            snapshot_current,
             formal_session,
             formal_window_title,
             formal_pane_title or None,
             formal_startup_command or None,
         )
-        snapshot_current = inspect_runtime()
 
-    snapshot_after = snapshot_current
-    formal_session_exists = formal_session in snapshot_after.get("session_names", [])
-    active_formal_sessions = [name for name in snapshot_after.get("formal_sessions", []) if name]
+    session_names_after = list_session_names()
+    snapshot_after = inspect_runtime(formal_session) if create_formal_session else None
+    formal_session_exists = formal_session in session_names_after
+    active_formal_sessions = (
+        [name for name in snapshot_after.get("formal_sessions", []) if name]
+        if snapshot_after is not None
+        else ([formal_session] if formal_session_exists else [])
+    )
     extra_formal_sessions = [name for name in active_formal_sessions if name != formal_session]
     single_prepared_formal = (
         create_formal_session
         and formal_session_exists
         and not extra_formal_sessions
-        and int(snapshot_after.get("session_count", 0) or 0) == 1
+        and len(session_names_after) == 1
     )
     continuation_surface_prepared = (
         not create_formal_session
@@ -224,10 +252,10 @@ def main() -> int:
         "removed_bootstrap_sessions": [],
         "created_formal_session": created_formal,
         "initialized_formal_session": initialized_formal,
-        "session_count_before": snapshot_before.get("session_count", 0),
-        "session_count_after": snapshot_after.get("session_count", 0),
-        "bootstrap_sessions": snapshot_after.get("bootstrap_sessions", []),
-        "formal_sessions": snapshot_after.get("formal_sessions", []),
+        "session_count_before": len(session_names_before),
+        "session_count_after": len(session_names_after),
+        "bootstrap_sessions": snapshot_after.get("bootstrap_sessions", []) if snapshot_after else [],
+        "formal_sessions": active_formal_sessions,
         "formal_session": formal_session,
         "formal_session_exists": formal_session_exists,
         "formal_session_attached": False,

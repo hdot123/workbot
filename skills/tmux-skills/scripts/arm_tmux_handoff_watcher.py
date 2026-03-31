@@ -89,6 +89,11 @@ def parse_args() -> argparse.Namespace:
         help="Do not stop existing internal watcher processes that target the same panes.",
     )
     parser.add_argument(
+        "--skip-session-policy",
+        action="store_true",
+        help="Skip reapplying destroy-unattached when the caller already enforced it.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the watcher plan without starting a new process.",
@@ -296,7 +301,11 @@ def main() -> int:
             f"no eligible targets found in formal session {args.formal_session_name}"
         )
 
-    session_policy = enforce_destroy_unattached(args.formal_session_name)
+    session_policy = (
+        "unchanged"
+        if args.skip_session_policy
+        else enforce_destroy_unattached(args.formal_session_name)
+    )
 
     codex_thread_id = ensure_tmux_thread_binding()
     if not codex_thread_id and not args.no_deliver:

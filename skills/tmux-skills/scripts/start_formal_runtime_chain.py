@@ -122,6 +122,22 @@ def persist_chain_result(result: dict[str, Any]) -> None:
     )
 
 
+def emit_surface_summary(result: dict[str, Any], *, continue_inside_formal: bool, pretty: bool) -> None:
+    """Keep work panes clean: use concise summaries in the formal pane, full JSON elsewhere."""
+    if continue_inside_formal:
+        status = str(result.get("status", "")).strip() or "unknown"
+        result_path = str(result.get("result_path", "")).strip() or str(result_output_path())
+        if status == "ok":
+            return
+
+        error = str(result.get("error", "")).strip() or "unknown error"
+        sys.stderr.write(f"tmux runtime startup failed: {error}\n")
+        sys.stderr.write(f"details: {result_path}\n")
+        return
+
+    print(json.dumps(result, ensure_ascii=False, indent=2 if pretty else None))
+
+
 def write_chain_context(steps: dict[str, Any]) -> str:
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -649,7 +665,7 @@ def inspect_visible_formal_session(
     return snapshot
 
 
-def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str, Any]:
+def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> None:
     start_phase("env")
     # Set orchestrator context before calling phase script
     set_orchestrator_context()
@@ -668,19 +684,12 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
         step="env",
     )
     end_phase("env", "ok")
-
-    start_phase("env_inspect")
-    inspect_after_env = inspect_visible_formal_session(
-        formal_session,
-        step="inspect_after_env",
-    )
     steps["inspect_after_env"] = {
-        "formal_session_count": inspect_after_env.get("formal_session_count"),
+        "skipped_full_inspect": True,
+        "reason": "env phase only mutates window/pane metadata after visible formal guard",
+        "formal_session_count": 1,
         "attached_formal": True,
-        "session_count": inspect_after_env.get("session_count"),
     }
-    end_phase("env_inspect", "ok")
-    return inspect_after_env
 
 
 def apply_formal_session_policy(formal_session: str) -> list[str]:
@@ -832,7 +841,7 @@ def run_topology_setup(
     formal_session: str,
     pane_count: int,
     steps: dict[str, Any],
-) -> tuple[list[str], dict[str, Any]]:
+) -> list[str]:
     start_phase("topology")
     # Set orchestrator context before calling phase script
     set_orchestrator_context()
@@ -848,24 +857,23 @@ def run_topology_setup(
         step="topology",
     )
     end_phase("topology", "ok")
-
-    start_phase("topology_inspect")
-    inspect_after_topology = inspect_visible_formal_session(
-        formal_session,
-        step="inspect_after_topology",
-    )
-    targets = select_formal_targets(inspect_after_topology, formal_session)
-    steps["inspect_after_topology"] = {"targets": targets}
-    end_phase("topology_inspect", "ok")
-
-    return targets, inspect_after_topology
+    targets = [
+        str(target).strip()
+        for target in steps["topology"].get("pane_targets", [])
+        if str(target).strip()
+    ]
+    steps["inspect_after_topology"] = {
+        "targets": targets,
+        "skipped_full_inspect": True,
+        "reason": "topology phase already returns pane_targets from the target session",
+    }
+    return targets
 
 
 def run_pane_title_application(
     formal_session: str,
     targets: list[str],
     pane_titles: list[str],
-    inspect_after_topology: dict[str, Any],
     steps: dict[str, Any],
 ) -> tuple[list[dict[str, str]], str]:
     start_phase("titles")
@@ -936,6 +944,8 @@ def run_runtime_activation(
     watcher_args = [
         "--formal-session-name",
         formal_session,
+        "--keep-existing",
+        "--skip-session-policy",
     ]
     for target in targets:
         watcher_args.extend(["--target", target])
@@ -1014,7 +1024,7 @@ def main() -> int:
         except Exception as exc:
             result = build_result("failed", steps, pane_titles, str(exc))
             persist_chain_result(result)
-            print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+            emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
             sys.stdout.flush()
             record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
             steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
@@ -1044,7 +1054,7 @@ def main() -> int:
         end_phase("formal_session_policy", "ok")
 
         start_phase("topology_setup")
-        targets, inspect_after_topology = run_topology_setup(
+        targets = run_topology_setup(
             args.formal_session,
             pane_count,
             steps,
@@ -1058,7 +1068,6 @@ def main() -> int:
             args.formal_session,
             targets,
             pane_titles,
-            inspect_after_topology,
             steps,
         )
         end_phase("pane_title_application", "ok")
@@ -1080,7 +1089,7 @@ def main() -> int:
     except Exception as exc:
         result = build_result("failed", steps, pane_titles, str(exc))
         persist_chain_result(result)
-        print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+        emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
         sys.stdout.flush()
         record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
         steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
@@ -1091,7 +1100,7 @@ def main() -> int:
 
     result = build_result("ok", steps, pane_titles)
     persist_chain_result(result)
-    print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+    emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
     return 0
 
 

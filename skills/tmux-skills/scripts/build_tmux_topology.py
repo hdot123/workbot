@@ -64,8 +64,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def session_targets(session_name: str) -> list[str]:
-    snapshot = inspect_runtime()
-    return [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
+    proc = run_tmux(
+        "list-panes",
+        "-t",
+        session_name,
+        "-F",
+        "#{session_name}:#{window_index}.#{pane_index}",
+    )
+    if proc.returncode != 0:
+        raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to list tmux pane targets")
+    targets = [raw.strip() for raw in proc.stdout.splitlines() if raw.strip()]
+    targets.sort(key=parse_target)
+    return targets
 
 
 def session_panes(session_name: str) -> list[dict[str, int | str]]:
@@ -199,9 +209,6 @@ def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, A
             if proc.returncode != 0:
                 raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to split tmux pane")
             actions.append(f"split-window:{split_flag}:{anchor}")
-            layout_action = apply_layout(session_name, next_pane_count)
-            if layout_action:
-                actions.append(layout_action)
             live_targets = session_targets(session_name)
             live_targets.sort(key=parse_target)
     elif target_pane_count < current_count:
@@ -212,16 +219,12 @@ def reconcile_topology(session_name: str, target_pane_count: int) -> dict[str, A
                 raise SystemExit(proc.stderr.strip() or proc.stdout.strip() or "failed to kill tmux pane")
             actions.append(f"kill-pane:{target}")
 
-    snapshot = inspect_runtime()
-    after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
-    after_targets.sort(key=parse_target)
-    if target_pane_count <= current_count:
-        layout_action = apply_layout(session_name, len(after_targets))
-        if layout_action:
-            actions.append(layout_action)
+    after_targets = session_targets(session_name)
+    layout_action = apply_layout(session_name, len(after_targets))
+    if layout_action:
+        actions.append(layout_action)
+        after_targets = session_targets(session_name)
 
-    snapshot = inspect_runtime()
-    after_targets = [pane["target"] for pane in snapshot["panes"] if pane["session_name"] == session_name]
     after_targets.sort(key=parse_target)
     return {
         "session_name": session_name,
@@ -256,7 +259,7 @@ def main() -> int:
     entry = reconcile_topology(formal_session, args.target_pane_count)
     entry["session_mode"] = "formal-single"
 
-    snapshot = inspect_runtime()
+    snapshot = inspect_runtime(formal_session)
     success = bool(entry["ok"])
     result: dict[str, Any] = {
         "phase": "topology",
