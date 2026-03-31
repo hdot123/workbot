@@ -124,6 +124,9 @@ def is_formal_session(formal_session_name: str = "formal-session") -> bool:
 
 def is_clean_state() -> bool:
     """Check if the runtime state is clean (no old sessions/ledger/watcher)."""
+    # Unified ledger path - same source of truth across all modules
+    from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
+
     try:
         # Check for existing tmux sessions
         result = subprocess.run(
@@ -140,9 +143,8 @@ def is_clean_state() -> bool:
                 if not session_name.startswith("_") and session_name != "hidden":
                     return False
 
-        # Check for existing ledger
-        ledger_path = SCRIPTS_DIR / "current-runtime.json"
-        if ledger_path.exists():
+        # Check for existing ledger - use unified path
+        if CURRENT_RUNTIME_LEDGER_PATH.exists():
             return False
 
         # Check for existing watcher processes
@@ -193,6 +195,9 @@ def is_internal_call() -> bool:
 
 def check_precondition(precondition: str, script_meta: dict[str, Any]) -> bool:
     """Check if a precondition is satisfied."""
+    # Unified ledger path - same source of truth across all modules
+    from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
+
     try:
         if precondition == "formal_session_exists":
             result = subprocess.run(
@@ -204,27 +209,26 @@ def check_precondition(precondition: str, script_meta: dict[str, Any]) -> bool:
             return "formal-session" in result.stdout
 
         elif precondition == "pane_titles_applied":
-            # Check ledger for slot_bindings
-            ledger_path = SCRIPTS_DIR / "current-runtime.json"
-            if not ledger_path.exists():
+            # Check ledger for slot_bindings - use unified path
+            if not CURRENT_RUNTIME_LEDGER_PATH.exists():
                 return False
-            with open(ledger_path, "r", encoding="utf-8") as f:
+            with open(CURRENT_RUNTIME_LEDGER_PATH, "r", encoding="utf-8") as f:
                 ledger = json.load(f)
             slot_bindings = ledger.get("slot_bindings", [])
             return len(slot_bindings) > 0
 
         elif precondition == "watcher_armed":
-            ledger_path = SCRIPTS_DIR / "current-runtime.json"
-            if not ledger_path.exists():
+            # Check ledger for watcher status - use unified path
+            if not CURRENT_RUNTIME_LEDGER_PATH.exists():
                 return False
-            with open(ledger_path, "r", encoding="utf-8") as f:
+            with open(CURRENT_RUNTIME_LEDGER_PATH, "r", encoding="utf-8") as f:
                 ledger = json.load(f)
             watcher = ledger.get("watcher", {})
             return watcher.get("armed", False) is True
 
         elif precondition == "ledger_initialized":
-            ledger_path = SCRIPTS_DIR / "current-runtime.json"
-            return ledger_path.exists()
+            # Use unified path
+            return CURRENT_RUNTIME_LEDGER_PATH.exists()
 
         elif precondition == "session_exists":
             result = subprocess.run(
@@ -361,8 +365,9 @@ def execute_script(script_name: str, script_meta: dict[str, Any], args: list[str
     # Build command
     cmd = [sys.executable, str(entry_point)] + args
 
-    # Set orchestrator context if needed
+    # Set scheduler context markers
     env = os.environ.copy()
+    env["TMUX_VIA_SCHEDULER"] = "true"  # Primary marker for runtime_enforcement
     if is_orchestrator_context():
         env["TMUX_ORCHESTRATOR_CONTEXT"] = "true"
 
@@ -468,6 +473,50 @@ def run_json_script(script_name: str, args: list[str], step: str) -> dict[str, A
         return json.loads(result["stdout"])
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"{step} returned non-JSON output: {exc}") from exc
+
+
+def list_scripts(registry: dict[str, Any]) -> None:
+    """List all registered scripts in a formatted table."""
+    print("\n=== tmux-skills Script Registry ===\n")
+    print(f"{'Script':<40} {'Status':<12} {'Visibility':<18} {'Preconditions':<30}")
+    print("-" * 100)
+
+    for script_name, script_meta in sorted(registry["scripts"].items()):
+        status = script_meta.get("status", "unknown")
+        visibility = script_meta.get("visibility", "unknown")
+        preconditions = script_meta.get("preconditions", [])
+        precond_str = ", ".join(preconditions) if preconditions else "-"
+
+        # Add status indicators
+        if status == "disabled":
+            status = "DISABLED"
+        elif status == "deprecated":
+            status = "DEPRECATED"
+
+        print(f"{script_name:<40} {status:<12} {visibility:<18} {precond_str:<30}")
+
+    print(f"\nTotal: {len(registry['scripts'])} scripts")
+
+
+def run_script(script_name: str, args: list[str]) -> int:
+    """
+    Run a script through the scheduler (main entry point).
+
+    Args:
+        script_name: Name of the script to run
+        args: Command line arguments
+
+    Returns:
+        int: Exit code (0 for success, 1 for failure)
+    """
+    success, result = run_script_via_scheduler(script_name, args, capture_output=False)
+
+    if success:
+        return 0
+    else:
+        for error in result.get("errors", []):
+            sys.stderr.write(f"ERROR: {error}\n")
+        return 1
 
 
 # Convenience functions for orchestrator usage

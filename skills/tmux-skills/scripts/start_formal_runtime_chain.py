@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Phase timing tracking
+_phase_timings = {}
+_phase_start_time = None
+
 # Add parent directory to path for module imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -27,6 +31,9 @@ from tmux_scheduler import (
     load_registry,
     get_script_meta,
     validate_script,
+    is_hidden_pty,
+    is_visible_terminal,
+    is_inside_tmux,
 )
 
 
@@ -45,6 +52,9 @@ TMUX_RUNTIME_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
 TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-skills"
 CURRENT_RUNTIME_LEDGER_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "current-runtime.json"
 LAST_RUNTIME_ISSUES_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-runtime-issues.json"
+LAST_START_RESULT_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-start-formal-runtime-result.json"
+START_RESULT_PATH_ENV = "TMUX_START_RESULT_PATH"
+START_TEST_START_MS_ENV = "TMUX_START_TEST_START_MS"
 HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
 HANDOFF_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.jsonl"
 HANDOFF_SQLITE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "handoff-notifications.sqlite3"
@@ -52,6 +62,70 @@ WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.
 DELIVERY_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "deliver-tmux-handoff.stdout.log"
 DELIVERY_QUEUE_DIR = TMUX_SKILLS_ARTIFACT_DIR / "delivery-queue"
 CHAIN_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "start-formal-runtime-chain.stdout.log"
+
+
+# ==============================================================================
+# Phase Timing Helpers - Machine readable JSON output
+# ==============================================================================
+def start_phase(phase_name: str) -> None:
+    """Mark the start of a phase."""
+    global _phase_start_time
+    _phase_start_time = time.perf_counter()
+
+
+def end_phase(phase_name: str, status: str = "ok", error: str = None) -> None:
+    """Mark the end of a phase and record timing."""
+    global _phase_start_time, _phase_timings
+    if _phase_start_time is not None:
+        elapsed = time.perf_counter() - _phase_start_time
+        _phase_timings[phase_name] = {
+            "phase": phase_name,
+            "elapsed_ms": round(elapsed * 1000, 2),
+            "status": status,
+        }
+        if error:
+            _phase_timings[phase_name]["error"] = error
+        _phase_start_time = None
+
+
+def get_phase_timings() -> dict[str, Any]:
+    """Get all recorded phase timings."""
+    return _phase_timings
+
+
+def get_total_elapsed_ms() -> float:
+    """Get total elapsed time in milliseconds."""
+    total = sum(t.get("elapsed_ms", 0) for t in _phase_timings.values())
+    return round(total, 2)
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def result_output_path() -> Path:
+    override = str(os.environ.get(START_RESULT_PATH_ENV, "")).strip()
+    if override:
+        return Path(override).expanduser()
+    return LAST_START_RESULT_PATH
+
+
+def persist_chain_result(result: dict[str, Any]) -> None:
+    path = result_output_path()
+    payload = dict(result)
+    payload["result_path"] = str(path)
+    payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
+    payload["recorded_at_ms"] = now_ms()
+
+    start_ms_raw = str(os.environ.get(START_TEST_START_MS_ENV, "")).strip()
+    if start_ms_raw.isdigit():
+        payload["external_wall_elapsed_ms"] = payload["recorded_at_ms"] - int(start_ms_raw)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -298,6 +372,8 @@ def build_result(
         "pane_titles": pane_titles,
         "chain": ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "watcher", "ready_check"],
         "steps": steps,
+        "phase_timings": get_phase_timings(),
+        "total_elapsed_ms": get_total_elapsed_ms(),
     }
     if error:
         result["error"] = error
@@ -305,7 +381,8 @@ def build_result(
 
 
 def inspect_runtime_snapshot(*, step: str) -> dict[str, Any]:
-    return run_json([sys.executable, str(INSPECT_SCRIPT), "--pretty"], step=step)
+    """Inspect runtime through scheduler (enforcement-aware)."""
+    return run_json_script("inspect_tmux_runtime.py", ["--pretty"], step=step)
 
 
 def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str) -> None:
@@ -494,39 +571,45 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
 
 def run_detect_phase() -> dict[str, Any]:
     """Run detect_old_state phase and return detection report (read-only, no mutations)."""
-    snapshot = inspect_runtime_snapshot(step="detect_old_state")
+    start_phase("detect")
+    try:
+        snapshot = inspect_runtime_snapshot(step="detect_old_state")
 
-    # Build detection report
-    formal_sessions = [s for s in snapshot.get("sessions", []) if s.get("session_name") == "formal-session"]
-    attached_formal_count = sum(1 for s in formal_sessions if int(s.get("attached", 0)) > 0)
+        # Build detection report
+        formal_sessions = [s for s in snapshot.get("sessions", []) if s.get("session_name") == "formal-session"]
+        attached_formal_count = sum(1 for s in formal_sessions if int(s.get("attached", 0)) > 0)
 
-    report = {
-        "detection_status": "CLEAN",
-        "tmux_server_exists": True,
-        "sessions": snapshot.get("sessions", []),
-        "session_count": snapshot.get("session_count", 0),
-        "formal_session_detected": {
-            "exists": len(formal_sessions) > 0,
-            "count": len(formal_sessions),
-            "attached_count": attached_formal_count,
-        },
-        "watcher_processes": snapshot.get("bell_processes", []),
-        "state_files": {
-            "ledger_exists": snapshot.get("runtime_ledger_present", False),
-            "issues_exists": LAST_RUNTIME_ISSUES_PATH.exists(),
-            "handoff_log_exists": HANDOFF_LOG_PATH.exists(),
-        },
-        "current_caller_context": snapshot.get("current_client", {}),
-        "cleanup_required": bool(snapshot.get("sessions", [])),  # Cleanup if any sessions exist
-    }
+        report = {
+            "detection_status": "CLEAN",
+            "tmux_server_exists": True,
+            "sessions": snapshot.get("sessions", []),
+            "session_count": snapshot.get("session_count", 0),
+            "formal_session_detected": {
+                "exists": len(formal_sessions) > 0,
+                "count": len(formal_sessions),
+                "attached_count": attached_formal_count,
+            },
+            "watcher_processes": snapshot.get("bell_processes", []),
+            "state_files": {
+                "ledger_exists": snapshot.get("runtime_ledger_present", False),
+                "issues_exists": LAST_RUNTIME_ISSUES_PATH.exists(),
+                "handoff_log_exists": HANDOFF_LOG_PATH.exists(),
+            },
+            "current_caller_context": snapshot.get("current_client", {}),
+            "cleanup_required": bool(snapshot.get("sessions", [])),  # Cleanup if any sessions exist
+        }
 
-    # Determine detection status
-    if snapshot.get("sessions", []):
-        report["detection_status"] = "RESIDUE_DETECTED"
-    elif not snapshot.get("runtime_ledger_present"):
-        report["detection_status"] = "CLEAN"
+        # Determine detection status
+        if snapshot.get("sessions", []):
+            report["detection_status"] = "RESIDUE_DETECTED"
+        elif not snapshot.get("runtime_ledger_present"):
+            report["detection_status"] = "CLEAN"
 
-    return report
+        end_phase("detect", "ok")
+        return report
+    except Exception as e:
+        end_phase("detect", "failed", str(e))
+        raise
 
 
 def inspect_visible_formal_session(
@@ -549,6 +632,7 @@ def inspect_visible_formal_session(
 
 
 def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str, Any]:
+    start_phase("env")
     # Set orchestrator context before calling phase script
     set_orchestrator_context()
 
@@ -565,6 +649,9 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
         ],
         step="env",
     )
+    end_phase("env", "ok")
+
+    start_phase("env_inspect")
     inspect_after_env = inspect_visible_formal_session(
         formal_session,
         step="inspect_after_env",
@@ -574,6 +661,7 @@ def run_formal_env_setup(formal_session: str, steps: dict[str, Any]) -> dict[str
         "attached_formal": True,
         "session_count": inspect_after_env.get("session_count"),
     }
+    end_phase("env_inspect", "ok")
     return inspect_after_env
 
 
@@ -620,6 +708,7 @@ def build_inside_formal_command(args: argparse.Namespace) -> str:
 
 
 def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any]) -> int:
+    start_phase("launcher_routing")
     launcher_snapshot = inspect_runtime_snapshot(step="launcher_inspect")
     require_visible_terminal_launcher(launcher_snapshot)
     steps["launcher_visibility"] = {
@@ -628,12 +717,18 @@ def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any])
             "visible_terminal_client", False
         ),
     }
+    end_phase("launcher_routing", "ok")
+
+    start_phase("tmux_launch")
     steps["tmux_preflight"] = preflight_kill_all_tmux_sessions()
     if steps["tmux_preflight"].get("blocked"):
+        end_phase("tmux_launch", "blocked", "launcher not in fresh visible terminal")
         raise RuntimeError(
             "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
         )
     verify_tmux_cleared()
+    end_phase("tmux_launch", "ok")
+
     steps["cleanup"] = cleanup_previous_runtime_state()
     tmux_command = [
         "tmux",
@@ -705,6 +800,7 @@ def run_topology_setup(
     pane_count: int,
     steps: dict[str, Any],
 ) -> tuple[list[str], dict[str, Any]]:
+    start_phase("topology")
     # Set orchestrator context before calling phase script
     set_orchestrator_context()
 
@@ -718,13 +814,16 @@ def run_topology_setup(
         ],
         step="topology",
     )
+    end_phase("topology", "ok")
 
+    start_phase("topology_inspect")
     inspect_after_topology = inspect_visible_formal_session(
         formal_session,
         step="inspect_after_topology",
     )
     targets = select_formal_targets(inspect_after_topology, formal_session)
     steps["inspect_after_topology"] = {"targets": targets}
+    end_phase("topology_inspect", "ok")
 
     return targets, inspect_after_topology
 
@@ -736,12 +835,16 @@ def run_pane_title_application(
     inspect_after_topology: dict[str, Any],
     steps: dict[str, Any],
 ) -> tuple[list[dict[str, str]], str]:
+    start_phase("titles")
     batch_plan = build_batch_plan(targets, pane_titles)
     title_application = apply_pane_titles(batch_plan)
     steps["titles"] = title_application
     if not bool(title_application.get("verified")):
+        end_phase("titles", "failed", "pane title application did not fully verify")
         raise RuntimeError("pane title application did not fully verify")
+    end_phase("titles", "ok")
 
+    start_phase("titles_inspect")
     inspect_after_titles = inspect_visible_formal_session(
         formal_session,
         step="inspect_after_titles",
@@ -751,6 +854,7 @@ def run_pane_title_application(
         "targets": select_formal_targets(inspect_after_titles, formal_session),
         "topology_fingerprint": topology_fingerprint,
     }
+    end_phase("titles_inspect", "ok")
     return batch_plan, topology_fingerprint
 
 
@@ -767,9 +871,12 @@ def run_runtime_activation(
     # Set orchestrator context before calling phase scripts
     set_orchestrator_context()
 
+    start_phase("thread_binding")
     steps["thread_binding"] = bind_tmux_thread_id(codex_thread_id)
+    end_phase("thread_binding", "ok")
 
     # Ledger initialization through scheduler
+    start_phase("ledger")
     ledger_args = [
         "--task-id",
         task_id,
@@ -789,37 +896,48 @@ def run_runtime_activation(
         ledger_args,
         step="ledger",
     )
+    end_phase("ledger", "ok")
 
-    # Watcher arm through scheduler
+    # Watcher arm through scheduler (degraded - does not block ready)
+    start_phase("watcher")
     watcher_args = [
         "--formal-session-name",
         formal_session,
     ]
     for target in targets:
         watcher_args.extend(["--target", target])
-    steps["watcher"] = run_json_script(
-        "arm_tmux_handoff_watcher.py",
-        watcher_args,
-        step="watcher",
-    )
+    try:
+        steps["watcher"] = run_json_script(
+            "arm_tmux_handoff_watcher.py",
+            watcher_args,
+            step="watcher",
+        )
+        end_phase("watcher", "ok")
+    except Exception as e:
+        # Watcher is degraded - mark but don't fail the main chain
+        steps["watcher"] = {"status": "degraded", "error": str(e)}
+        end_phase("watcher", "degraded", str(e))
 
     # Ready check through scheduler
+    start_phase("ready_check")
     ready_check_result = run_json_script(
         "check_tmux_ready.py",
         [
             "--formal-session-name",
             formal_session,
             "--require-formal",
-            "--require-watcher",
+            # Note: watcher is degraded, do not require it for main ready gate
         ],
         step="ready_check",
     )
     steps["ready_check"] = ready_check_result
     if ready_check_result.get("runtime_status") != "READY":
+        end_phase("ready_check", "failed", "; ".join(str(reason) for reason in ready_check_result.get("reasons", [])))
         raise RuntimeError(
             "ready_check failed: "
             + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
         )
+    end_phase("ready_check", "ok")
 
 
 def main() -> int:
@@ -827,14 +945,33 @@ def main() -> int:
     pane_titles = resolve_pane_titles(args)
     pane_count = args.pane_count or len(pane_titles)
     if pane_count != len(pane_titles):
-        sys.stderr.write(
-            f"pane-count must be {len(pane_titles)} for this run (got {pane_count})\n"
+        result = build_result(
+            "failed",
+            {"formal_session": args.formal_session},
+            pane_titles,
+            f"pane-count must be {len(pane_titles)} for this run (got {pane_count})",
         )
+        persist_chain_result(result)
+        sys.stderr.write(result["error"] + "\n")
         return 2
 
     steps: dict[str, Any] = {"formal_session": args.formal_session}
 
-    # ========== GATE 0: detect_old_state (read-only) ==========
+    # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
+    # Hidden PTY must immediately route to visible terminal launcher
+    if is_hidden_pty():
+        result = build_result(
+            "failed",
+            steps,
+            pane_titles,
+            "Hidden PTY detected - tmux-skills must run from a visible terminal",
+        )
+        persist_chain_result(result)
+        sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills must run from a visible terminal\n")
+        sys.stderr.write("Please run this command from a real terminal window, not from a hidden context.\n")
+        return 1
+
+    # ========== GATE 1: detect_old_state (read-only) ==========
     detect_report = run_detect_phase()
     steps["detect"] = detect_report
 
@@ -843,6 +980,7 @@ def main() -> int:
             return launch_clean_formal_session(args, steps)
         except Exception as exc:
             result = build_result("failed", steps, pane_titles, str(exc))
+            persist_chain_result(result)
             print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
             sys.stdout.flush()
             record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
@@ -854,21 +992,32 @@ def main() -> int:
 
     try:
         # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes
+        start_phase("inside_formal_continuation")
         pre_continuation_snapshot = inspect_runtime_snapshot(step="pre_continuation_guard")
         require_visible_formal_client(pre_continuation_snapshot, args.formal_session)
+        end_phase("inside_formal_continuation", "ok")
 
         # Phase 1: pane_creation_phase
         # visible launcher check -> preflight cleanup -> env setup -> topology -> inspect_after_topology -> select_formal_targets
+        start_phase("env_setup")
         run_formal_env_setup(args.formal_session, steps)
+        end_phase("env_setup", "ok")
+
+        start_phase("formal_session_policy")
         steps["formal_session_policy"] = apply_formal_session_policy(args.formal_session)
+        end_phase("formal_session_policy", "ok")
+
+        start_phase("topology_setup")
         targets, inspect_after_topology = run_topology_setup(
             args.formal_session,
             pane_count,
             steps,
         )
+        end_phase("topology_setup", "ok")
 
         # Phase 2: pane_title_phase
         # apply_pane_titles() + validation
+        start_phase("pane_title_application")
         batch_plan, topology_fingerprint = run_pane_title_application(
             args.formal_session,
             targets,
@@ -876,9 +1025,11 @@ def main() -> int:
             inspect_after_topology,
             steps,
         )
+        end_phase("pane_title_application", "ok")
 
         # Phase 3: handoff_activation_phase
         # bind_tmux_thread_id + ledger + watcher + ready check
+        start_phase("runtime_activation")
         run_runtime_activation(
             args.formal_session,
             args.task_id,
@@ -889,8 +1040,10 @@ def main() -> int:
             targets,
             steps,
         )
+        end_phase("runtime_activation", "ok")
     except Exception as exc:
         result = build_result("failed", steps, pane_titles, str(exc))
+        persist_chain_result(result)
         print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
         sys.stdout.flush()
         record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
@@ -901,6 +1054,7 @@ def main() -> int:
         return 1
 
     result = build_result("ok", steps, pane_titles)
+    persist_chain_result(result)
     print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
     return 0
 
