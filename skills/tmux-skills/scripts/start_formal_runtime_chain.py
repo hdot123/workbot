@@ -14,7 +14,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # Phase timing tracking
 _phase_timings = {}
@@ -24,8 +24,15 @@ _phase_start_time = None
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from runtime_ledger import DEFAULT_FORMAL_SESSION_NAME
-from tmux_runtime_common import describe_formal_client_state, inspect_runtime, normalize_pane_title
+from tmux_runtime_common import (
+    describe_formal_client_state,
+    inspect_runtime,
+    normalize_pane_title,
+    pane_is_claude_runtime_surface,
+)
 from tmux_scheduler import (
+    ensure_project_python,
+    resolve_project_python,
     run_json_script,
     set_orchestrator_context,
     is_hidden_pty,
@@ -67,6 +74,8 @@ BRIDGE_RECEIPTS_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "window-ipc-delivery-recei
 POST_LAUNCH_CONTEXT_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "post-launch-context.json"
 TERMINAL_APP_WINDOW_BOUNDS = (20, 40, 1720, 1120)
 TERMINAL_APP_RESULT_TIMEOUT_SECONDS = 60.0
+WATCHER_ATTACH_TIMEOUT_SECONDS = 15.0
+WATCHER_ATTACH_POLL_INTERVAL_SECONDS = 0.2
 FINAL_CHAIN = [
     "tmux_preflight",
     "cleanup",
@@ -77,8 +86,6 @@ FINAL_CHAIN = [
     "surface_normalization",
     "claude_boot",
     "identity_injection",
-    "watcher",
-    "ready_check",
 ]
 
 
@@ -209,7 +216,7 @@ def build_launch_path_explanation(
 
 def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, start_ms: str) -> str:
     command = [
-        str(Path(sys.executable or "/usr/bin/python3").resolve()),
+        resolve_project_python(),
         str(Path(__file__).resolve()),
         "--codex-thread-id",
         args.codex_thread_id,
@@ -316,7 +323,7 @@ end run
     return wait_for_result_file(result_path)
 
 
-def write_chain_context(steps: dict[str, Any], *, path: Path | None = None) -> str:
+def write_chain_context(steps: dict[str, Any], *, path: Optional[Path] = None) -> str:
     payload = {
         "steps": steps,
         "phase_timings": get_phase_timings(),
@@ -362,7 +369,7 @@ def load_chain_context() -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Public tmux-skills flow: formal-session -> pane generation -> title application -> stopped-pane watcher"
+        description="Public tmux-skills flow: formal-session -> pane generation -> title application -> Claude boot -> identity injection"
     )
     parser.add_argument(
         "--codex-thread-id",
@@ -399,7 +406,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--continue-post-launch",
         action="store_true",
-        help="Internal post-launch mode that completes Claude boot, identity injection, watcher, and ready check.",
+        help="Internal post-launch mode that completes Claude boot and identity injection.",
     )
     parser.add_argument(
         "--explain-launch-path",
@@ -641,13 +648,46 @@ def ensure_attached_formal_session(snapshot: dict[str, Any], formal_session: str
         )
 
 
+def wait_for_attached_formal_session(
+    formal_session: str,
+    *,
+    timeout_seconds: float = WATCHER_ATTACH_TIMEOUT_SECONDS,
+    poll_interval_seconds: float = WATCHER_ATTACH_POLL_INTERVAL_SECONDS,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + max(timeout_seconds, poll_interval_seconds)
+    started_at = time.monotonic()
+    attempts = 0
+    last_error = ""
+    while True:
+        attempts += 1
+        snapshot = inspect_runtime_snapshot(step="watcher_attach_gate", formal_session=formal_session)
+        try:
+            ensure_attached_formal_session(snapshot, formal_session)
+            return {
+                "formal_session_name": formal_session,
+                "status": "attached",
+                "attempts": attempts,
+                "waited_ms": round((time.monotonic() - started_at) * 1000, 2),
+                "formal_client_state": describe_formal_client_state(snapshot, formal_session),
+            }
+        except RuntimeError as exc:
+            last_error = str(exc)
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(max(0.05, poll_interval_seconds))
+    raise RuntimeError(
+        f"formal session '{formal_session}' did not become attached before watcher arm: "
+        f"{last_error or 'unknown watcher attach gate failure'}"
+    )
+
+
 def parse_target(target: str) -> tuple[int, int]:
     pane = target.split(":", 1)[1]
     window_index, pane_index = pane.split(".", 1)
     return int(window_index), int(pane_index)
 
 
-def resolve_project_claude_agent_path(pane_title: str) -> Path | None:
+def resolve_project_claude_agent_path(pane_title: str) -> Optional[Path]:
     normalized = str(pane_title).strip()
     if not normalized:
         return None
@@ -657,7 +697,7 @@ def resolve_project_claude_agent_path(pane_title: str) -> Path | None:
     return agent_path
 
 
-def resolve_project_claude_agent_name(pane_title: str) -> str | None:
+def resolve_project_claude_agent_name(pane_title: str) -> Optional[str]:
     agent_path = resolve_project_claude_agent_path(pane_title)
     if not agent_path:
         return None
@@ -686,7 +726,7 @@ def build_current_pane_exec_command(pane_titles: list[str]) -> str:
 
 def build_post_launch_command(args: argparse.Namespace) -> str:
     command: list[str] = [
-        sys.executable,
+        resolve_project_python(),
         str(Path(__file__)),
         "--codex-thread-id",
         args.codex_thread_id,
@@ -761,7 +801,7 @@ def build_result(
     status: str,
     steps: dict[str, Any],
     pane_titles: list[str],
-    error: str | None = None,
+    error: Optional[str] = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "status": status,
@@ -781,7 +821,7 @@ def build_result(
 def inspect_runtime_snapshot(
     *,
     step: str,
-    formal_session: str | None = None,
+    formal_session: Optional[str] = None,
     include_bell_processes: bool = False,
 ) -> dict[str, Any]:
     """Inspect runtime in-process to avoid deprecated wrapper noise and subprocess overhead."""
@@ -1081,7 +1121,7 @@ def verify_tmux_cleared(formal_session: str) -> dict[str, Any]:
 
 def build_inside_formal_command(args: argparse.Namespace, chain_context_path: str) -> str:
     command: list[str] = [
-        sys.executable,
+        resolve_project_python(),
         str(Path(__file__)),
         "--codex-thread-id",
         args.codex_thread_id,
@@ -1323,24 +1363,81 @@ def query_pane_runtime(target: str) -> dict[str, str]:
     }
 
 
+def capture_pane_output(target: str, *, start: int = -40) -> str:
+    proc = run(
+        [
+            "tmux",
+            "capture-pane",
+            "-p",
+            "-t",
+            target,
+            "-S",
+            str(start),
+        ]
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or proc.stdout.strip() or "failed to capture pane output"
+        raise RuntimeError(f"{target}: {detail}")
+    return proc.stdout.rstrip("\n")
+
+
+def pane_has_claude_prompt(capture: str) -> bool:
+    for raw_line in reversed(capture.splitlines()[-12:]):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped == "❯" or stripped.startswith("❯ "):
+            return True
+    return False
+
+
+def wait_for_claude_prompt_after_submit(
+    target: str,
+    baseline_capture: str,
+    *,
+    timeout_seconds: float = 20.0,
+    poll_interval_seconds: float = 0.2,
+) -> Optional[dict[str, str]]:
+    deadline = time.monotonic() + max(timeout_seconds, poll_interval_seconds)
+    while time.monotonic() < deadline:
+        state = query_pane_runtime(target)
+        if pane_is_claude_runtime_surface(state, allow_empty_title=True):
+            capture = capture_pane_output(target)
+            if capture != baseline_capture and pane_has_claude_prompt(capture):
+                return {
+                    **state,
+                    "prompt_ready": "true",
+                }
+        time.sleep(max(0.05, poll_interval_seconds))
+    return None
+
+
 def wait_for_claude_pane_ready(target: str, *, timeout_seconds: float = 30.0) -> dict[str, str]:
     deadline = time.monotonic() + max(1.0, timeout_seconds)
-    last_state: dict[str, str] = {"target": target, "current_command": "", "pane_title": "", "pane_title_normalized": ""}
+    last_state: dict[str, str] = {
+        "target": target,
+        "current_command": "",
+        "pane_title": "",
+        "pane_title_normalized": "",
+    }
+    last_capture = ""
     while time.monotonic() < deadline:
         state = query_pane_runtime(target)
         last_state = state
-        pane_title = state["pane_title"]
-        normalized_title = state["pane_title_normalized"]
-        current_command = state["current_command"]
-        if current_command == "node" and (
-            "Claude Code" in pane_title or "Claude Code" in normalized_title or not pane_title
-        ):
-            time.sleep(0.8)
-            return state
+        if pane_is_claude_runtime_surface(state, allow_empty_title=True):
+            capture = capture_pane_output(target)
+            last_capture = capture
+            if pane_has_claude_prompt(capture):
+                time.sleep(0.2)
+                return {
+                    **state,
+                    "prompt_ready": "true",
+                }
         time.sleep(0.2)
     raise RuntimeError(
         f"{target}: timed out waiting for Claude pane readiness; "
-        f"last_state={last_state['current_command'] or '<empty>'}/{last_state['pane_title'] or '<empty>'}"
+        f"last_state={last_state['current_command'] or '<empty>'}/{last_state['pane_title'] or '<empty>'}; "
+        f"prompt_visible={pane_has_claude_prompt(last_capture)}"
     )
 
 
@@ -1364,10 +1461,22 @@ def paste_text_into_pane(target: str, text: str) -> dict[str, Any]:
             detail = paste_proc.stderr.strip() or paste_proc.stdout.strip() or "failed to paste tmux buffer"
             raise RuntimeError(f"{target}: {detail}")
 
-        submit_proc = run(["tmux", "send-keys", "-t", target, "Enter"])
-        if submit_proc.returncode != 0:
-            detail = submit_proc.stderr.strip() or submit_proc.stdout.strip() or "failed to submit pasted payload"
-            raise RuntimeError(f"{target}: {detail}")
+        # Give Claude's input box a beat to settle after the bracketed paste before submitting.
+        time.sleep(0.15)
+        baseline_capture = capture_pane_output(target)
+        submit_attempts = 0
+        submit_ready_state: Optional[dict[str, str]] = None
+        for _ in range(2):
+            submit_attempts += 1
+            submit_proc = run(["tmux", "send-keys", "-t", target, "Enter"])
+            if submit_proc.returncode != 0:
+                detail = submit_proc.stderr.strip() or submit_proc.stdout.strip() or "failed to submit pasted payload"
+                raise RuntimeError(f"{target}: {detail}")
+            submit_ready_state = wait_for_claude_prompt_after_submit(target, baseline_capture)
+            if submit_ready_state is not None:
+                break
+        if submit_ready_state is None:
+            raise RuntimeError(f"{target}: pasted payload did not submit after {submit_attempts} Enter attempts")
     finally:
         run(["tmux", "delete-buffer", "-b", buffer_name])
         safe_unlink(temp_path)
@@ -1376,6 +1485,8 @@ def paste_text_into_pane(target: str, text: str) -> dict[str, Any]:
         "target": target,
         "buffer_name": buffer_name,
         "payload_chars": len(text),
+        "submit_attempts": submit_attempts,
+        "submit_ready_state": submit_ready_state,
     }
 
 
@@ -1572,6 +1683,8 @@ def run_runtime_activation_postlaunch(
     targets: list[str],
     steps: dict[str, Any],
 ) -> None:
+    del formal_session
+    del targets
     start_phase("claude_boot")
     steps["claude_boot"] = boot_project_claude_panes(
         batch_plan,
@@ -1586,51 +1699,9 @@ def run_runtime_activation_postlaunch(
     )
     end_phase("identity_injection", "ok")
 
-    # Watcher arm through scheduler (degraded - does not block ready)
-    start_phase("watcher")
-    watcher_args = [
-        "--formal-session-name",
-        formal_session,
-        "--keep-existing",
-        "--skip-session-policy",
-    ]
-    for target in targets:
-        watcher_args.extend(["--target", target])
-    try:
-        steps["watcher"] = run_json_script(
-            "arm_tmux_handoff_watcher.py",
-            watcher_args,
-            step="watcher",
-        )
-        end_phase("watcher", "ok")
-    except Exception as e:
-        # Watcher is degraded - mark but don't fail the main chain
-        steps["watcher"] = {"status": "degraded", "error": str(e)}
-        end_phase("watcher", "degraded", str(e))
-
-    # Ready check through scheduler
-    start_phase("ready_check")
-    ready_check_result = run_json_script(
-        "check_tmux_ready.py",
-        [
-            "--formal-session-name",
-            formal_session,
-            "--require-formal",
-            # Note: watcher is degraded, do not require it for main ready gate
-        ],
-        step="ready_check",
-    )
-    steps["ready_check"] = ready_check_result
-    if ready_check_result.get("runtime_status") != "READY":
-        end_phase("ready_check", "failed", "; ".join(str(reason) for reason in ready_check_result.get("reasons", [])))
-        raise RuntimeError(
-            "ready_check failed: "
-            + "; ".join(str(reason) for reason in ready_check_result.get("reasons", []))
-        )
-    end_phase("ready_check", "ok")
-
 
 def main() -> int:
+    ensure_project_python()
     args = parse_args()
     pane_titles = resolve_pane_titles(args)
     pane_count = args.pane_count or len(pane_titles)
