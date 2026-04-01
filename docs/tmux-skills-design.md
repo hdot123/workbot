@@ -125,14 +125,16 @@ pane 监控阶段只关心 pane 是否仍在运行：
 - 在新建 pane 前清理上一轮 runtime 遗留
 - 按调用参数生成或收缩 pane
 - 设置 pane 标题
+- 允许在 pane 内直接启动 `claude`
+- 当 pane 标题命中项目 `.claude/agents/<name>.md` 时，启动 `claude --agent <name>`
 - 输出 pane target 与标题
 - 监控 pane 状态
 - pane 停止后向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
 
 ### 4.3 tmux-skills 不负责
 
-- `claude --agent`
-- agent 身份切换
+- 为不存在于项目 `.claude/agents/` 的名字启动 `claude --agent`
+- agent 定义生成或 prompt 编排
 - system prompt 注入
 - 外部会话校验
 - 业务任务分发

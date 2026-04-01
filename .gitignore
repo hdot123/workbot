@@ -150,5 +150,6 @@ node11-mihomo-config.yaml
 *.pyc
 
 # tmux-skills runtime artifacts
+workspace/artifacts/tmux-*/
 workspace/artifacts/tmux-runtime/current-runtime.json
 workspace/artifacts/tmux-skills/*.jsonl

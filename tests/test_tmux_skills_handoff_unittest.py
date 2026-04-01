@@ -353,6 +353,52 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("pane_4", plan[-1]["slot"])
         self.assertEqual("monitor", plan[-1]["pane_title"])
 
+    def test_build_current_pane_exec_command_uses_project_agent_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent_dir = Path(tmpdir)
+            (agent_dir / "dev-bot.md").write_text("name: dev-bot\n", encoding="utf-8")
+            with patch.object(start_formal_runtime_chain, "CLAUDE_PROJECT_AGENTS_DIR", agent_dir):
+                command = start_formal_runtime_chain.build_current_pane_exec_command(["dev-bot"])
+        self.assertIn("exec claude", command)
+
+    def test_boot_project_claude_panes_only_uses_project_agent_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent_dir = Path(tmpdir)
+            (agent_dir / "dev-bot.md").write_text("name: dev-bot\n", encoding="utf-8")
+            (agent_dir / "qa-bot.md").write_text("name: qa-bot\n", encoding="utf-8")
+            with patch.object(start_formal_runtime_chain, "CLAUDE_PROJECT_AGENTS_DIR", agent_dir):
+                with patch("start_formal_runtime_chain.run") as mock_run:
+                    mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                    result = start_formal_runtime_chain.boot_project_claude_panes(
+                        [
+                            {"target": "formal-session:1.1", "slot": "pane_1", "pane_title": "dev-bot"},
+                            {"target": "formal-session:1.2", "slot": "pane_2", "pane_title": "qa-bot"},
+                            {"target": "formal-session:1.3", "slot": "pane_3", "pane_title": "notes"},
+                        ],
+                        current_target="formal-session:1.1",
+                    )
+
+        self.assertEqual("formal-session:1.1", result["current_target"])
+        self.assertEqual("deferred_exec_after_chain", result["booted"][0]["mode"])
+        self.assertEqual("respawn-pane", result["booted"][1]["mode"])
+        self.assertEqual("qa-bot", result["booted"][1]["agent_name"])
+        self.assertEqual("notes", result["skipped"][0]["pane_title"])
+        self.assertEqual("no_matching_project_agent", result["skipped"][0]["reason"])
+        mock_run.assert_called_once()
+        self.assertIn("exec claude", mock_run.call_args.args[0][-1])
+
+    def test_paste_text_into_pane_uses_tmux_buffer_and_submit(self) -> None:
+        with patch("start_formal_runtime_chain.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            result = start_formal_runtime_chain.paste_text_into_pane("formal-session:1.2", "name: qa-bot\nbody")
+
+        self.assertEqual("formal-session:1.2", result["target"])
+        self.assertEqual(len("name: qa-bot\nbody"), result["payload_chars"])
+        self.assertEqual("load-buffer", mock_run.call_args_list[0].args[0][1])
+        self.assertEqual("paste-buffer", mock_run.call_args_list[1].args[0][1])
+        self.assertEqual("send-keys", mock_run.call_args_list[2].args[0][1])
+        self.assertEqual("delete-buffer", mock_run.call_args_list[3].args[0][1])
+
     def test_split_flag_for_pane_prefers_wide_then_tall(self) -> None:
         self.assertEqual(
             "-h",
@@ -578,6 +624,8 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             ["dev-bot-1"],
         )
         self.assertIn("tmux_preflight", result["chain"])
+        self.assertIn("claude_boot", result["chain"])
+        self.assertIn("identity_injection", result["chain"])
         self.assertIn("ready_check", result["chain"])
 
     def test_preflight_kill_all_tmux_sessions_kills_hidden_formal_session(self) -> None:

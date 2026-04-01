@@ -20,6 +20,8 @@
 - 创建或接管前台 attached 的 `formal-session`
 - 按数量生成或收缩 pane
 - 把 pane 标题设置为调用要求的标题
+- 允许在 pane 内直接启动 `claude`
+- 当 pane 标题命中项目 `.claude/agents/<name>.md` 时，先在该 pane 内启动纯 `claude`，再把对应身份文件内容粘贴注入到 Claude 窗口
 - 输出 pane 的 `target` 和标题
 - 监控 pane 状态
 - pane 停止时向 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口报告
@@ -34,8 +36,8 @@
 
 - 决定 pane 数量
 - 决定 pane 标题
-- `claude --agent`
-- agent 身份切换
+- 为不存在于项目 `.claude/agents/` 的名字做项目身份注入
+- agent 定义生成或 prompt 编排
 - system prompt 注入
 - 外部会话校验
 - 业务任务分发
@@ -104,4 +106,4 @@ formal-session:1.4 monitor
 
 ## 一句话结论
 
-`tmux-skills` 的职责不是“管理 Claude 身份容器”，而是“按 Codex 的参数生成前台 tmux pane，并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口”。
+`tmux-skills` 的职责不是“发明一套身份系统”，而是“按 Codex 的参数生成前台 tmux pane；当 pane 标题命中项目 `.claude/agents/` 白名单时先启动纯 `claude` 并粘贴注入对应身份文件；并在 pane 停止时报告给 `CODEX_THREAD_ID` 绑定 thread 的 owner 窗口”。

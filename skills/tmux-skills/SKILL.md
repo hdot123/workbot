@@ -16,7 +16,9 @@ description: |
 
 ## 冻结口径
 
-- `tmux-skills` 只管 tmux 运行面，不负责 Claude/agent/scene/prompt
+- `tmux-skills` 负责 tmux 运行面；允许在 pane 里直接启动 `claude`
+- 若 pane 标题命中项目 `.claude/agents/<name>.md`，先在对应 pane 内启动纯 `claude`，再把该身份文件内容粘贴注入到 Claude 窗口
+- 不允许把不存在于项目 `.claude/agents/` 的名字映射成项目身份注入
 - pane 数量和 pane 标题必须由调用方显式传入，skill 不自行决定
 - 正式运行面只承认一个前台 attached 的 `formal-session`
 - detached tmux session 不算正式运行面
@@ -64,7 +66,8 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_ch
 
 ## 结果口径
 
-- 启动主链负责：预清理、formal-session 接管或创建、pane 布局、标题设置、ledger、watcher、ready check
+- 启动主链负责：预清理、formal-session 接管或创建、pane 布局、标题设置、项目 agent 白名单匹配后的纯 `claude` 启动、身份文件粘贴注入、ledger、watcher、ready check
+- watcher 只能在上述启动准备完成后开始扫描和放第一条消息
 - watcher 只负责“看”和落队列
 - delivery runner 只负责“送”的编排，真正投递由 window IPC bridge 完成
 - 报告内容至少包含：

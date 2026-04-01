@@ -119,16 +119,19 @@ status: active
 - `tmux-skills` 只负责：
   - 生成或收缩 pane 数量
   - 设置 pane 标题
+  - 允许在 pane 内直接启动 `claude`
+  - 当 pane 标题命中项目 `.claude/agents/<name>.md` 时，启动 `claude --agent <name>`
   - 输出 pane 的 `target` 与 `pane_title`
 - `tmux-skills` 不负责：
-  - `claude --agent`
-  - 身份切换
+  - 为不存在于项目 `.claude/agents/` 的名字启动 `claude --agent`
+  - agent 定义生成或 prompt 编排
   - prompt 注入
   - scene 校验
 
 #### 阶段 D：停止监控与上报
 
 - pane 生成完成后，`tmux-skills` 只监控 pane 状态
+- watcher 只能在 pane 创建、`claude` 启动准备、项目 agent 白名单匹配后的 `claude --agent` 启动准备完成后才开始扫描和放第一条消息
 - 监控目标只包含当前 formal session 中由 Codex 要求生成的 pane
 - 任一 pane 停止时，`tmux-skills` 必须把停止事件发送到 `CODEX_THREAD_ID`
 - `CODEX_THREAD_ID` 在 tmux 门铃链路中的语义固定为 Codex app thread id，不再允许复用为本地 CLI session id

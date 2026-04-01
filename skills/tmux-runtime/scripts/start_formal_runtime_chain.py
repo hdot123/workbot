@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the public tmux-skills flow: generate panes, label them, and arm stopped-pane reporting."""
+"""Run the public tmux-runtime flow: generate panes, label them, and arm stopped-pane reporting."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _phase_start_time = None
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from runtime_ledger import DEFAULT_FORMAL_SESSION_NAME
-from tmux_runtime_common import describe_formal_client_state, inspect_runtime, normalize_pane_title
+from tmux_runtime_common import describe_formal_client_state, inspect_runtime
 from tmux_scheduler import (
     run_json_script,
     set_orchestrator_context,
@@ -33,8 +33,7 @@ from tmux_scheduler import (
 
 
 ROOT = Path("/Users/busiji/workbot")
-SCRIPTS_DIR = ROOT / "skills" / "tmux-skills" / "scripts"
-CLAUDE_PROJECT_AGENTS_DIR = ROOT / ".claude" / "agents"
+SCRIPTS_DIR = ROOT / "skills" / "tmux-runtime" / "scripts"
 
 ENV_SCRIPT = SCRIPTS_DIR / "init_tmux_env.py"
 TOPOLOGY_SCRIPT = SCRIPTS_DIR / "build_tmux_topology.py"
@@ -46,7 +45,7 @@ WATCHER_WORKER_SCRIPT = SCRIPTS_DIR / "watch_tmux_handoff.py"
 DELIVERY_RUNNER_SCRIPT = SCRIPTS_DIR / "deliver_tmux_handoff_notification.py"
 BRIDGE_WORKER_SCRIPT = SCRIPTS_DIR / "tmux_handoff_app_bridge.py"
 TMUX_RUNTIME_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
-TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-skills"
+TMUX_SKILLS_ARTIFACT_DIR = ROOT / "workspace" / "artifacts" / "tmux-runtime"
 CURRENT_RUNTIME_LEDGER_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "current-runtime.json"
 LAST_RUNTIME_ISSUES_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-runtime-issues.json"
 LAST_START_RESULT_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "last-start-formal-runtime-result.json"
@@ -64,22 +63,8 @@ BRIDGE_PID_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridg
 BRIDGE_LOCK_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.lock"
 BRIDGE_STARTUP_LOCK_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge-startup.lock"
 BRIDGE_RECEIPTS_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "window-ipc-delivery-receipts.jsonl"
-POST_LAUNCH_CONTEXT_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "post-launch-context.json"
 TERMINAL_APP_WINDOW_BOUNDS = (20, 40, 1720, 1120)
 TERMINAL_APP_RESULT_TIMEOUT_SECONDS = 60.0
-FINAL_CHAIN = [
-    "tmux_preflight",
-    "cleanup",
-    "env",
-    "topology",
-    "titles",
-    "ledger",
-    "surface_normalization",
-    "claude_boot",
-    "identity_injection",
-    "watcher",
-    "ready_check",
-]
 
 
 # ==============================================================================
@@ -173,7 +158,7 @@ def build_launch_path_explanation(
     will_use_terminal_app = bool(hidden_pty and not args.continue_inside_formal)
     if hidden_pty:
         if args.continue_inside_formal:
-            reason = "Hidden PTY detected - tmux-skills continuation must run from a visible terminal"
+            reason = "Hidden PTY detected - tmux-runtime continuation must run from a visible terminal"
             next_step = "fail_fast"
         else:
             reason = "Public hidden PTY must route through Terminal.app to create a visible tmux client"
@@ -236,7 +221,7 @@ def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, s
     return (
         f"cd {shlex.quote(str(ROOT))} && "
         f"{env_prefix} {quoted_command}; rc=$?; "
-        "printf '\\n__TMUX_SKILLS_EXIT__=%s\\n' \"$rc\"; "
+        "printf '\\n__TMUX_RUNTIME_EXIT__=%s\\n' \"$rc\"; "
         f"if [ $rc -ne 0 ]; then exec {shlex.quote(shell_path)} -l; fi"
     )
 
@@ -316,28 +301,24 @@ end run
     return wait_for_result_file(result_path)
 
 
-def write_chain_context(steps: dict[str, Any], *, path: Path | None = None) -> str:
-    payload = {
-        "steps": steps,
-        "phase_timings": get_phase_timings(),
-    }
-    if path is None:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".json",
-            prefix="tmux-chain-context-",
-            delete=False,
-            encoding="utf-8",
-        ) as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-            return handle.name
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
+def write_chain_context(steps: dict[str, Any]) -> str:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="tmux-chain-context-",
+        delete=False,
         encoding="utf-8",
-    )
-    return str(path)
+    ) as handle:
+        json.dump(
+            {
+                "steps": steps,
+                "phase_timings": get_phase_timings(),
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+        return handle.name
 
 
 def load_chain_context() -> dict[str, Any]:
@@ -362,7 +343,7 @@ def load_chain_context() -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Public tmux-skills flow: formal-session -> pane generation -> title application -> stopped-pane watcher"
+        description="Public tmux-runtime flow: formal-session -> pane generation -> title application -> stopped-pane watcher"
     )
     parser.add_argument(
         "--codex-thread-id",
@@ -388,18 +369,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--task-id",
-        default="tmux-skills-public-run",
+        default="tmux-runtime-public-run",
         help="Task identifier stored in the runtime ledger.",
     )
     parser.add_argument(
         "--continue-inside-formal",
         action="store_true",
         help="Internal continuation mode that runs inside a freshly created visible formal-session.",
-    )
-    parser.add_argument(
-        "--continue-post-launch",
-        action="store_true",
-        help="Internal post-launch mode that completes Claude boot, identity injection, watcher, and ready check.",
     )
     parser.add_argument(
         "--explain-launch-path",
@@ -522,7 +498,6 @@ def list_runtime_cleanup_artifacts() -> dict[str, list[str]]:
     for path in (
         CURRENT_RUNTIME_LEDGER_PATH,
         LAST_RUNTIME_ISSUES_PATH,
-        POST_LAUNCH_CONTEXT_PATH,
         HANDOFF_LOG_PATH,
         HANDOFF_SQLITE_PATH,
         WATCHER_STDOUT_LOG_PATH,
@@ -591,7 +566,6 @@ def cleanup_previous_runtime_state() -> dict[str, Any]:
     for path in (
         CURRENT_RUNTIME_LEDGER_PATH,
         LAST_RUNTIME_ISSUES_PATH,
-        POST_LAUNCH_CONTEXT_PATH,
         HANDOFF_LOG_PATH,
         HANDOFF_SQLITE_PATH,
         WATCHER_STDOUT_LOG_PATH,
@@ -645,72 +619,6 @@ def parse_target(target: str) -> tuple[int, int]:
     pane = target.split(":", 1)[1]
     window_index, pane_index = pane.split(".", 1)
     return int(window_index), int(pane_index)
-
-
-def resolve_project_claude_agent_path(pane_title: str) -> Path | None:
-    normalized = str(pane_title).strip()
-    if not normalized:
-        return None
-    agent_path = CLAUDE_PROJECT_AGENTS_DIR / f"{normalized}.md"
-    if not agent_path.is_file():
-        return None
-    return agent_path
-
-
-def resolve_project_claude_agent_name(pane_title: str) -> str | None:
-    agent_path = resolve_project_claude_agent_path(pane_title)
-    if not agent_path:
-        return None
-    return agent_path.stem
-
-
-def build_login_shell_exec_command() -> str:
-    shell_path = os.environ.get("SHELL") or "/bin/zsh"
-    return f"exec {shlex.quote(shell_path)} -l"
-
-
-def build_claude_exec_command() -> str:
-    return (
-        f"cd {shlex.quote(str(ROOT))} && "
-        "exec claude"
-    )
-
-
-def build_current_pane_exec_command(pane_titles: list[str]) -> str:
-    current_title = str(pane_titles[0]).strip() if pane_titles else ""
-    agent_name = resolve_project_claude_agent_name(current_title)
-    if agent_name:
-        return build_claude_exec_command()
-    return build_login_shell_exec_command()
-
-
-def build_post_launch_command(args: argparse.Namespace) -> str:
-    command: list[str] = [
-        sys.executable,
-        str(Path(__file__)),
-        "--codex-thread-id",
-        args.codex_thread_id,
-        "--formal-session",
-        args.formal_session,
-        "--task-id",
-        args.task_id,
-        "--continue-post-launch",
-    ]
-    if args.pane_count is not None:
-        command.extend(["--pane-count", str(args.pane_count)])
-    for title in args.pane_titles:
-        command.extend(["--pane-title", str(title)])
-    if args.pretty:
-        command.append("--pretty")
-
-    env_parts = [f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(str(POST_LAUNCH_CONTEXT_PATH))}"]
-    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV):
-        env_value = str(os.environ.get(env_name, "")).strip()
-        if env_value:
-            env_parts.append(f"{env_name}={shlex.quote(env_value)}")
-    env_prefix = f"{' '.join(env_parts)} " if env_parts else ""
-    quoted_command = " ".join(shlex.quote(part) for part in command)
-    return f"{env_prefix}{quoted_command}"
 
 
 def select_formal_targets(snapshot: dict[str, Any], formal_session: str) -> list[str]:
@@ -768,7 +676,7 @@ def build_result(
         "formal_session": steps.get("formal_session", DEFAULT_FORMAL_SESSION_NAME),
         "pane_count": len(pane_titles),
         "pane_titles": pane_titles,
-        "chain": FINAL_CHAIN,
+        "chain": ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "surface_normalization", "watcher", "ready_check"],
         "steps": steps,
         "phase_timings": get_phase_timings(),
         "total_elapsed_ms": get_total_elapsed_ms(),
@@ -801,16 +709,16 @@ def require_visible_formal_client(snapshot: dict[str, Any], formal_session: str)
     if not snapshot.get("current_visible_formal_client"):
         reason = str(current_client.get("visibility_reason") or "not_visible_formal_client")
         raise RuntimeError(
-            f"tmux-skills positive flow requires current_visible_formal_client=true; "
+            f"tmux-runtime positive flow requires current_visible_formal_client=true; "
             f"refusing to proceed from {reason}"
         )
     if not current_client.get("inside_tmux"):
         raise RuntimeError(
-            "tmux-skills positive flow requires current client to be inside tmux"
+            "tmux-runtime positive flow requires current client to be inside tmux"
         )
     if current_client.get("session_name") != formal_session:
         raise RuntimeError(
-            f"tmux-skills positive flow requires current session={formal_session}; "
+            f"tmux-runtime positive flow requires current session={formal_session}; "
             f"got {current_client.get('session_name') or '<none>'}"
         )
 
@@ -819,12 +727,12 @@ def require_visible_terminal_launcher(snapshot: dict[str, Any]) -> None:
     current_client = snapshot.get("current_client") or {}
     if current_client.get("inside_tmux"):
         raise RuntimeError(
-            "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
+            "new tmux-runtime tasks must start from a fresh visible terminal, not from inside an existing tmux session"
         )
     if not current_client.get("visible_terminal_client"):
         reason = str(current_client.get("visibility_reason") or "invisible_terminal_client")
         raise RuntimeError(
-            "new tmux-skills tasks must start from a real visible terminal client; "
+            "new tmux-runtime tasks must start from a real visible terminal client; "
             f"refusing startup from {reason}"
         )
 
@@ -936,7 +844,7 @@ def record_failure_to_issues(error_text: str, steps: dict[str, Any], pane_titles
     LAST_RUNTIME_ISSUES_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Infer last completed phase from steps
-    phase_order = FINAL_CHAIN
+    phase_order = ["tmux_preflight", "cleanup", "env", "topology", "titles", "ledger", "surface_normalization", "watcher", "ready_check"]
     last_completed_phase = "unknown"
     for phase in phase_order:
         if phase in steps:
@@ -1097,6 +1005,7 @@ def build_inside_formal_command(args: argparse.Namespace, chain_context_path: st
         command.extend(["--pane-title", str(title)])
     if args.pretty:
         command.append("--pretty")
+    shell_path = os.environ.get("SHELL") or "/bin/zsh"
     env_parts: list[str] = []
     if chain_context_path:
         env_parts.append(f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)}")
@@ -1106,13 +1015,11 @@ def build_inside_formal_command(args: argparse.Namespace, chain_context_path: st
             env_parts.append(f"{env_name}={shlex.quote(env_value)}")
     env_prefix = f"{' '.join(env_parts)} " if env_parts else ""
     quoted_command = " ".join(shlex.quote(part) for part in command)
-    next_command = build_current_pane_exec_command(args.pane_titles)
-    post_launch_command = build_post_launch_command(args)
+    next_shell_command = f"exec {shlex.quote(shell_path)} -l"
     # Preserve inner continuation failures while still keeping the pane alive on success.
     return (
         f"{env_prefix}{quoted_command}; rc=$?; if [ $rc -ne 0 ]; then exit $rc; fi; "
-        f"{post_launch_command} >> {shlex.quote(str(CHAIN_STDOUT_LOG_PATH))} 2>&1 & "
-        f"exec /bin/sh -lc {shlex.quote(next_command)}"
+        f"exec {shlex.quote(shell_path)} -lc {shlex.quote(next_shell_command)}"
     )
 
 
@@ -1136,7 +1043,7 @@ def launch_clean_formal_session(args: argparse.Namespace, steps: dict[str, Any])
     if steps["tmux_preflight"].get("blocked"):
         end_phase("tmux_launch", "blocked", "launcher not in fresh visible terminal")
         raise RuntimeError(
-            "new tmux-skills tasks must start from a fresh visible terminal, not from inside an existing tmux session"
+            "new tmux-runtime tasks must start from a fresh visible terminal, not from inside an existing tmux session"
         )
     verify_tmux_cleared(args.formal_session)
     end_phase("tmux_launch", "ok")
@@ -1239,200 +1146,6 @@ def normalize_pane_surfaces(targets: list[str]) -> dict[str, Any]:
     }
 
 
-def boot_project_claude_panes(
-    batch_plan: list[dict[str, str]],
-    *,
-    current_target: str,
-) -> dict[str, Any]:
-    shell_path = os.environ.get("SHELL") or "/bin/zsh"
-    booted: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    for entry in batch_plan:
-        target = str(entry["target"]).strip()
-        pane_title = str(entry["pane_title"]).strip()
-        agent_path = resolve_project_claude_agent_path(pane_title)
-        if not agent_path:
-            skipped.append(
-                {
-                    "target": target,
-                    "pane_title": pane_title,
-                    "reason": "no_matching_project_agent",
-                }
-            )
-            continue
-
-        boot_entry = {
-            "target": target,
-            "pane_title": pane_title,
-            "agent_name": agent_path.stem,
-            "agent_path": str(agent_path),
-        }
-        if target == current_target:
-            boot_entry["mode"] = "deferred_exec_after_chain"
-            boot_entry["command_preview"] = build_claude_exec_command()
-            booted.append(boot_entry)
-            continue
-
-        command = [
-            "tmux",
-            "respawn-pane",
-            "-k",
-            "-t",
-            target,
-            "-c",
-            str(ROOT),
-            shell_path,
-            "-lc",
-            build_claude_exec_command(),
-        ]
-        proc = run(command)
-        if proc.returncode != 0:
-            detail = proc.stderr.strip() or proc.stdout.strip() or "failed to start claude in pane"
-            raise RuntimeError(f"{target}: {detail}")
-        boot_entry["mode"] = "respawn-pane"
-        boot_entry["command"] = command
-        booted.append(boot_entry)
-
-    return {
-        "current_target": current_target,
-        "booted": booted,
-        "skipped": skipped,
-    }
-
-
-def query_pane_runtime(target: str) -> dict[str, str]:
-    proc = run(
-        [
-            "tmux",
-            "display-message",
-            "-p",
-            "-t",
-            target,
-            "#{pane_current_command}\t#{pane_title}",
-        ]
-    )
-    if proc.returncode != 0:
-        detail = proc.stderr.strip() or proc.stdout.strip() or "failed to query pane runtime"
-        raise RuntimeError(f"{target}: {detail}")
-    current_command, _, pane_title = proc.stdout.rstrip("\n").partition("\t")
-    return {
-        "target": target,
-        "current_command": current_command.strip(),
-        "pane_title": pane_title.strip(),
-        "pane_title_normalized": normalize_pane_title(pane_title.strip()),
-    }
-
-
-def wait_for_claude_pane_ready(target: str, *, timeout_seconds: float = 30.0) -> dict[str, str]:
-    deadline = time.monotonic() + max(1.0, timeout_seconds)
-    last_state: dict[str, str] = {"target": target, "current_command": "", "pane_title": "", "pane_title_normalized": ""}
-    while time.monotonic() < deadline:
-        state = query_pane_runtime(target)
-        last_state = state
-        pane_title = state["pane_title"]
-        normalized_title = state["pane_title_normalized"]
-        current_command = state["current_command"]
-        if current_command == "node" and (
-            "Claude Code" in pane_title or "Claude Code" in normalized_title or not pane_title
-        ):
-            time.sleep(0.8)
-            return state
-        time.sleep(0.2)
-    raise RuntimeError(
-        f"{target}: timed out waiting for Claude pane readiness; "
-        f"last_state={last_state['current_command'] or '<empty>'}/{last_state['pane_title'] or '<empty>'}"
-    )
-
-
-def paste_text_into_pane(target: str, text: str) -> dict[str, Any]:
-    if not text.strip():
-        raise RuntimeError(f"{target}: empty identity payload")
-
-    buffer_name = f"tmux-skills-{os.getpid()}-{now_ms()}"
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", prefix="tmux-agent-", delete=False, encoding="utf-8") as handle:
-        handle.write(text)
-        temp_path = Path(handle.name)
-
-    try:
-        load_proc = run(["tmux", "load-buffer", "-b", buffer_name, str(temp_path)])
-        if load_proc.returncode != 0:
-            detail = load_proc.stderr.strip() or load_proc.stdout.strip() or "failed to load tmux buffer"
-            raise RuntimeError(f"{target}: {detail}")
-
-        paste_proc = run(["tmux", "paste-buffer", "-t", target, "-b", buffer_name])
-        if paste_proc.returncode != 0:
-            detail = paste_proc.stderr.strip() or paste_proc.stdout.strip() or "failed to paste tmux buffer"
-            raise RuntimeError(f"{target}: {detail}")
-
-        submit_proc = run(["tmux", "send-keys", "-t", target, "Enter"])
-        if submit_proc.returncode != 0:
-            detail = submit_proc.stderr.strip() or submit_proc.stdout.strip() or "failed to submit pasted payload"
-            raise RuntimeError(f"{target}: {detail}")
-    finally:
-        run(["tmux", "delete-buffer", "-b", buffer_name])
-        safe_unlink(temp_path)
-
-    return {
-        "target": target,
-        "buffer_name": buffer_name,
-        "payload_chars": len(text),
-    }
-
-
-def inject_project_agent_identities(
-    batch_plan: list[dict[str, str]],
-    *,
-    current_target: str,
-) -> dict[str, Any]:
-    injected: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    for entry in batch_plan:
-        target = str(entry["target"]).strip()
-        pane_title = str(entry["pane_title"]).strip()
-        agent_path = resolve_project_claude_agent_path(pane_title)
-        if not agent_path:
-            skipped.append(
-                {
-                    "target": target,
-                    "pane_title": pane_title,
-                    "reason": "no_matching_project_agent",
-                }
-            )
-            continue
-
-        payload = agent_path.read_text(encoding="utf-8")
-        if not payload.strip():
-            skipped.append(
-                {
-                    "target": target,
-                    "pane_title": pane_title,
-                    "reason": "empty_project_agent_file",
-                    "agent_path": str(agent_path),
-                }
-            )
-            continue
-
-        ready_state = wait_for_claude_pane_ready(target)
-        paste_result = paste_text_into_pane(target, payload)
-        injected.append(
-            {
-                "target": target,
-                "pane_title": pane_title,
-                "agent_name": agent_path.stem,
-                "agent_path": str(agent_path),
-                "mode": "paste-buffer",
-                "ready_state": ready_state,
-                **paste_result,
-            }
-        )
-
-    return {
-        "current_target": current_target,
-        "injected": injected,
-        "skipped": skipped,
-    }
-
-
 def write_batch_plan_file(batch_plan: list[dict[str, str]]) -> str:
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -1516,7 +1229,7 @@ def run_pane_title_application(
     return batch_plan, str(title_application.get("topology_fingerprint", "")).strip()
 
 
-def run_runtime_activation_prelaunch(
+def run_runtime_activation(
     formal_session: str,
     task_id: str,
     codex_thread_id: str,
@@ -1559,32 +1272,6 @@ def run_runtime_activation_prelaunch(
     start_phase("surface_normalization")
     steps["surface_normalization"] = normalize_pane_surfaces(targets)
     end_phase("surface_normalization", "ok")
-
-    steps["post_launch_context"] = {
-        "path": str(POST_LAUNCH_CONTEXT_PATH),
-    }
-    write_chain_context(steps, path=POST_LAUNCH_CONTEXT_PATH)
-
-
-def run_runtime_activation_postlaunch(
-    formal_session: str,
-    batch_plan: list[dict[str, str]],
-    targets: list[str],
-    steps: dict[str, Any],
-) -> None:
-    start_phase("claude_boot")
-    steps["claude_boot"] = boot_project_claude_panes(
-        batch_plan,
-        current_target=str(steps.get("surface_normalization", {}).get("current_target", "")).strip(),
-    )
-    end_phase("claude_boot", "ok")
-
-    start_phase("identity_injection")
-    steps["identity_injection"] = inject_project_agent_identities(
-        batch_plan,
-        current_target=str(steps.get("surface_normalization", {}).get("current_target", "")).strip(),
-    )
-    end_phase("identity_injection", "ok")
 
     # Watcher arm through scheduler (degraded - does not block ready)
     start_phase("watcher")
@@ -1660,12 +1347,12 @@ def main() -> int:
         sys.stderr.write(result["error"] + "\n")
         return 2
 
-    steps: dict[str, Any] = load_chain_context() if (args.continue_inside_formal or args.continue_post_launch) else {}
+    steps: dict[str, Any] = load_chain_context() if args.continue_inside_formal else {}
     steps.setdefault("formal_session", args.formal_session)
 
     # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
     # Hidden PTY must route the public entry through Terminal.app.
-    if hidden_pty and not args.continue_post_launch:
+    if hidden_pty:
         if not args.continue_inside_formal:
             try:
                 result = launch_via_terminal_app(args, steps)
@@ -1683,43 +1370,11 @@ def main() -> int:
             "failed",
             steps,
             pane_titles,
-            "Hidden PTY detected - tmux-skills continuation must run from a visible terminal",
+            "Hidden PTY detected - tmux-runtime continuation must run from a visible terminal",
         )
         persist_chain_result(result)
-        sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills continuation must run from a visible terminal\n")
+        sys.stderr.write("ERROR: Hidden PTY detected - tmux-runtime continuation must run from a visible terminal\n")
         return 1
-
-    if args.continue_post_launch:
-        try:
-            start_phase("post_launch_continuation")
-            post_launch_snapshot = inspect_visible_formal_session(
-                args.formal_session,
-                step="post_launch_guard",
-            )
-            targets = select_formal_targets(post_launch_snapshot, args.formal_session)
-            batch_plan = build_batch_plan(targets, pane_titles)
-            end_phase("post_launch_continuation", "ok")
-
-            start_phase("runtime_activation_postlaunch")
-            run_runtime_activation_postlaunch(
-                args.formal_session,
-                batch_plan,
-                targets,
-                steps,
-            )
-            end_phase("runtime_activation_postlaunch", "ok")
-        except Exception as exc:
-            result = build_result("failed", steps, pane_titles, str(exc))
-            persist_chain_result(result)
-            emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
-            sys.stdout.flush()
-            record_failure_to_issues(str(exc), steps, pane_titles)
-            return 1
-
-        result = build_result("ok", steps, pane_titles)
-        persist_chain_result(result)
-        emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
-        return 0
 
     if not args.continue_inside_formal:
         # ========== GATE 1: detect_old_state (read-only) ==========
@@ -1781,10 +1436,10 @@ def main() -> int:
         )
         end_phase("pane_title_application", "ok")
 
-        # Phase 3: handoff_activation_phase_prelaunch
-        # bind_tmux_thread_id + ledger + surface normalization + post-launch context
+        # Phase 3: handoff_activation_phase
+        # bind_tmux_thread_id + ledger + watcher + ready check
         start_phase("runtime_activation")
-        run_runtime_activation_prelaunch(
+        run_runtime_activation(
             args.formal_session,
             args.task_id,
             args.codex_thread_id,
@@ -1807,6 +1462,9 @@ def main() -> int:
         )
         return 1
 
+    result = build_result("ok", steps, pane_titles)
+    persist_chain_result(result)
+    emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
     return 0
 
 
