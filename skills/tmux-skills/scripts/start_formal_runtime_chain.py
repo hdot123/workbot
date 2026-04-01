@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
+import secrets
 import shlex
 import signal
 import subprocess
@@ -66,6 +68,10 @@ WATCHER_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "watch-tmux-handoff.stdout.
 DELIVERY_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "deliver-tmux-handoff.stdout.log"
 DELIVERY_QUEUE_DIR = TMUX_SKILLS_ARTIFACT_DIR / "delivery-queue"
 CHAIN_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "start-formal-runtime-chain.stdout.log"
+START_CHAIN_LOCK_FILE_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "start-formal-runtime-chain.lock"
+START_CHAIN_LOCK_INFO_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "start-formal-runtime-chain.lock.json"
+START_CHAIN_LOCK_TOKEN_ENV = "TMUX_START_CHAIN_LOCK_TOKEN"
+START_CHAIN_LOCK_STALE_SECONDS = 120.0
 BRIDGE_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.stdout.log"
 BRIDGE_PID_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.pid"
 BRIDGE_LOCK_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.lock"
@@ -126,6 +132,196 @@ def get_total_elapsed_ms() -> float:
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def start_chain_lock_token() -> str:
+    return str(os.environ.get(START_CHAIN_LOCK_TOKEN_ENV, "")).strip()
+
+
+def start_chain_lock_mode(args: argparse.Namespace) -> str:
+    if args.continue_post_launch:
+        return "post_launch_continuation"
+    if args.continue_inside_formal:
+        return "inside_formal_continuation"
+    return "public_entry"
+
+
+def process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def parse_lock_timestamp(raw: object) -> Optional[datetime]:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def is_stale_start_chain_lock(metadata: dict[str, Any]) -> bool:
+    holder_pid = int(metadata.get("holder_pid") or 0)
+    if process_is_alive(holder_pid):
+        return False
+    refreshed_at = parse_lock_timestamp(metadata.get("refreshed_at")) or parse_lock_timestamp(
+        metadata.get("started_at")
+    )
+    if refreshed_at is None:
+        return True
+    age_seconds = max(0.0, (datetime.now(timezone.utc) - refreshed_at).total_seconds())
+    return age_seconds >= START_CHAIN_LOCK_STALE_SECONDS
+
+
+def describe_start_chain_lock(metadata: dict[str, Any]) -> str:
+    pane_titles = metadata.get("pane_titles")
+    if isinstance(pane_titles, list):
+        pane_text = "[" + ", ".join(str(title) for title in pane_titles) + "]"
+    else:
+        pane_text = "[]"
+    return (
+        "another tmux startup chain is already in progress: "
+        f"mode={metadata.get('mode', 'unknown')}, "
+        f"holder_pid={metadata.get('holder_pid', 'unknown')}, "
+        f"started_at={metadata.get('started_at', 'unknown')}, "
+        f"thread_id={metadata.get('codex_thread_id', 'unknown')}, "
+        f"pane_titles={pane_text}"
+    )
+
+
+def build_start_chain_lock_metadata(
+    args: argparse.Namespace,
+    *,
+    pane_titles: list[str],
+    owner_token: str,
+    started_at: Optional[str] = None,
+) -> dict[str, Any]:
+    timestamp = now_iso()
+    return {
+        "owner_token": owner_token,
+        "holder_pid": os.getpid(),
+        "mode": start_chain_lock_mode(args),
+        "formal_session": args.formal_session,
+        "task_id": args.task_id,
+        "codex_thread_id": args.codex_thread_id,
+        "pane_count": len(pane_titles),
+        "pane_titles": list(pane_titles),
+        "started_at": started_at or timestamp,
+        "refreshed_at": timestamp,
+    }
+
+
+def write_start_chain_lock_metadata(payload: dict[str, Any]) -> None:
+    START_CHAIN_LOCK_INFO_PATH.parent.mkdir(parents=True, exist_ok=True)
+    START_CHAIN_LOCK_INFO_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def read_start_chain_lock_metadata() -> dict[str, Any]:
+    return read_json_file(START_CHAIN_LOCK_INFO_PATH)
+
+
+def with_start_chain_lockfile(action: Any) -> Any:
+    START_CHAIN_LOCK_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with START_CHAIN_LOCK_FILE_PATH.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return action()
+
+
+def acquire_start_chain_lock(args: argparse.Namespace, *, pane_titles: list[str]) -> str:
+    existing_token = start_chain_lock_token()
+    if existing_token:
+        refresh_start_chain_lock(args, pane_titles=pane_titles, owner_token=existing_token)
+        return existing_token
+
+    claimed_token = secrets.token_hex(16)
+
+    def _claim() -> str:
+        metadata = read_start_chain_lock_metadata()
+        if metadata:
+            if not is_stale_start_chain_lock(metadata):
+                raise RuntimeError(describe_start_chain_lock(metadata))
+            safe_unlink(START_CHAIN_LOCK_INFO_PATH)
+        write_start_chain_lock_metadata(
+            build_start_chain_lock_metadata(
+                args,
+                pane_titles=pane_titles,
+                owner_token=claimed_token,
+            )
+        )
+        return claimed_token
+
+    token = with_start_chain_lockfile(_claim)
+    os.environ[START_CHAIN_LOCK_TOKEN_ENV] = token
+    return token
+
+
+def refresh_start_chain_lock(
+    args: argparse.Namespace,
+    *,
+    pane_titles: list[str],
+    owner_token: str,
+) -> None:
+    def _refresh() -> None:
+        metadata = read_start_chain_lock_metadata()
+        if metadata and str(metadata.get("owner_token", "")).strip() not in ("", owner_token):
+            if not is_stale_start_chain_lock(metadata):
+                raise RuntimeError(describe_start_chain_lock(metadata))
+            safe_unlink(START_CHAIN_LOCK_INFO_PATH)
+            metadata = {}
+        started_at = str(metadata.get("started_at") or "").strip() or None
+        write_start_chain_lock_metadata(
+            build_start_chain_lock_metadata(
+                args,
+                pane_titles=pane_titles,
+                owner_token=owner_token,
+                started_at=started_at,
+            )
+        )
+
+    with_start_chain_lockfile(_refresh)
+    os.environ[START_CHAIN_LOCK_TOKEN_ENV] = owner_token
+
+
+def release_start_chain_lock(owner_token: str) -> bool:
+    if not owner_token:
+        return False
+
+    def _release() -> bool:
+        metadata = read_start_chain_lock_metadata()
+        if metadata and str(metadata.get("owner_token", "")).strip() == owner_token:
+            safe_unlink(START_CHAIN_LOCK_INFO_PATH)
+            return True
+        return False
+
+    released = with_start_chain_lockfile(_release)
+    if start_chain_lock_token() == owner_token:
+        os.environ.pop(START_CHAIN_LOCK_TOKEN_ENV, None)
+    return bool(released)
 
 
 def result_output_path() -> Path:
@@ -232,12 +428,14 @@ def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, s
     if args.pretty:
         command.append("--pretty")
 
-    env_prefix = " ".join(
-        [
-            f"{START_RESULT_PATH_ENV}={shlex.quote(str(result_path))}",
-            f"{START_TEST_START_MS_ENV}={shlex.quote(start_ms)}",
-        ]
-    )
+    env_parts = [
+        f"{START_RESULT_PATH_ENV}={shlex.quote(str(result_path))}",
+        f"{START_TEST_START_MS_ENV}={shlex.quote(start_ms)}",
+    ]
+    token = start_chain_lock_token()
+    if token:
+        env_parts.append(f"{START_CHAIN_LOCK_TOKEN_ENV}={shlex.quote(token)}")
+    env_prefix = " ".join(env_parts)
     quoted_command = " ".join(shlex.quote(part) for part in command)
     shell_path = os.environ.get("SHELL") or "/bin/zsh"
     return (
@@ -744,7 +942,7 @@ def build_post_launch_command(args: argparse.Namespace) -> str:
         command.append("--pretty")
 
     env_parts = [f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(str(POST_LAUNCH_CONTEXT_PATH))}"]
-    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV):
+    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV, START_CHAIN_LOCK_TOKEN_ENV):
         env_value = str(os.environ.get(env_name, "")).strip()
         if env_value:
             env_parts.append(f"{env_name}={shlex.quote(env_value)}")
@@ -1140,7 +1338,7 @@ def build_inside_formal_command(args: argparse.Namespace, chain_context_path: st
     env_parts: list[str] = []
     if chain_context_path:
         env_parts.append(f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)}")
-    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV):
+    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV, START_CHAIN_LOCK_TOKEN_ENV):
         env_value = str(os.environ.get(env_name, "")).strip()
         if env_value:
             env_parts.append(f"{env_name}={shlex.quote(env_value)}")
@@ -1731,15 +1929,68 @@ def main() -> int:
         sys.stderr.write(result["error"] + "\n")
         return 2
 
-    steps: dict[str, Any] = load_chain_context() if (args.continue_inside_formal or args.continue_post_launch) else {}
-    steps.setdefault("formal_session", args.formal_session)
+    try:
+        lock_token = acquire_start_chain_lock(args, pane_titles=pane_titles)
+    except RuntimeError as exc:
+        result = build_result(
+            "failed",
+            {"formal_session": args.formal_session},
+            pane_titles,
+            str(exc),
+        )
+        persist_chain_result(result)
+        emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
+        return 1
+    release_lock = True
+    try:
+        steps: dict[str, Any] = load_chain_context() if (args.continue_inside_formal or args.continue_post_launch) else {}
+        steps.setdefault("formal_session", args.formal_session)
 
-    # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
-    # Hidden PTY must route the public entry through Terminal.app.
-    if hidden_pty and not args.continue_post_launch:
-        if not args.continue_inside_formal:
+        # ========== GATE 0: HIDDEN PTY CHECK (first step, before any work) ==========
+        # Hidden PTY must route the public entry through Terminal.app.
+        if hidden_pty and not args.continue_post_launch:
+            if not args.continue_inside_formal:
+                try:
+                    result = launch_via_terminal_app(args, steps)
+                except Exception as exc:
+                    result = build_result(
+                        "failed",
+                        steps,
+                        pane_titles,
+                        str(exc),
+                    )
+                    persist_chain_result(result)
+                emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
+                return 0 if result.get("status") == "ok" else 1
+            result = build_result(
+                "failed",
+                steps,
+                pane_titles,
+                "Hidden PTY detected - tmux-skills continuation must run from a visible terminal",
+            )
+            persist_chain_result(result)
+            sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills continuation must run from a visible terminal\n")
+            return 1
+
+        if args.continue_post_launch:
             try:
-                result = launch_via_terminal_app(args, steps)
+                start_phase("post_launch_continuation")
+                post_launch_snapshot = inspect_visible_formal_session(
+                    args.formal_session,
+                    step="post_launch_guard",
+                )
+                targets = select_formal_targets(post_launch_snapshot, args.formal_session)
+                batch_plan = build_batch_plan(targets, pane_titles)
+                end_phase("post_launch_continuation", "ok")
+
+                start_phase("runtime_activation_postlaunch")
+                run_runtime_activation_postlaunch(
+                    args.formal_session,
+                    batch_plan,
+                    targets,
+                    steps,
+                )
+                end_phase("runtime_activation_postlaunch", "ok")
             except Exception as exc:
                 result = build_result(
                     "failed",
@@ -1748,57 +1999,93 @@ def main() -> int:
                     str(exc),
                 )
                 persist_chain_result(result)
+                emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
+                sys.stdout.flush()
+                record_failure_to_issues(str(exc), steps, pane_titles)
+                return 1
+
+            result = build_result("ok", steps, pane_titles)
+            persist_chain_result(result)
             emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
-            return 0 if result.get("status") == "ok" else 1
-        result = build_result(
-            "failed",
-            steps,
-            pane_titles,
-            "Hidden PTY detected - tmux-skills continuation must run from a visible terminal",
-        )
-        persist_chain_result(result)
-        sys.stderr.write("ERROR: Hidden PTY detected - tmux-skills continuation must run from a visible terminal\n")
-        return 1
+            return 0
 
-    if args.continue_post_launch:
+        if not args.continue_inside_formal:
+            # ========== GATE 1: detect_old_state (read-only) ==========
+            detect_report, detect_snapshot = run_detect_phase(args.formal_session)
+            steps["detect"] = detect_report
+            steps["_detect_snapshot"] = detect_snapshot
+            try:
+                rc = launch_clean_formal_session(args, steps)
+                if rc == 0:
+                    release_lock = False
+                return rc
+            except Exception as exc:
+                result = build_result("failed", steps, pane_titles, str(exc))
+                persist_chain_result(result)
+                emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
+                sys.stdout.flush()
+                record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
+                steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
+                    args.formal_session,
+                    str(exc),
+                )
+                return 1
+            finally:
+                steps.pop("_detect_snapshot", None)
+
         try:
-            start_phase("post_launch_continuation")
-            post_launch_snapshot = inspect_visible_formal_session(
-                args.formal_session,
-                step="post_launch_guard",
+            # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes
+            start_phase("inside_formal_continuation")
+            pre_continuation_snapshot = inspect_runtime_snapshot(
+                step="pre_continuation_guard",
+                formal_session=args.formal_session,
             )
-            targets = select_formal_targets(post_launch_snapshot, args.formal_session)
-            batch_plan = build_batch_plan(targets, pane_titles)
-            end_phase("post_launch_continuation", "ok")
+            require_visible_formal_client(pre_continuation_snapshot, args.formal_session)
+            end_phase("inside_formal_continuation", "ok")
 
-            start_phase("runtime_activation_postlaunch")
-            run_runtime_activation_postlaunch(
+            # Phase 1: pane_creation_phase
+            # visible launcher check -> preflight cleanup -> env setup -> topology -> inspect_after_topology -> select_formal_targets
+            start_phase("env_setup")
+            run_formal_env_setup(args.formal_session, steps)
+            end_phase("env_setup", "ok")
+
+            start_phase("formal_session_policy")
+            steps["formal_session_policy"] = apply_formal_session_policy(args.formal_session)
+            end_phase("formal_session_policy", "ok")
+
+            start_phase("topology_setup")
+            targets = run_topology_setup(
                 args.formal_session,
+                pane_count,
+                steps,
+            )
+            end_phase("topology_setup", "ok")
+
+            # Phase 2: pane_title_phase
+            # apply_pane_titles() + validation
+            start_phase("pane_title_application")
+            batch_plan, topology_fingerprint = run_pane_title_application(
+                args.formal_session,
+                targets,
+                pane_titles,
+                steps,
+            )
+            end_phase("pane_title_application", "ok")
+
+            # Phase 3: handoff_activation_phase_prelaunch
+            # bind_tmux_thread_id + ledger + surface normalization + post-launch context
+            start_phase("runtime_activation")
+            run_runtime_activation_prelaunch(
+                args.formal_session,
+                args.task_id,
+                args.codex_thread_id,
+                pane_count,
                 batch_plan,
+                topology_fingerprint,
                 targets,
                 steps,
             )
-            end_phase("runtime_activation_postlaunch", "ok")
-        except Exception as exc:
-            result = build_result("failed", steps, pane_titles, str(exc))
-            persist_chain_result(result)
-            emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
-            sys.stdout.flush()
-            record_failure_to_issues(str(exc), steps, pane_titles)
-            return 1
-
-        result = build_result("ok", steps, pane_titles)
-        persist_chain_result(result)
-        emit_surface_summary(result, continue_inside_formal=False, pretty=args.pretty)
-        return 0
-
-    if not args.continue_inside_formal:
-        # ========== GATE 1: detect_old_state (read-only) ==========
-        detect_report, detect_snapshot = run_detect_phase(args.formal_session)
-        steps["detect"] = detect_report
-        steps["_detect_snapshot"] = detect_snapshot
-        try:
-            return launch_clean_formal_session(args, steps)
+            end_phase("runtime_activation", "ok")
         except Exception as exc:
             result = build_result("failed", steps, pane_titles, str(exc))
             persist_chain_result(result)
@@ -1810,75 +2097,12 @@ def main() -> int:
                 str(exc),
             )
             return 1
-        finally:
-            steps.pop("_detect_snapshot", None)
 
-    try:
-        # Rule 1: fail-fast guard - require current_visible_formal_client=true before any positive changes
-        start_phase("inside_formal_continuation")
-        pre_continuation_snapshot = inspect_runtime_snapshot(
-            step="pre_continuation_guard",
-            formal_session=args.formal_session,
-        )
-        require_visible_formal_client(pre_continuation_snapshot, args.formal_session)
-        end_phase("inside_formal_continuation", "ok")
-
-        # Phase 1: pane_creation_phase
-        # visible launcher check -> preflight cleanup -> env setup -> topology -> inspect_after_topology -> select_formal_targets
-        start_phase("env_setup")
-        run_formal_env_setup(args.formal_session, steps)
-        end_phase("env_setup", "ok")
-
-        start_phase("formal_session_policy")
-        steps["formal_session_policy"] = apply_formal_session_policy(args.formal_session)
-        end_phase("formal_session_policy", "ok")
-
-        start_phase("topology_setup")
-        targets = run_topology_setup(
-            args.formal_session,
-            pane_count,
-            steps,
-        )
-        end_phase("topology_setup", "ok")
-
-        # Phase 2: pane_title_phase
-        # apply_pane_titles() + validation
-        start_phase("pane_title_application")
-        batch_plan, topology_fingerprint = run_pane_title_application(
-            args.formal_session,
-            targets,
-            pane_titles,
-            steps,
-        )
-        end_phase("pane_title_application", "ok")
-
-        # Phase 3: handoff_activation_phase_prelaunch
-        # bind_tmux_thread_id + ledger + surface normalization + post-launch context
-        start_phase("runtime_activation")
-        run_runtime_activation_prelaunch(
-            args.formal_session,
-            args.task_id,
-            args.codex_thread_id,
-            pane_count,
-            batch_plan,
-            topology_fingerprint,
-            targets,
-            steps,
-        )
-        end_phase("runtime_activation", "ok")
-    except Exception as exc:
-        result = build_result("failed", steps, pane_titles, str(exc))
-        persist_chain_result(result)
-        emit_surface_summary(result, continue_inside_formal=args.continue_inside_formal, pretty=args.pretty)
-        sys.stdout.flush()
-        record_failure_to_issues(str(exc), steps, pane_titles)  # Persist failure
-        steps["failure_cleanup"] = cleanup_hidden_formal_session_on_failure(
-            args.formal_session,
-            str(exc),
-        )
-        return 1
-
-    return 0
+        release_lock = False
+        return 0
+    finally:
+        if release_lock:
+            release_start_chain_lock(lock_token)
 
 
 if __name__ == "__main__":
