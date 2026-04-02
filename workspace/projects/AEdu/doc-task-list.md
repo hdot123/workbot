@@ -7,7 +7,7 @@
 
 ## Overall Status
 - `ce_synced`
-- 当前口径：当前无活跃文档同步卡；阶段二文档、验收材料与 CE 已同步；DOC-001 ~ DOC-008 已完成收口；OBS Contract 5 文档与 OPS 同步 4 文档已通过 6+1 评审并冻结为"已冻结"；DOC-009/010/011/012/013 已完成；`#56` 已按退役口径关闭；百度 OCR 真实 API smoke 已补证，后续只维护阶段三生命周期与阶段边界引用一致性
+- 当前口径：当前无活跃文档同步卡；阶段二文档、验收材料与 CE 已同步；DOC-001 ~ DOC-008 已完成收口；OBS Contract 5 文档与 OPS 同步 4 文档已通过 6+1 评审并冻结为"已冻结"；DOC-009/010/011/012/013/014 已完成；`#56` 已按退役口径关闭；百度 OCR 真实 API smoke 已补证；本轮已确认 qa-task-list / rea-task-list / ce-sync-plan 对 warning 残余的表述已足够准确，后续只维护阶段三生命周期与阶段边界引用一致性
 
 ## Canonical Status Model
 - `todo`: 已登记，未开始
@@ -50,6 +50,7 @@
 | DOC-011 | 维护 OCR runner 阻塞与阶段三任务的 CE 映射 | `ce_synced` | `doc` | `workspace/projects/AEdu/ce-sync-plan.md`, `workspace/projects/AEdu/dev-task-list.md`, `workspace/projects/AEdu/qa-task-list.md` | #31 与 #56 口径已统一：正式 OCR 主路径固定为百度 OCR API only；本轮代码与脚本已切 baidu-only，`#56` 标题/描述已改写并按退役口径关闭；DEV-012 `dev_done`，QA-010 `qa_done` | - | OCR runner 生命周期映射已完成收口，后续只维护阶段单引用一致性 |
 | DOC-012 | 同步观察层反馈闭环与验收口径 | `ce_synced` | `doc` | `AEdu/08_观察层与产品层/10_产品交互与反馈闭环.md`, `workspace/projects/AEdu/qa-task-list.md`, `workspace/projects/AEdu/ce-sync-plan.md`, `AEdu/08_观察层与产品层/qa_008_feedback_samples.json`, `AEdu/08_观察层与产品层/feedback_boundary_rules.md` | 反馈闭环验收口径已固化：4 种 feedback_type、4 种 route_destination、MVP 范围已实现；QA-008 已完成（本轮收口复核 34/34 pytest 通过），12 个验收样例固化，8 条回流断言固化，审计边界已验证；6+1 评审正式结论已在 ce-sync-plan 中记录为“评审通过”；`#31` 已补生命周期评论（note 206） | - | CE 生命周期已同步；后续只维护阶段三主线引用一致性 |
 | DOC-013 | 同步反馈闭环可追溯与运营复盘口径 | `ce_synced` | `doc` | `workspace/projects/AEdu/dev-task-list.md`, `workspace/projects/AEdu/qa-task-list.md`, `workspace/projects/AEdu/rea-task-list.md`, `workspace/projects/AEdu/ce-sync-plan.md` | 已把 REA-006 审计结论、DEV-016 / QA-011 证据和反馈追溯口径回写到本地真源；当前口径明确为“反馈闭环不仅可路由，也可形成问题库与指标快照”；`#31` 已补生命周期评论（note 206） | - | CE 生命周期已同步；后续只维护阶段三主线引用一致性 |
+| DOC-014 | Warning 收口口径准备 | `doc_synced` | `doc` | `workspace/projects/AEdu/qa-task-list.md`, `workspace/projects/AEdu/rea-task-list.md`, `workspace/projects/AEdu/ce-sync-plan.md` | 已复核本地真源：`qa-task-list.md`、`rea-task-list.md`、`ce-sync-plan.md` 对 `44` 个 `PytestReturnNotNoneWarning` 的表述已足够准确；warning 定位为测试形态残余、非功能失败，推荐 CE 说明文案已准备 | - | 后续如需对外说明，可直接复用“非功能失败、属测试形态残余”的标准表述 |
 
 ## Doc Rule
 - `doc_synced` 的前提是：指定文档已与真实实现和 QA 证据对齐
