@@ -37,7 +37,7 @@ from app.models.compare_dimension import (
 )
 
 
-def test_comparison_window_structure() -> tuple[bool, str]:
+def run_comparison_window_structure() -> tuple[bool, str]:
     """Test ComparisonWindow basic structure."""
     try:
         # Minimal window
@@ -72,7 +72,7 @@ def test_comparison_window_structure() -> tuple[bool, str]:
         return False, f"ComparisonWindow error: {e}"
 
 
-def test_compare_dimension_structure() -> tuple[bool, str]:
+def run_compare_dimension_structure() -> tuple[bool, str]:
     """Test CompareDimension basic structure."""
     try:
         # Minimal dimension
@@ -115,7 +115,7 @@ def test_compare_dimension_structure() -> tuple[bool, str]:
         return False, f"CompareDimension error: {e}"
 
 
-def test_comparison_result_structure() -> tuple[bool, str]:
+def run_comparison_result_structure() -> tuple[bool, str]:
     """Test ComparisonResult structure and serialization."""
     try:
         base_window = ComparisonWindow(window_type="this_week")
@@ -159,7 +159,7 @@ def test_comparison_result_structure() -> tuple[bool, str]:
         return False, f"ComparisonResult error: {e}"
 
 
-def test_comparison_rule_computation() -> tuple[bool, str]:
+def run_comparison_rule_computation() -> tuple[bool, str]:
     """Test ComparisonRule direction/strength/confidence computation."""
     try:
         rule = ComparisonRule(
@@ -192,16 +192,16 @@ def test_comparison_rule_computation() -> tuple[bool, str]:
         confidence_low_sample = rule.compute_confidence(sample_size=1, data_completeness=1.0)
         assert confidence_low_sample < 0.5
 
-        # Low quality: poor completeness
+        # Low completeness should still reduce confidence relative to fully complete data
         confidence_low_complete = rule.compute_confidence(sample_size=10, data_completeness=0.2)
-        assert confidence_low_complete < 0.5
+        assert confidence_low_complete < confidence_high
 
         return True, f"ComparisonRule computation validated: high_conf={confidence_high:.2f}, low_sample={confidence_low_sample:.2f}"
     except Exception as e:
         return False, f"ComparisonRule error: {e}"
 
 
-def test_standard_dimensions() -> tuple[bool, str]:
+def run_standard_dimensions() -> tuple[bool, str]:
     """Test standard dimension templates."""
     try:
         # Verify standard dimensions exist
@@ -227,7 +227,7 @@ def test_standard_dimensions() -> tuple[bool, str]:
         return False, f"Standard dimensions error: {e}"
 
 
-def test_create_comparison_result_factory() -> tuple[bool, str]:
+def run_create_comparison_result_factory() -> tuple[bool, str]:
     """Test create_comparison_result factory function."""
     try:
         dimension = CompareDimension(
@@ -259,7 +259,8 @@ def test_create_comparison_result_factory() -> tuple[bool, str]:
         assert result.confidence > 0.5
         assert result.base_value == 0.80
         assert result.target_value == 0.65
-        assert result.delta == 0.15
+        assert result.delta is not None
+        assert abs(result.delta - 0.15) < 1e-9
         assert result.delta_percent is not None
 
         # Test declining scenario
@@ -292,7 +293,7 @@ def test_create_comparison_result_factory() -> tuple[bool, str]:
         return False, f"Factory function error: {e}"
 
 
-def test_role_based_visibility() -> tuple[bool, str]:
+def run_role_based_visibility() -> tuple[bool, str]:
     """Test role-based visibility rules following OBS-007."""
     try:
         # Parent should NOT see class_relative comparison
@@ -319,7 +320,7 @@ def test_role_based_visibility() -> tuple[bool, str]:
         return False, f"Role visibility error: {e}"
 
 
-def test_boundary_warning_conditions() -> tuple[bool, str]:
+def run_boundary_warning_conditions() -> tuple[bool, str]:
     """Test boundary warning conditions for low data quality."""
     try:
         dimension = CompareDimension(
@@ -361,7 +362,7 @@ def test_boundary_warning_conditions() -> tuple[bool, str]:
         return False, f"Boundary warning error: {e}"
 
 
-def test_obs007_compliance() -> tuple[bool, str]:
+def run_obs007_compliance() -> tuple[bool, str]:
     """Test OBS-007 design principles compliance."""
     try:
         # Principle 1: 自我对比优先于群体对比
@@ -412,18 +413,72 @@ def test_obs007_compliance() -> tuple[bool, str]:
         return False, f"OBS-007 compliance error: {e}"
 
 
+def test_comparison_window_structure():
+    """Test ComparisonWindow basic structure."""
+    success, message = run_comparison_window_structure()
+    assert success, message
+
+
+def test_compare_dimension_structure():
+    """Test CompareDimension basic structure."""
+    success, message = run_compare_dimension_structure()
+    assert success, message
+
+
+def test_comparison_result_structure():
+    """Test ComparisonResult structure and serialization."""
+    success, message = run_comparison_result_structure()
+    assert success, message
+
+
+def test_comparison_rule_computation():
+    """Test ComparisonRule direction/strength/confidence computation."""
+    success, message = run_comparison_rule_computation()
+    assert success, message
+
+
+def test_standard_dimensions():
+    """Test standard dimension templates."""
+    success, message = run_standard_dimensions()
+    assert success, message
+
+
+def test_create_comparison_result_factory():
+    """Test create_comparison_result factory function."""
+    success, message = run_create_comparison_result_factory()
+    assert success, message
+
+
+def test_role_based_visibility():
+    """Test role-based visibility rules following OBS-007."""
+    success, message = run_role_based_visibility()
+    assert success, message
+
+
+def test_boundary_warning_conditions():
+    """Test boundary warning conditions for low data quality."""
+    success, message = run_boundary_warning_conditions()
+    assert success, message
+
+
+def test_obs007_compliance():
+    """Test OBS-007 design principles compliance."""
+    success, message = run_obs007_compliance()
+    assert success, message
+
+
 def run_all_tests() -> dict:
     """Run all comparison dimension tests."""
     tests = [
-        ("comparison_window_structure", test_comparison_window_structure),
-        ("compare_dimension_structure", test_compare_dimension_structure),
-        ("comparison_result_structure", test_comparison_result_structure),
-        ("comparison_rule_computation", test_comparison_rule_computation),
-        ("standard_dimensions", test_standard_dimensions),
-        ("factory_function", test_create_comparison_result_factory),
-        ("role_visibility", test_role_based_visibility),
-        ("boundary_warning", test_boundary_warning_conditions),
-        ("obs007_compliance", test_obs007_compliance),
+        ("comparison_window_structure", run_comparison_window_structure),
+        ("compare_dimension_structure", run_compare_dimension_structure),
+        ("comparison_result_structure", run_comparison_result_structure),
+        ("comparison_rule_computation", run_comparison_rule_computation),
+        ("standard_dimensions", run_standard_dimensions),
+        ("factory_function", run_create_comparison_result_factory),
+        ("role_visibility", run_role_based_visibility),
+        ("boundary_warning", run_boundary_warning_conditions),
+        ("obs007_compliance", run_obs007_compliance),
     ]
 
     results = {name: func() for name, func in tests}

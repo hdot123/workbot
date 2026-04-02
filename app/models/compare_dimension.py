@@ -337,8 +337,14 @@ STANDARD_DIMENSIONS: dict[str, CompareDimension] = {
 
 
 def get_standard_dimension(dimension_id: str) -> CompareDimension | None:
-    """Get a standard dimension by ID."""
-    return STANDARD_DIMENSIONS.get(dimension_id)
+    """Get a standard dimension by template key or dimension_id."""
+    dimension = STANDARD_DIMENSIONS.get(dimension_id)
+    if dimension is not None:
+        return dimension
+    for candidate in STANDARD_DIMENSIONS.values():
+        if candidate.dimension_id == dimension_id:
+            return candidate
+    return None
 
 
 def create_comparison_result(

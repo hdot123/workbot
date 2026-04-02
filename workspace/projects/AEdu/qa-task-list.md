@@ -7,7 +7,7 @@
 
 ## Overall Status
 - `ce_synced`
-- 当前口径：当前无活跃 QA 执行卡；阶段二核心路径已完成 QA 与 CE 同步，QA-001 ~ QA-005 保持 `qa_done` 证据状态；OBS Contract 5 文档与 OPS 4 文档已通过 6+1 评审并冻结；QA-006/007/008/010/011/012 已完成，`QA-009 / #56` 已按退役口径完成生命周期收口；百度 OCR 真实 API smoke 已补证，当前 QA 侧无功能阻塞；本轮已确认关键基线 `112 passed, 44 warnings` 仍成立；若额外纳入 `tests/test_twin_ingest_contract.py` 这 `13` 个兼容契约测试，则扩展口径为 `125 passed, 44 warnings`，且无新增 warning 类型
+- 当前口径：当前无活跃 QA 执行卡；阶段二核心路径已完成 QA 与 CE 同步，QA-001 ~ QA-005 保持 `qa_done` 证据状态；OBS Contract 5 文档与 OPS 4 文档已通过 6+1 评审并冻结；QA-006/007/008/010/011/012/013 已完成，`QA-009 / #56` 已按退役口径完成生命周期收口；百度 OCR 真实 API smoke 已补证，当前 QA 侧无功能阻塞；本轮已确认关键基线收敛为 `112 passed, 0 warnings`；若额外纳入 `tests/test_twin_ingest_contract.py` 这 `13` 个兼容契约测试，则扩展口径为 `125 passed, 0 warnings`
 
 ## Canonical Status Model
 - `todo`: 已登记，未开始
@@ -56,6 +56,7 @@
 | QA-010 | 家长端周报/月报解释对象 contract 复核 | `qa_done` | `qa` | `tests/test_text_main_chain.py` (DEV-008 测试段), `app/models/obs_models.py` | ExplanationBlock/ActionSuggestion/FeedbackEntry 与 OBS-008/OBS-002 一致性复核通过 (9/9 项 pass)，并已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
 | QA-011 | 反馈闭环可追溯指标与问题生命周期复核 | `qa_done` | `qa` | `tests/test_feedback_traceability.py`, `tests/test_feedback_loop.py`, `app/models/feedback_event.py` | 已复核 `PilotProblem` 问题生命周期、反馈提交率/处理完成率/问题关闭率/干预执行回填率计算与周复盘汇总能力；反馈链联合回归 `20/20` 通过，无新增 P0/P1 阻塞，并已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
 | QA-012 | Warning 基线复跑确认 | `qa_done` | `qa` | `tests/test_ocr_interface.py`, `tests/test_ocr_event_bridge.py`, `tests/test_ocr_integration.py`, `tests/test_text_main_chain.py`, `tests/test_school_dashboard.py`, `tests/test_feedback_loop.py`, `tests/test_feedback_traceability.py`, `tests/test_obs_compare_dimensions.py`, `tests/test_f8_rollback.py`, `tests/test_f9_scenarios.py`, `tests/test_twin_ingest_contract.py` | 已确认关键测试基线仍为 `112 passed, 44 warnings`；若在此基础上额外纳入 `tests/test_twin_ingest_contract.py`，扩展兼容口径为 `125 passed, 44 warnings`；warning 类型仍全部为 `PytestReturnNotNoneWarning`，无新增失败 | - | 基线已固定；warning 继续按测试形态残余口径维护，不阻塞生命周期 |
+| QA-013 | Warning 清理复跑验收 | `qa_done` | `qa` | `tests/test_f8_rollback.py`, `tests/test_school_dashboard.py`, `tests/test_text_main_chain.py`, `tests/test_feedback_loop.py`, `tests/test_obs_compare_dimensions.py`, `tests/test_twin_ingest_contract.py` | 已确认 5 个 warning 目标文件专项复跑 `79/79` 通过且 `0 warnings`；关键基线复跑收敛为 `112/112` 通过且 `0 warnings`；若额外纳入 `tests/test_twin_ingest_contract.py`，扩展兼容口径为 `125/125` 通过且 `0 warnings` | - | warning 残余已清零；后续只维护回归基线与本地真源一致性 |
 
 ## QA Conclusion Rule
 - `qa_done` 必须有可追溯证据
@@ -66,4 +67,4 @@
 ## Residual Risks
 - 当前脚本式测试依赖 `PYTHONPATH=/Users/busiji/workbot`
 - 百度 OCR API 主路径：mock / bridge / integration + 真实 API smoke 证据已齐（见 `ocr_qa_evidence.json`）
-- 当前 `.venv` 已补装 `pytest`；关键测试集现场仍为 `112 passed, 44 warnings`；若额外纳入 `tests/test_twin_ingest_contract.py`，扩展兼容口径为 `125 passed, 44 warnings`；warning 全部为 `PytestReturnNotNoneWarning`，根因是若干老测试仍保留“返回 tuple”写法，属于测试形态残余，不构成功能阻塞
+- 当前 `.venv` 已补装 `pytest`；关键测试集现场已收敛为 `112 passed, 0 warnings`；若额外纳入 `tests/test_twin_ingest_contract.py`，扩展兼容口径为 `125 passed, 0 warnings`；原 `PytestReturnNotNoneWarning` 残余已在本轮清零，不再构成功能或测试形态阻塞

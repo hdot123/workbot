@@ -7,7 +7,7 @@
 
 ## Overall Status
 - `ce_synced`
-- 当前口径：当前无活跃开发执行卡；阶段二开发链已完成 CE 同步，DEV-001 ~ DEV-007 保持 `dev_done` 证据状态；OBS Contract 5 文档与 OPS 4 文档已通过 6+1 评审并冻结为"已冻结"；DEV-008/009/010/012/013/014/015/016 已完成本轮开发，`DEV-011 / #56` 已按本地 runner 退役口径完成生命周期收口；百度 OCR 真实 API smoke 已补证，本单当前转入阶段三生命周期守护与后续阶段准入准备；本轮 warning 残余会话未开新的开发卡，dev 保持待命
+- 当前口径：当前无活跃开发执行卡；阶段二开发链已完成 CE 同步，DEV-001 ~ DEV-007 保持 `dev_done` 证据状态；OBS Contract 5 文档与 OPS 4 文档已通过 6+1 评审并冻结为"已冻结"；DEV-008/009/010/012/013/014/015/016 已完成本轮开发，`DEV-011 / #56` 已按本地 runner 退役口径完成生命周期收口；百度 OCR 真实 API smoke 已补证；本轮 `DEV-017` 已完成 5 个 warning 目标文件的测试清洁，并补齐 `compare_dimension.get_standard_dimension()` 对 `dimension_id` 的兼容查找；关键基线已收敛为 `112 passed, 0 warnings`，扩展兼容口径为 `125 passed, 0 warnings`
 
 ## Canonical Status Model
 - `todo`: 已登记，未开始
@@ -56,6 +56,7 @@
 | DEV-014 | 班级看板验收支撑样例与聚合断言补强 | `dev_done` | `dev-b` | `app/models/school_dashboard.py`, `app/models/obs_models.py`, `tests/test_school_dashboard.py` | pytest 18/18 通过，DashboardAssertions 聚合断言与 DashboardTestBuilder 验收样例已实现，OBS-007 compare 口径风险说明已支持；QA-008 已完成，本项证据已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
 | DEV-015 | 反馈闭环验收支撑样例与回流断言补强 | `dev_done` | `dev-a` | `app/models/feedback_event.py`, `tests/test_feedback_loop.py`, `AEdu/08_观察层与产品层/10_产品交互与反馈闭环.md`, `AEdu/08_观察层与产品层/qa_008_feedback_samples.json`, `AEdu/08_观察层与产品层/feedback_boundary_rules.md` | pytest 16/16 通过 + 12 个验收样例固化 + 8 条回流断言固化；DEV-015 交付结论：最小验收支撑已就绪；QA-008 已完成，本项证据已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
 | DEV-016 | 反馈闭环可追溯指标与试点问题库骨架 | `dev_done` | `dev-a` | `app/models/feedback_event.py`, `tests/test_feedback_traceability.py` | 已补 `PilotProblem`、`FeedbackTraceabilitySnapshot`、`FeedbackTraceabilityBuilder`，把反馈处理完成率 / 问题关闭率 / 干预执行回填率与周复盘汇总能力落到代码；反馈链联合回归 `20/20` 通过，并已写入 `#31` 生命周期评论（note 206） | - | QA-011 已完成且生命周期已同步；后续只维护阶段三主线引用一致性 |
+| DEV-017 | 清理返回值式测试写法并补齐标准维度查找兼容 | `qa_done` | `dev-b` | `tests/test_f8_rollback.py`, `tests/test_school_dashboard.py`, `tests/test_text_main_chain.py`, `tests/test_feedback_loop.py`, `tests/test_obs_compare_dimensions.py`, `app/models/compare_dimension.py` | 已把 5 个目标文件中被 pytest 收集到且返回非 `None` 的顶层 `test_*` 全部改成 pytest 合规形态；同时补齐 `get_standard_dimension()` 对模板键与 `dimension_id` 的兼容查找；5 文件专项复跑 `79/79` 通过，关键基线 `112/112` 通过且 `0 warnings`，扩展兼容口径 `125/125` 通过且 `0 warnings` | - | QA-013 已完成；后续只维护 warning 清零后的本地真源一致性 |
 
 ## Update Rule
 - 新任务先登记为 `todo`

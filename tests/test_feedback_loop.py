@@ -39,7 +39,7 @@ from app.models.feedback_event import (
 )
 
 
-def test_feedback_event_creation_from_option() -> tuple[bool, str]:
+def run_feedback_event_creation_from_option() -> tuple[bool, str]:
     """Test creating feedback event from predefined option."""
     try:
         option = FeedbackOption(
@@ -71,7 +71,7 @@ def test_feedback_event_creation_from_option() -> tuple[bool, str]:
         return False, f"Feedback event creation error: {e}"
 
 
-def test_feedback_event_creation_from_text() -> tuple[bool, str]:
+def run_feedback_event_creation_from_text() -> tuple[bool, str]:
     """Test creating feedback event from free text."""
     try:
         event = FeedbackEvent.create_from_text(
@@ -95,7 +95,7 @@ def test_feedback_event_creation_from_text() -> tuple[bool, str]:
         return False, f"Feedback event text creation error: {e}"
 
 
-def test_feedback_routing() -> tuple[bool, str]:
+def run_feedback_routing() -> tuple[bool, str]:
     """Test feedback routing based on type."""
     try:
         # Test calibration -> review_queue
@@ -156,7 +156,7 @@ def test_feedback_routing() -> tuple[bool, str]:
         return False, f"Feedback routing error: {e}"
 
 
-def test_feedback_lifecycle() -> tuple[bool, str]:
+def run_feedback_lifecycle() -> tuple[bool, str]:
     """Test feedback status lifecycle."""
     try:
         event = FeedbackEvent.create_from_text(
@@ -193,7 +193,7 @@ def test_feedback_lifecycle() -> tuple[bool, str]:
         return False, f"Feedback lifecycle error: {e}"
 
 
-def test_feedback_validation() -> tuple[bool, str]:
+def run_feedback_validation() -> tuple[bool, str]:
     """Test feedback event validation."""
     try:
         # Valid event
@@ -245,7 +245,7 @@ def test_feedback_validation() -> tuple[bool, str]:
         return False, f"Feedback validation error: {e}"
 
 
-def test_predefined_options() -> tuple[bool, str]:
+def run_predefined_options() -> tuple[bool, str]:
     """Test predefined feedback options."""
     try:
         # Parent report options
@@ -271,7 +271,7 @@ def test_predefined_options() -> tuple[bool, str]:
         return False, f"Predefined options error: {e}"
 
 
-def test_feedback_router() -> tuple[bool, str]:
+def run_feedback_router() -> tuple[bool, str]:
     """Test FeedbackRouter class."""
     try:
         router = FeedbackRouter()
@@ -302,7 +302,7 @@ def test_feedback_router() -> tuple[bool, str]:
         return False, f"FeedbackRouter error: {e}"
 
 
-def test_feedback_to_dict() -> tuple[bool, str]:
+def run_feedback_to_dict() -> tuple[bool, str]:
     """Test feedback event serialization."""
     try:
         event = FeedbackEvent.create_from_text(
@@ -341,14 +341,14 @@ def main():
     print()
 
     tests = [
-        ("Feedback Event Creation (Option)", test_feedback_event_creation_from_option),
-        ("Feedback Event Creation (Text)", test_feedback_event_creation_from_text),
-        ("Feedback Routing", test_feedback_routing),
-        ("Feedback Lifecycle", test_feedback_lifecycle),
-        ("Feedback Validation", test_feedback_validation),
-        ("Predefined Options", test_predefined_options),
-        ("Feedback Router", test_feedback_router),
-        ("Feedback Serialization", test_feedback_to_dict),
+        ("Feedback Event Creation (Option)", run_feedback_event_creation_from_option),
+        ("Feedback Event Creation (Text)", run_feedback_event_creation_from_text),
+        ("Feedback Routing", run_feedback_routing),
+        ("Feedback Lifecycle", run_feedback_lifecycle),
+        ("Feedback Validation", run_feedback_validation),
+        ("Predefined Options", run_predefined_options),
+        ("Feedback Router", run_feedback_router),
+        ("Feedback Serialization", run_feedback_to_dict),
     ]
 
     results: list[tuple[str, bool, str]] = []
@@ -383,49 +383,96 @@ if __name__ == "__main__":
 
 # ============== Pytest wrapper ==============
 
+def test_feedback_event_creation_from_option():
+    """Test creating feedback event from predefined option."""
+    success, message = run_feedback_event_creation_from_option()
+    assert success, message
+
+
+def test_feedback_event_creation_from_text():
+    """Test creating feedback event from free text."""
+    success, message = run_feedback_event_creation_from_text()
+    assert success, message
+
+
+def test_feedback_routing():
+    """Test feedback routing based on type."""
+    success, message = run_feedback_routing()
+    assert success, message
+
+
+def test_feedback_lifecycle():
+    """Test feedback status lifecycle."""
+    success, message = run_feedback_lifecycle()
+    assert success, message
+
+
+def test_feedback_validation():
+    """Test feedback event validation."""
+    success, message = run_feedback_validation()
+    assert success, message
+
+
+def test_predefined_options():
+    """Test predefined feedback options."""
+    success, message = run_predefined_options()
+    assert success, message
+
+
+def test_feedback_router():
+    """Test FeedbackRouter class."""
+    success, message = run_feedback_router()
+    assert success, message
+
+
+def test_feedback_to_dict():
+    """Test feedback event serialization."""
+    success, message = run_feedback_to_dict()
+    assert success, message
+
 def test_dev012_feedback_event_from_option():
     """DEV-012: Feedback event creation from predefined option."""
-    success, message = test_feedback_event_creation_from_option()
+    success, message = run_feedback_event_creation_from_option()
     assert success, message
 
 
 def test_dev012_feedback_event_from_text():
     """DEV-012: Feedback event creation from free text."""
-    success, message = test_feedback_event_creation_from_text()
+    success, message = run_feedback_event_creation_from_text()
     assert success, message
 
 
 def test_dev012_feedback_routing():
     """DEV-012: Feedback routing by type."""
-    success, message = test_feedback_routing()
+    success, message = run_feedback_routing()
     assert success, message
 
 
 def test_dev012_feedback_lifecycle():
     """DEV-012: Feedback status lifecycle."""
-    success, message = test_feedback_lifecycle()
+    success, message = run_feedback_lifecycle()
     assert success, message
 
 
 def test_dev012_feedback_validation():
     """DEV-012: Feedback event validation."""
-    success, message = test_feedback_validation()
+    success, message = run_feedback_validation()
     assert success, message
 
 
 def test_dev012_predefined_options():
     """DEV-012: Predefined feedback options."""
-    success, message = test_predefined_options()
+    success, message = run_predefined_options()
     assert success, message
 
 
 def test_dev012_feedback_router():
     """DEV-012: FeedbackRouter class."""
-    success, message = test_feedback_router()
+    success, message = run_feedback_router()
     assert success, message
 
 
 def test_dev012_feedback_serialization():
     """DEV-012: Feedback event serialization."""
-    success, message = test_feedback_to_dict()
+    success, message = run_feedback_to_dict()
     assert success, message

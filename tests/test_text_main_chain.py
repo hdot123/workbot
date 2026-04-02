@@ -52,7 +52,7 @@ from app.models.obs_models import (
 )
 
 
-def test_event_assembly() -> tuple[bool, str]:
+def run_event_assembly() -> tuple[bool, str]:
     """Test F6: Event assembly from text input."""
     try:
         input_data = TextInput(
@@ -88,7 +88,7 @@ def test_event_assembly() -> tuple[bool, str]:
         return False, f"Event assembly error: {e}"
 
 
-def test_twin_update() -> tuple[bool, str]:
+def run_twin_update() -> tuple[bool, str]:
     """Test F7: TWIN state update."""
     try:
         store = InMemoryStateStore()
@@ -127,7 +127,7 @@ def test_twin_update() -> tuple[bool, str]:
         return False, f"TWIN update error: {e}"
 
 
-def test_graph_write() -> tuple[bool, str]:
+def run_graph_write() -> tuple[bool, str]:
     """Test F8: Graph write chain."""
     try:
         store = InMemoryGraphStore()
@@ -172,7 +172,7 @@ def test_graph_write() -> tuple[bool, str]:
         return False, f"Graph write error: {e}"
 
 
-def test_obs_display() -> tuple[bool, str]:
+def run_obs_display() -> tuple[bool, str]:
     """Test F10: OBS display building."""
     try:
         builder = OBSDisplayBuilder()
@@ -231,17 +231,17 @@ def main():
     print()
 
     tests = [
-        ("F6: Event Assembly", test_event_assembly),
-        ("F7: TWIN Update", test_twin_update),
-        ("F8: Graph Write", test_graph_write),
-        ("F10: OBS Display", test_obs_display),
-        ("DEV-010: Class Dashboard", test_obs_class_dashboard),
-        ("DEV-010: School Dashboard", test_obs_school_dashboard),
-        ("DEV-008: Parent Weekly Contract", test_parent_weekly_contract),
-        ("DEV-008: Parent Monthly Contract", test_parent_monthly_contract),
-        ("DEV-008: Explanation Block", test_explanation_block),
-        ("DEV-009: Teacher Student Detail", test_teacher_student_detail_contract),
-        ("DEV-009: Teacher Detail Report Period", test_teacher_student_detail_with_report_period),
+        ("F6: Event Assembly", run_event_assembly),
+        ("F7: TWIN Update", run_twin_update),
+        ("F8: Graph Write", run_graph_write),
+        ("F10: OBS Display", run_obs_display),
+        ("DEV-010: Class Dashboard", run_obs_class_dashboard),
+        ("DEV-010: School Dashboard", run_obs_school_dashboard),
+        ("DEV-008: Parent Weekly Contract", run_parent_weekly_contract),
+        ("DEV-008: Parent Monthly Contract", run_parent_monthly_contract),
+        ("DEV-008: Explanation Block", run_explanation_block),
+        ("DEV-009: Teacher Student Detail", run_teacher_student_detail_contract),
+        ("DEV-009: Teacher Detail Report Period", run_teacher_student_detail_with_report_period),
     ]
 
     results: list[tuple[str, bool, str]] = []
@@ -277,73 +277,138 @@ if __name__ == "__main__":
 # ============== Pytest wrapper ==============
 # Minimal pytest-compatible tests for CI integration
 
+def test_event_assembly():
+    """Test F6: Event assembly from text input."""
+    success, message = run_event_assembly()
+    assert success, message
+
+
+def test_twin_update():
+    """Test F7: TWIN state update."""
+    success, message = run_twin_update()
+    assert success, message
+
+
+def test_graph_write():
+    """Test F8: Graph write chain."""
+    success, message = run_graph_write()
+    assert success, message
+
+
+def test_obs_display():
+    """Test F10: OBS display building."""
+    success, message = run_obs_display()
+    assert success, message
+
+
+def test_obs_class_dashboard():
+    """DEV-010: OBS class dashboard summary building."""
+    success, message = run_obs_class_dashboard()
+    assert success, message
+
+
+def test_obs_school_dashboard():
+    """DEV-010: OBS school dashboard summary building."""
+    success, message = run_obs_school_dashboard()
+    assert success, message
+
+
+def test_parent_weekly_contract():
+    """DEV-008: Parent weekly report contract with ExplanationBlock, ActionSuggestion, FeedbackEntry."""
+    success, message = run_parent_weekly_contract()
+    assert success, message
+
+
+def test_parent_monthly_contract():
+    """DEV-008: Parent monthly report contract with trend analysis and intervention review."""
+    success, message = run_parent_monthly_contract()
+    assert success, message
+
+
+def test_explanation_block():
+    """DEV-008: ExplanationBlock structure validation."""
+    success, message = run_explanation_block()
+    assert success, message
+
+
+def test_teacher_student_detail_contract():
+    """DEV-009: Teacher student detail contract with OBS-003 fields."""
+    success, message = run_teacher_student_detail_contract()
+    assert success, message
+
+
+def test_teacher_student_detail_with_report_period():
+    """DEV-009: Teacher student detail with report_period."""
+    success, message = run_teacher_student_detail_with_report_period()
+    assert success, message
+
 def test_f6_event_assembly():
     """F6: Event assembly from text input."""
-    success, message = test_event_assembly()
+    success, message = run_event_assembly()
     assert success, message
 
 
 def test_f7_twin_update():
     """F7: TWIN state update."""
-    success, message = test_twin_update()
+    success, message = run_twin_update()
     assert success, message
 
 
 def test_f8_graph_write():
     """F8: Graph write chain."""
-    success, message = test_graph_write()
+    success, message = run_graph_write()
     assert success, message
 
 
 def test_f10_obs_display():
     """F10: OBS display building."""
-    success, message = test_obs_display()
+    success, message = run_obs_display()
     assert success, message
 
 
 def test_dev010_class_dashboard():
     """DEV-010: OBS class dashboard summary building."""
-    success, message = test_obs_class_dashboard()
+    success, message = run_obs_class_dashboard()
     assert success, message
 
 
 def test_dev010_school_dashboard():
     """DEV-010: OBS school dashboard summary building."""
-    success, message = test_obs_school_dashboard()
+    success, message = run_obs_school_dashboard()
     assert success, message
 
 
 def test_dev008_parent_weekly_contract():
     """DEV-008: Parent weekly report contract with ExplanationBlock, ActionSuggestion, FeedbackEntry."""
-    success, message = test_parent_weekly_contract()
+    success, message = run_parent_weekly_contract()
     assert success, message
 
 
 def test_dev008_parent_monthly_contract():
     """DEV-008: Parent monthly report contract with trend analysis and intervention review."""
-    success, message = test_parent_monthly_contract()
+    success, message = run_parent_monthly_contract()
     assert success, message
 
 
 def test_dev008_explanation_block():
     """DEV-008: ExplanationBlock structure validation."""
-    success, message = test_explanation_block()
+    success, message = run_explanation_block()
     assert success, message
 
 
 def test_dev009_teacher_student_detail():
     """DEV-009: Teacher student detail contract with OBS-003 fields."""
-    success, message = test_teacher_student_detail_contract()
+    success, message = run_teacher_student_detail_contract()
     assert success, message
 
 
 def test_dev009_teacher_student_detail_report_period():
     """DEV-009: Teacher student detail with report_period."""
-    success, message = test_teacher_student_detail_with_report_period()
+    success, message = run_teacher_student_detail_with_report_period()
     assert success, message
 
 
-def test_obs_class_dashboard():
+def run_obs_class_dashboard():
     """DEV-010: OBS class dashboard summary building."""
     builder = OBSDisplayBuilder()
 
@@ -408,7 +473,7 @@ def test_obs_class_dashboard():
     return True, f"Class dashboard built: students={dashboard.total_students}, high_risk={dashboard.risk_distribution.high_risk_count}"
 
 
-def test_obs_school_dashboard():
+def run_obs_school_dashboard():
     """DEV-010: OBS school dashboard summary building."""
     builder = OBSDisplayBuilder()
 
@@ -464,7 +529,7 @@ def test_obs_school_dashboard():
 
 # ============== DEV-008: Parent Weekly/Monthly Report Contract Tests ==============
 
-def test_parent_weekly_contract():
+def run_parent_weekly_contract():
     """DEV-008: Parent weekly report with ExplanationBlock, ActionSuggestion, FeedbackEntry."""
     builder = OBSDisplayBuilder()
 
@@ -578,7 +643,7 @@ def test_parent_weekly_contract():
     return True, f"Parent weekly report built: highlights={len(report.weekly_highlights)}, concerns={len(report.weekly_concerns)}, actions={len(report.suggested_actions)}"
 
 
-def test_parent_monthly_contract():
+def run_parent_monthly_contract():
     """DEV-008: Parent monthly report with trend analysis and intervention review."""
     builder = OBSDisplayBuilder()
 
@@ -725,7 +790,7 @@ def test_parent_monthly_contract():
     return True, f"Parent monthly report built: trend={report.knowledge_trend}, highlights={len(report.monthly_highlights)}, interventions={len(report.intervention_reviews)}"
 
 
-def test_explanation_block():
+def run_explanation_block():
     """DEV-008: ExplanationBlock structure validation."""
     # Test minimal block
     block_minimal = ExplanationBlock(
@@ -769,7 +834,7 @@ def test_explanation_block():
 
 # ============== DEV-009: Teacher Student Detail Contract Tests ==============
 
-def test_teacher_student_detail_contract():
+def run_teacher_student_detail_contract():
     """DEV-009: Teacher student detail with OBS-003 fields."""
     builder = OBSDisplayBuilder()
 
@@ -880,7 +945,7 @@ def test_teacher_student_detail_contract():
     return True, f"Teacher student detail built: risk={detail.risk_level}, focus={len(detail.focus_knowledge_points)}, alerts={len(detail.alert_flags)}"
 
 
-def test_teacher_student_detail_with_report_period():
+def run_teacher_student_detail_with_report_period():
     """DEV-009: Teacher student detail with report_period set."""
     detail = TeacherStudentDetail.create_empty(
         student_id="STU_001",
