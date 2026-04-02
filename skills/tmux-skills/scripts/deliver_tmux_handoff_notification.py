@@ -9,14 +9,22 @@
 
 from __future__ import annotations
 
+# ==============================================================================
+# ENFORCEMENT: This script requires runtime owner authorization
+# ==============================================================================
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from runtime_enforcement import enforce_runtime_owner_only
+enforce_runtime_owner_only("deliver_tmux_handoff_notification.py")
+# ==============================================================================
+
 import argparse
 import fcntl
 import json
 import os
 import subprocess
-import sys
 import time
-from pathlib import Path
 from typing import Any
 
 from build_tmux_handoff_bundle import build_bundle

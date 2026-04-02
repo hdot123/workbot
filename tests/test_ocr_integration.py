@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 
 from app.models.ocr_interface import (
@@ -12,32 +11,45 @@ from app.models.ocr_interface import (
     OCRPageResult,
     OCRRequest,
     OCRTextBlock,
-    build_local_provider,
+    build_baidu_runner,
+    BaiduOCRConfig,
 )
 from app.models.event_assembler import assemble_from_dict
 from app.models.twin_ingest_contract import TwinIngestContract
 
 
-def test_local_ocr_with_glm() -> tuple[bool, str, dict]:
-    """Test local OCR runner with glm-ocr model."""
+def run_baidu_ocr_mock_end_to_end() -> tuple[bool, str, dict]:
+    """Test baidu OCR mock end-to-end with event integration."""
     try:
-        # Create a test text file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write("质点运动的习题练习\n学生完成了关于位移和速度的作业")
+        # Create a fake image file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            f.write(b"fake-png-image-data")
             test_file = f.name
 
         try:
-            # Set up environment for glm-ocr
-            env = os.environ.copy()
-            env["LOCAL_OCR_PROVIDER"] = "ollama"
-            env["LOCAL_OCR_MODEL"] = "glm-ocr"
+            # Mock HTTP responses for baidu OCR
+            responses = [
+                {"access_token": "mocked-token"},
+                {
+                    "words_result": [
+                        {"words": "质点运动的习题练习", "probability": {"average": 0.90}},
+                        {"words": "学生完成了作业", "probability": {"average": 0.88}},
+                    ]
+                },
+            ]
 
-            # Build provider
-            provider = build_local_provider(env=env)
+            def mock_http_post(url: str, body: bytes, headers: dict[str, str]) -> dict[str, object]:
+                return responses.pop(0)
+
+            # Build baidu runner
+            runner = build_baidu_runner(
+                BaiduOCRConfig(api_key="test-key", secret_key="test-secret"),
+                http_post=mock_http_post,
+            )
 
             # Create OCR request
             request = OCRRequest(
-                provider="local",
+                provider="baidu",
                 raw_input_ref="raw:TEST_OCR_001",
                 source_file_ref=test_file,
                 trace_id="TRC_OCR_TEST_001",
@@ -45,7 +57,24 @@ def test_local_ocr_with_glm() -> tuple[bool, str, dict]:
             )
 
             # Execute OCR
-            result = provider.recognize(request)
+            result = runner(request)
+
+            # Assemble event from OCR result
+            from app.models.ocr_event_bridge import ocr_result_to_event_payload
+
+            payload = ocr_result_to_event_payload(
+                ocr_result=result,
+                student_id="STU_001",
+                chapter_hint="第一章 运动的描述",
+                knowledge_hint="质点运动的规律",
+            )
+
+            chapter_mapping = {"第一章 运动的描述": "PHY_PEP_G1_V1_CH_01"}
+            knowledge_mapping = {"质点运动的规律": "PHY_PEP_G1_V1_KP_001"}
+
+            event = assemble_from_dict(payload, chapter_mapping, knowledge_mapping)
+            contract = event.to_contract()
+            decision = contract.validate()
 
             output = {
                 "provider": result.provider,
@@ -53,20 +82,72 @@ def test_local_ocr_with_glm() -> tuple[bool, str, dict]:
                 "review_needed": result.review_needed,
                 "overall_confidence": result.overall_confidence,
                 "extracted_text": result.extracted_text[:100] if result.extracted_text else None,
-                "warnings": list(result.warnings),
-                "review_reasons": list(result.review_reasons),
+                "event_type": event.event_type,
+                "contract_accepted": decision.accepted,
+                "should_consume": decision.should_consume,
             }
 
-            return True, "Local OCR executed successfully", output
+            success = (
+                result.provider == "baidu" and
+                result.event_status == "success" and
+                decision.accepted and
+                decision.should_consume
+            )
+
+            if success:
+                return True, "Baidu OCR mock e2e passed", output
+            else:
+                return False, "Baidu OCR mock e2e failed", output
 
         finally:
+            import os
             os.unlink(test_file)
 
     except Exception as e:
-        return False, f"Local OCR error: {e}", {}
+        return False, f"Baidu OCR mock e2e error: {e}", {}
 
 
-def test_ocr_result_to_event() -> tuple[bool, str, dict]:
+def test_baidu_ocr_mock_end_to_end() -> None:
+    success, message, _ = run_baidu_ocr_mock_end_to_end()
+    assert success, message
+
+
+def run_baidu_ocr_with_real_sample_image() -> tuple[bool, str, dict]:
+    """Test baidu OCR config and file loading with real AEdu sample image (no API call)."""
+    try:
+        import os
+        from pathlib import Path
+
+        # Use real AEdu sample image
+        sample_image = "/Users/busiji/workbot/AEdu/13_原始资料库/OCR/高中物理/样本截图/01_封面.png"
+
+        if not os.path.exists(sample_image):
+            return False, f"Sample image not found: {sample_image}", {}
+
+        # Verify file can be loaded and encoded (simulating what baidu runner does)
+        import base64
+        image_data = Path(sample_image).read_bytes()
+        img_base64 = base64.b64encode(image_data).decode("ascii")
+
+        output = {
+            "sample_image": sample_image,
+            "file_size": len(image_data),
+            "base64_length": len(img_base64),
+            "ready_for_baidu_ocr": True,
+        }
+
+        return True, "Real sample image verified (base64 encoding OK)", output
+
+    except Exception as e:
+        return False, f"Real sample image error: {e}", {}
+
+
+def test_baidu_ocr_with_real_sample_image() -> None:
+    success, message, _ = run_baidu_ocr_with_real_sample_image()
+    assert success, message
+
+
+def run_ocr_result_to_event() -> tuple[bool, str, dict]:
     """Test OCR result conversion to event with proper status routing."""
     try:
         # High confidence scenario: parent feedback with knowledge hint
@@ -96,18 +177,9 @@ def test_ocr_result_to_event() -> tuple[bool, str, dict]:
             "confidence_score": event.confidence_score,
         }
 
-        # Very low confidence scenario: extremely short text
-        # parent_text threshold is 0.65
-        # Base: 0.75, no length bonus, no hints -> stays at 0.75
-        # Need to go below 0.65, so we need negative scenarios
-        # Actually the current _compute_confidence doesn't have negative adjustments
-        # Minimum is 0.75 base, so we cannot trigger review with text input alone
-        # This is a design issue - the minimum confidence is 0.75 which is above 0.65 threshold
-
-        # For now, test with explicit review_needed event status from OCR result
-        # Simulate OCR result with low confidence
+        # Simulate OCR result with low confidence (baidu provider)
         ocr_low_conf = OCRDocumentResult(
-            provider="local",
+            provider="baidu",
             raw_input_ref="raw:TEST_OCR_LOW",
             source_file_ref="/tmp/test.pdf",
             trace_id="TRC_OCR_LOW",
@@ -144,7 +216,6 @@ def test_ocr_result_to_event() -> tuple[bool, str, dict]:
 
         event2 = assemble_from_dict(event_payload_low, chapter_mapping, knowledge_mapping)
         # Manually set low confidence to simulate OCR low confidence scenario
-        # In real flow, OCR confidence would be passed through
         object.__setattr__(event2, 'confidence_score', 0.50)
         object.__setattr__(event2, 'event_status', 'review_needed')
 
@@ -178,7 +249,12 @@ def test_ocr_result_to_event() -> tuple[bool, str, dict]:
         return False, f"OCR to event error: {e}", {}
 
 
-def test_degraded_consumption() -> tuple[bool, str, dict]:
+def test_ocr_result_to_event() -> None:
+    success, message, _ = run_ocr_result_to_event()
+    assert success, message
+
+
+def run_degraded_consumption() -> tuple[bool, str, dict]:
     """Test degraded consumption (no knowledge refs but has chapter/context)."""
     try:
         # Degraded scenario: parent_feedback_event with chapter hint but no knowledge hint
@@ -231,12 +307,18 @@ def test_degraded_consumption() -> tuple[bool, str, dict]:
         return False, f"Degraded consumption error: {e}", {}
 
 
+def test_degraded_consumption() -> None:
+    success, message, _ = run_degraded_consumption()
+    assert success, message
+
+
 def run_all_tests() -> dict:
     """Run all OCR integration tests."""
     tests = [
-        ("local_ocr_glm", test_local_ocr_with_glm),
-        ("ocr_to_event", test_ocr_result_to_event),
-        ("degraded_consumption", test_degraded_consumption),
+        ("baidu_ocr_mock_e2e", run_baidu_ocr_mock_end_to_end),
+        ("baidu_ocr_real_sample", run_baidu_ocr_with_real_sample_image),
+        ("ocr_to_event", run_ocr_result_to_event),
+        ("degraded_consumption", run_degraded_consumption),
     ]
 
     results = {name: func() for name, func in tests}

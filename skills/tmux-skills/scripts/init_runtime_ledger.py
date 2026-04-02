@@ -9,8 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from runtime_enforcement import enforce_orchestrator_only
-enforce_orchestrator_only("init_runtime_ledger.py")
+from runtime_enforcement import enforce_startup_chain_only
+enforce_startup_chain_only("init_runtime_ledger.py")
 # ==============================================================================
 
 import argparse
@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_WORKER_CEILING,
         help="Concurrent worker ceiling.",
     )
+    parser.add_argument(
+        "--runtime-owner-token",
+        default="",
+        help="Runtime owner token that authorizes follow-on write operations for this formal runtime.",
+    )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print the output.")
     return parser.parse_args()
 
@@ -142,6 +147,7 @@ def main() -> int:
         codex_thread_bound=args.codex_thread_bound,
         runtime_status=args.runtime_status,
         worker_ceiling=args.worker_ceiling,
+        runtime_owner_token=args.runtime_owner_token,
     )
     if args.pretty:
         print(json.dumps(ledger, ensure_ascii=False, indent=2))

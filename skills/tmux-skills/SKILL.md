@@ -17,6 +17,7 @@ description: |
 ## 冻结口径
 
 - `tmux-skills` 负责 tmux 运行面；允许在 pane 里直接启动 `claude`
+- `tmux-skills` 的官方 Python 运行时只认项目 `/Users/busiji/workbot/.venv/bin/python`
 - 若 pane 标题命中项目 `.claude/agents/<name>.md`，先在对应 pane 内启动纯 `claude`，再把该身份文件内容粘贴注入到 Claude 窗口
 - 不允许把不存在于项目 `.claude/agents/` 的名字映射成项目身份注入
 - pane 数量和 pane 标题必须由调用方显式传入，skill 不自行决定
@@ -47,14 +48,15 @@ description: |
 ## 默认工作流
 
 1. 先跑 `start_formal_runtime_chain.py --explain-launch-path`
-2. 再跑 `check_tmux_ready.py --summary`
-3. 只有摘要不足时，再局部阅读源码
-4. 不要默认整段读取 `start_formal_runtime_chain.py`、`check_tmux_ready.py` 或长篇决策记录
+2. 再跑 `start_formal_runtime_chain.py`
+3. 需要 watcher 时，再显式跑 `arm_tmux_handoff_watcher.py`
+4. 需要审计当前运行面时，再跑 `check_tmux_ready.py --summary`
+5. 只有摘要不足时，再局部阅读源码
 
 ## 最小调用示例
 
 ```bash
-python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_chain.py \
+/Users/busiji/workbot/.venv/bin/python /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_chain.py \
   --codex-thread-id "$CODEX_THREAD_ID" \
   --formal-session formal-session \
   --pane-title task-1 \
@@ -66,8 +68,8 @@ python3 /Users/busiji/workbot/skills/tmux-skills/scripts/start_formal_runtime_ch
 
 ## 结果口径
 
-- 启动主链负责：预清理、formal-session 接管或创建、pane 布局、标题设置、项目 agent 白名单匹配后的纯 `claude` 启动、身份文件粘贴注入、ledger、watcher、ready check
-- watcher 只能在上述启动准备完成后开始扫描和放第一条消息
+- 启动主链负责：预清理、formal-session 接管或创建、pane 布局、标题设置、项目 agent 白名单匹配后的纯 `claude` 启动、身份文件粘贴注入、ledger
+- watcher 不属于默认启动链；只有显式执行 `arm_tmux_handoff_watcher.py` 后才开始扫描和放第一条消息
 - watcher 只负责“看”和落队列
 - delivery runner 只负责“送”的编排，真正投递由 window IPC bridge 完成
 - 报告内容至少包含：

@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 
 SCRIPTS_DIR = Path("/Users/busiji/workbot/skills/tmux-skills/scripts")
 sys.path.insert(0, str(SCRIPTS_DIR))
+sys.path.insert(0, str(SCRIPTS_DIR.parent))
 
 import build_tmux_handoff_bundle  # noqa: E402
 import build_tmux_topology  # noqa: E402
@@ -24,8 +25,10 @@ import deliver_tmux_handoff_notification  # noqa: E402
 import init_tmux_env  # noqa: E402
 import init_tmux_panes  # noqa: E402
 import init_runtime_ledger  # noqa: E402
+import run_script  # noqa: E402
 import start_formal_runtime_chain  # noqa: E402
 import tmux_handoff_app_bridge  # noqa: E402
+import tmux_scheduler  # noqa: E402
 import tmux_runtime_common  # noqa: E402
 import watch_tmux_handoff  # noqa: E402
 import write_tmux_notifications_sqlite  # noqa: E402
@@ -389,8 +392,9 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
 
     def test_paste_text_into_pane_uses_tmux_buffer_and_submit(self) -> None:
         with patch("start_formal_runtime_chain.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-            result = start_formal_runtime_chain.paste_text_into_pane("formal-session:1.2", "name: qa-bot\nbody")
+            with patch("start_formal_runtime_chain.time.sleep") as mock_sleep:
+                mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                result = start_formal_runtime_chain.paste_text_into_pane("formal-session:1.2", "name: qa-bot\nbody")
 
         self.assertEqual("formal-session:1.2", result["target"])
         self.assertEqual(len("name: qa-bot\nbody"), result["payload_chars"])
@@ -398,6 +402,127 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("paste-buffer", mock_run.call_args_list[1].args[0][1])
         self.assertEqual("send-keys", mock_run.call_args_list[2].args[0][1])
         self.assertEqual("delete-buffer", mock_run.call_args_list[3].args[0][1])
+        mock_sleep.assert_called_once_with(0.15)
+
+    def test_pane_has_claude_prompt_detects_bottom_prompt(self) -> None:
+        self.assertTrue(
+            start_formal_runtime_chain.pane_has_claude_prompt(
+                "line 1\n❯ \n────────────────\n  ⏵⏵ accept edits on"
+            )
+        )
+        self.assertTrue(
+            start_formal_runtime_chain.pane_has_claude_prompt(
+                "line 1\n❯\u00a0123\n────────────────\n  ⏵⏵ accept edits on"
+            )
+        )
+        self.assertTrue(
+            tmux_runtime_common.pane_has_claude_prompt(
+                "line 1\n❯\u00a0123\n────────────────\n  ⏵⏵ accept edits on"
+            )
+        )
+        self.assertFalse(start_formal_runtime_chain.pane_has_claude_prompt("line 1\nline 2"))
+
+    def test_wait_for_claude_pane_ready_requires_visible_prompt(self) -> None:
+        state = {
+            "target": "formal-session:1.2",
+            "current_command": "node",
+            "pane_title": "✳ Claude Code",
+            "pane_title_normalized": "Claude Code",
+        }
+        with patch("start_formal_runtime_chain.query_pane_runtime", side_effect=[state, state]):
+            with patch(
+                "start_formal_runtime_chain.capture_pane_output",
+                side_effect=[
+                    "Claude Code starting",
+                    "Claude Code ready\n❯ ",
+                ],
+            ):
+                with patch("start_formal_runtime_chain.time.monotonic", side_effect=[0.0, 0.1, 0.2]):
+                    with patch("start_formal_runtime_chain.time.sleep") as mock_sleep:
+                        result = start_formal_runtime_chain.wait_for_claude_pane_ready(
+                            "formal-session:1.2",
+                            timeout_seconds=1.0,
+                        )
+
+        self.assertEqual("formal-session:1.2", result["target"])
+        self.assertEqual("true", result["prompt_ready"])
+        self.assertEqual(2, mock_sleep.call_count)
+
+    def test_wait_for_attached_formal_session_retries_until_visible_formal_client(self) -> None:
+        detached_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 0}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=True,
+            formal_sessions=["formal-session"],
+        )
+        attached_snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            visible_terminal_client=True,
+            formal_sessions=["formal-session"],
+        )
+
+        with patch(
+            "start_formal_runtime_chain.inspect_runtime_snapshot",
+            side_effect=[detached_snapshot, attached_snapshot],
+        ) as mock_inspect:
+            with patch(
+                "start_formal_runtime_chain.time.monotonic",
+                side_effect=[0.0, 0.0, 0.05, 0.1],
+            ):
+                with patch("start_formal_runtime_chain.time.sleep") as mock_sleep:
+                    result = start_formal_runtime_chain.wait_for_attached_formal_session(
+                        "formal-session",
+                        timeout_seconds=1.0,
+                        poll_interval_seconds=0.1,
+                    )
+
+        self.assertEqual("attached", result["status"])
+        self.assertEqual(2, result["attempts"])
+        self.assertTrue(result["formal_client_state"]["startup_client_ready"])
+        self.assertEqual(2, mock_inspect.call_count)
+        mock_sleep.assert_called_once_with(0.1)
+
+    def test_run_runtime_activation_postlaunch_stops_after_identity_injection(self) -> None:
+        steps = {"surface_normalization": {"current_target": "formal-session:1.1"}}
+
+        with patch(
+            "start_formal_runtime_chain.boot_project_claude_panes",
+            return_value={"current_target": "formal-session:1.1", "booted": [], "skipped": []},
+        ) as mock_boot:
+            with patch(
+                "start_formal_runtime_chain.inject_project_agent_identities",
+                return_value={"current_target": "formal-session:1.1", "injected": [], "skipped": []},
+            ) as mock_inject:
+                with patch("start_formal_runtime_chain.run_json_script") as mock_run_json:
+                    with patch("start_formal_runtime_chain.wait_for_attached_formal_session") as mock_wait:
+                        start_formal_runtime_chain.run_runtime_activation_postlaunch(
+                            "formal-session",
+                            [{"target": "formal-session:1.1", "slot": "pane_1", "pane_title": "dev-bot"}],
+                            ["formal-session:1.1"],
+                            steps,
+                        )
+
+        mock_boot.assert_called_once()
+        mock_inject.assert_called_once()
+        mock_wait.assert_not_called()
+        mock_run_json.assert_not_called()
+        self.assertIn("claude_boot", steps)
+        self.assertIn("identity_injection", steps)
+        self.assertNotIn("watcher", steps)
+        self.assertNotIn("ready_check", steps)
 
     def test_split_flag_for_pane_prefers_wide_then_tall(self) -> None:
         self.assertEqual(
@@ -617,7 +742,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("BLOCKED", payload["runtime_status"])
         self.assertEqual(["not visible"], payload["reasons"])
 
-    def test_build_result_reports_ready_check_step(self) -> None:
+    def test_build_result_reports_identity_injection_as_final_default_step(self) -> None:
         result = start_formal_runtime_chain.build_result(
             "ok",
             {"formal_session": "formal-session"},
@@ -626,7 +751,312 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIn("tmux_preflight", result["chain"])
         self.assertIn("claude_boot", result["chain"])
         self.assertIn("identity_injection", result["chain"])
-        self.assertIn("ready_check", result["chain"])
+        self.assertNotIn("watcher", result["chain"])
+        self.assertNotIn("ready_check", result["chain"])
+
+    def test_build_terminal_app_command_uses_project_python(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch(
+            "start_formal_runtime_chain.resolve_project_python",
+            return_value="/tmp/workbot/.venv/bin/python",
+        ):
+            command = start_formal_runtime_chain.build_terminal_app_command(
+                args,
+                result_path=Path("/tmp/result.json"),
+                start_ms="123",
+            )
+
+        self.assertIn("/tmp/workbot/.venv/bin/python", command)
+
+    def test_build_terminal_app_command_propagates_start_chain_lock_token(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch.dict(
+            "start_formal_runtime_chain.os.environ",
+            {start_formal_runtime_chain.START_CHAIN_LOCK_TOKEN_ENV: "lock-token-1"},
+            clear=False,
+        ):
+            with patch(
+                "start_formal_runtime_chain.resolve_project_python",
+                return_value="/tmp/workbot/.venv/bin/python",
+            ):
+                command = start_formal_runtime_chain.build_terminal_app_command(
+                    args,
+                    result_path=Path("/tmp/result.json"),
+                    start_ms="123",
+                )
+
+        self.assertIn("TMUX_START_CHAIN_LOCK_TOKEN=lock-token-1", command)
+
+    def test_build_terminal_app_command_clears_terminal_and_shows_short_success_status(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=1,
+            pane_titles=["dev-bot"],
+            pretty=False,
+        )
+        with patch(
+            "start_formal_runtime_chain.resolve_project_python",
+            return_value="/tmp/workbot/.venv/bin/python",
+        ):
+            command = start_formal_runtime_chain.build_terminal_app_command(
+                args,
+                result_path=Path("/tmp/result.json"),
+                start_ms="123",
+            )
+
+        self.assertIn("printf '\\033[2J\\033[H';", command)
+        self.assertIn("tmux-skills startup finished", command)
+        self.assertNotIn("--close-terminal-window-id", command)
+
+    def test_build_post_launch_command_uses_project_python(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch(
+            "start_formal_runtime_chain.resolve_project_python",
+            return_value="/tmp/workbot/.venv/bin/python",
+        ):
+            command = start_formal_runtime_chain.build_post_launch_command(args)
+
+        self.assertIn("/tmp/workbot/.venv/bin/python", command)
+
+    def test_build_post_launch_command_propagates_start_chain_lock_token(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch.dict(
+            "start_formal_runtime_chain.os.environ",
+            {start_formal_runtime_chain.START_CHAIN_LOCK_TOKEN_ENV: "lock-token-1"},
+            clear=False,
+        ):
+            with patch(
+                "start_formal_runtime_chain.resolve_project_python",
+                return_value="/tmp/workbot/.venv/bin/python",
+            ):
+                command = start_formal_runtime_chain.build_post_launch_command(args)
+
+        self.assertIn("TMUX_START_CHAIN_LOCK_TOKEN=lock-token-1", command)
+
+    def test_build_inside_formal_command_uses_project_python(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch(
+            "start_formal_runtime_chain.resolve_project_python",
+            return_value="/tmp/workbot/.venv/bin/python",
+        ):
+            command = start_formal_runtime_chain.build_inside_formal_command(
+                args,
+                "/tmp/chain-context.json",
+            )
+
+        self.assertIn("/tmp/workbot/.venv/bin/python", command)
+
+    def test_build_inside_formal_command_propagates_start_chain_lock_token(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            pane_count=2,
+            pane_titles=["dev-bot", "qa-bot"],
+            pretty=False,
+        )
+        with patch.dict(
+            "start_formal_runtime_chain.os.environ",
+            {start_formal_runtime_chain.START_CHAIN_LOCK_TOKEN_ENV: "lock-token-1"},
+            clear=False,
+        ):
+            with patch(
+                "start_formal_runtime_chain.resolve_project_python",
+                return_value="/tmp/workbot/.venv/bin/python",
+            ):
+                command = start_formal_runtime_chain.build_inside_formal_command(
+                    args,
+                    "/tmp/chain-context.json",
+                )
+
+        self.assertIn("TMUX_START_CHAIN_LOCK_TOKEN=lock-token-1", command)
+
+    def test_acquire_start_chain_lock_rejects_parallel_public_run(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-2",
+            formal_session="formal-session",
+            task_id="task-2",
+            continue_inside_formal=False,
+            continue_post_launch=False,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_file = Path(tmpdir) / "start.lock"
+            lock_info = Path(tmpdir) / "start.lock.json"
+            lock_info.write_text(
+                json.dumps(
+                    {
+                        "owner_token": "existing-token",
+                        "holder_pid": 4242,
+                        "mode": "public_entry",
+                        "started_at": "2026-04-01T10:08:01+00:00",
+                        "codex_thread_id": "thread-1",
+                        "pane_titles": ["dev-bot", "qa-bot"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(start_formal_runtime_chain, "START_CHAIN_LOCK_FILE_PATH", lock_file):
+                with patch.object(start_formal_runtime_chain, "START_CHAIN_LOCK_INFO_PATH", lock_info):
+                    with patch.dict("start_formal_runtime_chain.os.environ", {}, clear=False):
+                        with patch("start_formal_runtime_chain.process_is_alive", return_value=True):
+                            with self.assertRaises(RuntimeError) as exc:
+                                start_formal_runtime_chain.acquire_start_chain_lock(
+                                    args,
+                                    pane_titles=["dev-bot", "qa-bot", "doc-bot"],
+                                )
+
+        self.assertIn("already in progress", str(exc.exception))
+        self.assertIn("thread_id=thread-1", str(exc.exception))
+
+    def test_acquire_start_chain_lock_refreshes_same_chain_continuation(self) -> None:
+        args = Namespace(
+            codex_thread_id="thread-1",
+            formal_session="formal-session",
+            task_id="task-1",
+            continue_inside_formal=True,
+            continue_post_launch=False,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_file = Path(tmpdir) / "start.lock"
+            lock_info = Path(tmpdir) / "start.lock.json"
+            lock_info.write_text(
+                json.dumps(
+                    {
+                        "owner_token": "same-token",
+                        "holder_pid": 1234,
+                        "mode": "public_entry",
+                        "started_at": "2026-04-01T10:08:01+00:00",
+                        "refreshed_at": "2026-04-01T10:08:01+00:00",
+                        "codex_thread_id": "thread-1",
+                        "pane_titles": ["dev-bot", "qa-bot"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(start_formal_runtime_chain, "START_CHAIN_LOCK_FILE_PATH", lock_file):
+                with patch.object(start_formal_runtime_chain, "START_CHAIN_LOCK_INFO_PATH", lock_info):
+                    with patch.dict(
+                        "start_formal_runtime_chain.os.environ",
+                        {start_formal_runtime_chain.START_CHAIN_LOCK_TOKEN_ENV: "same-token"},
+                        clear=False,
+                    ):
+                        token = start_formal_runtime_chain.acquire_start_chain_lock(
+                            args,
+                            pane_titles=["dev-bot", "qa-bot"],
+                        )
+            metadata = json.loads(lock_info.read_text(encoding="utf-8"))
+
+        self.assertEqual("same-token", token)
+        self.assertEqual("same-token", metadata["owner_token"])
+        self.assertEqual("inside_formal_continuation", metadata["mode"])
+        self.assertEqual("thread-1", metadata["codex_thread_id"])
+
+    def test_scheduler_execute_script_uses_project_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scripts_dir = Path(tmpdir)
+            entry_point = scripts_dir / "fake.py"
+            entry_point.write_text("print('ok')\n", encoding="utf-8")
+
+            with patch.object(tmux_scheduler, "SCRIPTS_DIR", scripts_dir):
+                with patch.object(
+                    tmux_scheduler,
+                    "resolve_project_python",
+                    return_value="/tmp/workbot/.venv/bin/python",
+                ):
+                    with patch("tmux_scheduler.subprocess.run") as mock_run:
+                        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                        returncode, stdout, stderr = tmux_scheduler.execute_script(
+                            "fake.py",
+                            {"entry_point": "fake.py"},
+                            ["--flag"],
+                            capture_output=True,
+                        )
+
+        self.assertEqual(0, returncode)
+        self.assertEqual("", stdout)
+        self.assertEqual("", stderr)
+        self.assertEqual(
+            [
+                "/tmp/workbot/.venv/bin/python",
+                str(entry_point),
+                "--flag",
+            ],
+            mock_run.call_args.args[0],
+        )
+
+    def test_run_script_main_bootstraps_project_python(self) -> None:
+        with patch("run_script.ensure_project_python") as mock_bootstrap:
+            with patch.object(sys, "argv", ["run_script.py", "--list"]):
+                with patch("run_script.load_registry", return_value={"scripts": {}}):
+                    with patch("run_script.list_scripts"):
+                        exit_code = run_script.main()
+
+        self.assertEqual(0, exit_code)
+        mock_bootstrap.assert_called_once_with()
+
+    def test_check_tmux_ready_main_bootstraps_project_python(self) -> None:
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=False,
+            summary=True,
+            pretty=False,
+        )
+
+        with patch("check_tmux_ready.ensure_project_python") as mock_bootstrap:
+            with patch("check_tmux_ready.parse_args", return_value=args):
+                with patch("check_tmux_ready.inspect_runtime", return_value={"current_client": {}}):
+                    with patch(
+                        "check_tmux_ready.evaluate",
+                        return_value={"runtime_status": "READY", "reasons": [], "next_action": []},
+                    ):
+                        with patch(
+                            "check_tmux_ready.summarize",
+                            return_value={"runtime_status": "READY"},
+                        ):
+                            with patch("sys.stdout", new=io.StringIO()):
+                                exit_code = check_tmux_ready.main()
+
+        self.assertEqual(0, exit_code)
+        mock_bootstrap.assert_called_once_with()
 
     def test_preflight_kill_all_tmux_sessions_kills_hidden_formal_session(self) -> None:
         snapshot = runtime_snapshot(
@@ -789,7 +1219,7 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             session_mode="fixed",
         )
         message = bundle["tmux_skills_handoff"]["notification"]["message"]
-        self.assertEqual("notes pane 已停止：formal-session:1.3", message)
+        self.assertEqual("去formal-session:1.3检查 SOP 状态", message)
         self.assertEqual(
             "019d3900-80a8-7be1-8e7e-ffa52e0816d3",
             bundle["tmux_skills_handoff"]["target"]["thread_id"],
@@ -798,6 +1228,17 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             "codex_window_ipc",
             bundle["tmux_skills_handoff"]["delivery"]["transport"],
         )
+
+    def test_bundle_message_keeps_fallback_for_non_handoff_events(self) -> None:
+        event = sample_event("session_detached")
+        event["state_label"] = "会话已脱离前台"
+        bundle = build_tmux_handoff_bundle.build_bundle(
+            event,
+            table="tmux_notifications_raw",
+            session_mode="fixed",
+        )
+        message = bundle["tmux_skills_handoff"]["notification"]["message"]
+        self.assertEqual("notes 会话已脱离前台：formal-session:1.3", message)
 
     def test_bridge_command_targets_app_thread_bridge(self) -> None:
         command = deliver_tmux_handoff_notification.build_bridge_command(
@@ -919,6 +1360,52 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                 ],
                 command,
             )
+
+    def test_watcher_ignores_idle_claude_prompt_surfaces(self) -> None:
+        snapshot = {
+            "target": "formal-session:1.1",
+            "session": "formal-session",
+            "window": "1",
+            "pane_index": "1",
+            "pane_id": "%0",
+            "pane_title": "✳ Claude Code",
+            "cwd": "/Users/busiji/workbot",
+            "current_command": "node",
+            "pane_dead": 0,
+            "pane_dead_status": "",
+            "session_attached": 1,
+            "recent_output": "Claude Code ready\n❯ \n────────────────\n  ⏵⏵ accept edits on",
+            "recent_output_hash": "abc123def456",
+            "reachable": True,
+            "state_signature": "state-123",
+        }
+        args = Namespace(
+            targets=["formal-session:1.1"],
+            pane_ids=[],
+            interval=10.0,
+            start=-5,
+            once=True,
+            log_file="/tmp/handoff-notifications.jsonl",
+            deliver=False,
+            delivery_script="/tmp/deliver_tmux_handoff_notification.py",
+            session_mode="fixed",
+            deliver_dry_run=False,
+            delivery_queue_dir="/tmp/delivery-queue",
+            delivery_stdout_log="/tmp/delivery.log",
+        )
+
+        with patch("watch_tmux_handoff.parse_args", return_value=args):
+            with patch("watch_tmux_handoff.normalize_targets", return_value=["formal-session:1.1"]):
+                with patch("watch_tmux_handoff.read_tmux_session_binding", return_value="thread-123"):
+                    with patch("watch_tmux_handoff.capture_snapshot", return_value=snapshot):
+                        with patch("watch_tmux_handoff.classify_snapshot", return_value=None):
+                            with patch("watch_tmux_handoff.record_event") as mock_record:
+                                with patch("watch_tmux_handoff.emit") as mock_emit:
+                                    rc = watch_tmux_handoff.main()
+
+        self.assertEqual(0, rc)
+        mock_record.assert_not_called()
+        mock_emit.assert_not_called()
 
     def test_delivery_runner_keeps_event_file_for_bridge_processing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1284,6 +1771,109 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             result["formal_targets"],
         )
 
+    def test_ready_check_accepts_claude_code_titles_for_project_agent_slots(self) -> None:
+        ledger = formal_runtime_ledger(
+            pane_count=4,
+            targets=[f"formal-session:1.{index}" for index in range(1, 5)],
+        )
+        ledger["slot_bindings"]["pane_1"]["pane_title"] = "dev-bot"
+        ledger["slot_bindings"]["pane_2"]["pane_title"] = "dev-bot"
+        ledger["slot_bindings"]["pane_3"]["pane_title"] = "qa-bot"
+        ledger["slot_bindings"]["pane_4"]["pane_title"] = "doc-bot"
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "Claude Code",
+                    "current_command": "node",
+                },
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.2",
+                    "pane_title_normalized": "Claude Code",
+                    "current_command": "node",
+                },
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.3",
+                    "pane_title_normalized": "Claude Code",
+                    "current_command": "node",
+                },
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.4",
+                    "pane_title_normalized": "Claude Code",
+                    "current_command": "node",
+                },
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=ledger,
+        )
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=True,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent_dir = Path(tmpdir)
+            for name in ("dev-bot", "qa-bot", "doc-bot"):
+                (agent_dir / f"{name}.md").write_text(f"name: {name}\n", encoding="utf-8")
+            with patch.object(check_tmux_ready, "CLAUDE_PROJECT_AGENTS_DIR", agent_dir):
+                result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("READY", result["runtime_status"])
+        self.assertEqual([], result["reasons"])
+
+    def test_ready_check_rejects_claude_code_title_for_non_project_agent_slot(self) -> None:
+        ledger = formal_runtime_ledger(pane_count=1, targets=["formal-session:1.1"])
+        ledger["slot_bindings"]["pane_1"]["pane_title"] = "notes"
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {
+                    "session_name": "formal-session",
+                    "target": "formal-session:1.1",
+                    "pane_title_normalized": "Claude Code",
+                    "current_command": "node",
+                }
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=ledger,
+        )
+        args = Namespace(
+            expected_pane_count=None,
+            formal_session_name="formal-session",
+            require_formal=False,
+            require_watcher=False,
+            pretty=False,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent_dir = Path(tmpdir)
+            with patch.object(check_tmux_ready, "CLAUDE_PROJECT_AGENTS_DIR", agent_dir):
+                result = check_tmux_ready.evaluate(snapshot, args)
+
+        self.assertEqual("BLOCKED", result["runtime_status"])
+        self.assertIn(
+            "slot_bindings.pane_1 expects notes at formal-session:1.1, actual title is Claude Code",
+            result["reasons"],
+        )
+
     def test_ready_check_main_emits_summary_payload(self) -> None:
         snapshot = runtime_snapshot(
             sessions=[{"session_name": "formal-session", "attached": 1}],
@@ -1387,6 +1977,83 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
                     arm_tmux_handoff_watcher.main()
 
         self.assertIn("has no attached tmux client", str(exc.exception))
+
+    def test_arm_watcher_default_targets_use_runtime_ledger_slot_bindings(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[
+                {"session_name": "formal-session", "target": "formal-session:1.1"},
+                {"session_name": "formal-session", "target": "formal-session:1.2"},
+                {"session_name": "formal-session", "target": "formal-session:1.3"},
+                {"session_name": "formal-session", "target": "formal-session:1.4"},
+                {"session_name": "formal-session", "target": "formal-session:2.1"},
+            ],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+            runtime_ledger=formal_runtime_ledger(
+                targets=[f"formal-session:1.{index}" for index in range(1, 5)]
+            ),
+        )
+        with patch("arm_tmux_handoff_watcher.inspect_runtime", return_value=snapshot):
+            with patch("arm_tmux_handoff_watcher.enforce_destroy_unattached", return_value="destroy_unattached=on"):
+                with patch("arm_tmux_handoff_watcher.ensure_tmux_thread_binding", return_value="thread-123"):
+                    with patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "arm_tmux_handoff_watcher.py",
+                            "--dry-run",
+                            "--pretty",
+                        ],
+                    ):
+                        stdout = io.StringIO()
+                        with patch("sys.stdout", stdout):
+                            rc = arm_tmux_handoff_watcher.main()
+
+        self.assertEqual(0, rc)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(
+            [
+                "formal-session:1.1",
+                "formal-session:1.2",
+                "formal-session:1.3",
+                "formal-session:1.4",
+            ],
+            payload["targets"],
+        )
+        self.assertNotIn("formal-session:2.1", payload["targets"])
+
+    def test_arm_watcher_without_explicit_targets_requires_runtime_ledger_bindings(self) -> None:
+        snapshot = runtime_snapshot(
+            sessions=[{"session_name": "formal-session", "attached": 1}],
+            panes=[{"session_name": "formal-session", "target": "formal-session:1.1"}],
+            clients=[{"session_name": "formal-session", "client_tty": "/dev/ttys048"}],
+            current_client={
+                "inside_tmux": True,
+                "session_name": "formal-session",
+                "client_tty": "/dev/ttys048",
+            },
+        )
+        with patch("arm_tmux_handoff_watcher.inspect_runtime", return_value=snapshot):
+            with patch("arm_tmux_handoff_watcher.load_current_runtime_ledger", return_value={}):
+                with patch("arm_tmux_handoff_watcher.enforce_destroy_unattached", return_value="destroy_unattached=on"):
+                    with patch("arm_tmux_handoff_watcher.ensure_tmux_thread_binding", return_value="thread-123"):
+                        with patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "arm_tmux_handoff_watcher.py",
+                                "--dry-run",
+                            ],
+                        ):
+                            with self.assertRaises(SystemExit) as exc:
+                                arm_tmux_handoff_watcher.main()
+
+        self.assertIn("runtime ledger has no formal slot bindings", str(exc.exception))
 
     def test_init_tmux_env_prepares_formal_session_from_visible_launcher(self) -> None:
         snapshot = runtime_snapshot(
@@ -1518,30 +2185,33 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             runtime_snapshot(sessions=[], panes=[], clients=[], current_client={"inside_tmux": False}, visible_terminal_client=True),
         ]
 
-        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=False):
-            with patch("start_formal_runtime_chain.inspect_runtime_snapshot", side_effect=inspect_snapshots):
-                with patch(
-                    "start_formal_runtime_chain.preflight_kill_all_tmux_sessions",
-                    return_value={"attempted": True, "cleaned": True, "killed_sessions": ["seed-session"]},
-                ):
-                    with patch(
-                        "start_formal_runtime_chain.cleanup_previous_runtime_state",
-                        return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
-                    ):
-                        with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
-                            mock_run.return_value = Mock(returncode=0)
-                            with patch.object(
-                                sys,
-                                "argv",
-                                [
-                                    "start_formal_runtime_chain.py",
-                                    "--codex-thread-id",
-                                    "test-thread",
-                                    "--pane-title",
-                                    "dev-bot-1",
-                                ],
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("start_formal_runtime_chain.START_CHAIN_LOCK_INFO_PATH", Path(tmpdir) / "start.lock.json"):
+                with patch("start_formal_runtime_chain.START_CHAIN_LOCK_FILE_PATH", Path(tmpdir) / "start.lock"):
+                    with patch("start_formal_runtime_chain.is_hidden_pty", return_value=False):
+                        with patch("start_formal_runtime_chain.inspect_runtime_snapshot", side_effect=inspect_snapshots):
+                            with patch(
+                                "start_formal_runtime_chain.preflight_kill_all_tmux_sessions",
+                                return_value={"attempted": True, "cleaned": True, "killed_sessions": ["seed-session"]},
                             ):
-                                rc = start_formal_runtime_chain.main()
+                                with patch(
+                                    "start_formal_runtime_chain.cleanup_previous_runtime_state",
+                                    return_value={"removed_files": [], "stopped_watcher_pids": [], "tmux_env": {}},
+                                ):
+                                    with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
+                                        mock_run.return_value = Mock(returncode=0)
+                                        with patch.object(
+                                            sys,
+                                            "argv",
+                                            [
+                                                "start_formal_runtime_chain.py",
+                                                "--codex-thread-id",
+                                                "test-thread",
+                                                "--pane-title",
+                                                "dev-bot-1",
+                                            ],
+                                        ):
+                                            rc = start_formal_runtime_chain.main()
 
         self.assertEqual(0, rc)
         tmux_command = mock_run.call_args.args[0]
@@ -1559,25 +2229,31 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
             "steps": {"launcher_visibility": {"mode": "verified_before_cleanup"}},
             "result_path": "/tmp/tmux-start-result.json",
         }
-        with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
-            with patch("start_formal_runtime_chain.result_output_path", return_value=Path("/tmp/tmux-start-result.json")):
-                with patch("start_formal_runtime_chain.wait_for_result_file", return_value=result_payload):
-                    with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
-                        mock_run.return_value = Mock(returncode=0, stdout="tab 1 of window id 1\n", stderr="")
-                        with patch.object(
-                            sys,
-                            "argv",
-                            [
-                                "start_formal_runtime_chain.py",
-                                "--codex-thread-id",
-                                "test-thread",
-                                "--pane-title",
-                                "dev-bot-1",
-                                "--pretty",
-                            ],
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("start_formal_runtime_chain.START_CHAIN_LOCK_INFO_PATH", Path(tmpdir) / "start.lock.json"):
+                with patch("start_formal_runtime_chain.START_CHAIN_LOCK_FILE_PATH", Path(tmpdir) / "start.lock"):
+                    with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
+                        with patch(
+                            "start_formal_runtime_chain.resolve_terminal_app_result_paths",
+                            return_value=(Path("/tmp/tmux-start-result.json"), None),
                         ):
-                            with patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                                rc = start_formal_runtime_chain.main()
+                            with patch("start_formal_runtime_chain.wait_for_result_file", return_value=result_payload):
+                                with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
+                                    mock_run.return_value = Mock(returncode=0, stdout="tab 1 of window id 1\n", stderr="")
+                                    with patch.object(
+                                        sys,
+                                        "argv",
+                                        [
+                                            "start_formal_runtime_chain.py",
+                                            "--codex-thread-id",
+                                            "test-thread",
+                                            "--pane-title",
+                                            "dev-bot-1",
+                                            "--pretty",
+                                        ],
+                                    ):
+                                        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                                            rc = start_formal_runtime_chain.main()
 
         self.assertEqual(0, rc)
         payload = json.loads(stdout.getvalue())
@@ -1587,7 +2263,47 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertIn("start_formal_runtime_chain.py", launcher_call.args[0][2])
         self.assertIn("TMUX_START_RESULT_PATH", launcher_call.args[0][2])
         self.assertIn("dev-bot-1", launcher_call.args[0][2])
-        self.assertIn("set bounds of front window", launcher_call.kwargs["input"])
+        self.assertIn("set hadWindows to ((count of windows) > 0)", launcher_call.kwargs["input"])
+        self.assertIn("set bounds of startupWindow", launcher_call.kwargs["input"])
+        self.assertIn("do script commandText in selected tab of startupWindow", launcher_call.kwargs["input"])
+
+    def test_launch_via_terminal_app_mirrors_temp_result_into_canonical_path(self) -> None:
+        args = Namespace(
+            codex_thread_id="test-thread",
+            formal_session="formal-session",
+            pane_count=None,
+            pane_titles=["dev-bot-1"],
+            task_id="tmux-skills-public-run",
+            pretty=False,
+        )
+        steps: dict[str, object] = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_result_path = Path(tmpdir) / "temp-result.json"
+            canonical_result_path = Path(tmpdir) / "canonical-result.json"
+            payload = {
+                "status": "ok",
+                "formal_session": "formal-session",
+                "pane_count": 1,
+                "pane_titles": ["dev-bot-1"],
+                "chain": ["tmux_preflight"],
+                "steps": {},
+                "result_path": str(temp_result_path),
+            }
+            with patch(
+                "start_formal_runtime_chain.resolve_terminal_app_result_paths",
+                return_value=(temp_result_path, canonical_result_path),
+            ):
+                with patch("start_formal_runtime_chain.wait_for_result_file", return_value=payload):
+                    with patch("start_formal_runtime_chain.subprocess.run") as mock_run:
+                        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                        result = start_formal_runtime_chain.launch_via_terminal_app(args, steps)
+                        persisted = json.loads(canonical_result_path.read_text(encoding="utf-8"))
+                        self.assertEqual(str(canonical_result_path), result["result_path"])
+                        self.assertEqual(str(canonical_result_path), persisted["result_path"])
+                        self.assertEqual("ok", persisted["status"])
+                        self.assertFalse(temp_result_path.exists())
+                        launcher_call = mock_run.call_args
+                        self.assertIn(str(temp_result_path), launcher_call.args[0][2])
 
     def test_start_formal_runtime_chain_explain_launch_path_avoids_side_effects(self) -> None:
         with patch("start_formal_runtime_chain.is_hidden_pty", return_value=True):
@@ -1900,6 +2616,44 @@ class TmuxSkillsHandoffTests(unittest.TestCase):
         self.assertEqual("hash_unchanged_threshold", event["stop_reason"])
         self.assertIn("连续 3 次比较无变化", str(event["state_label"]))
         mock_emit.assert_called_once()
+
+    def test_interactive_prompt_with_nonbreaking_space_does_not_emit_stopped_event(self) -> None:
+        snapshot = {
+            "target": "formal-session:1.1",
+            "session": "formal-session",
+            "window": "1",
+            "pane_index": "1",
+            "pane_id": "%1",
+            "pane_title": "✳ Claude Code",
+            "cwd": "/Users/busiji/workbot",
+            "current_command": "node",
+            "pane_dead": 0,
+            "pane_dead_status": "",
+            "session_attached": 1,
+            "recent_output": "ready\n❯\u00a0123\n────────────────\n  ⏵⏵ accept edits on",
+            "recent_output_hash": "abc123",
+            "reachable": True,
+            "state_signature": "sig-1",
+        }
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "watch_tmux_handoff.py",
+                "--target",
+                "formal-session:1.1",
+                "--once",
+            ],
+        ):
+            with patch("watch_tmux_handoff.read_tmux_session_binding", return_value="thread-1"):
+                with patch("watch_tmux_handoff.capture_snapshot", return_value=snapshot):
+                    with patch("watch_tmux_handoff.record_event") as mock_record:
+                        with patch("watch_tmux_handoff.emit") as mock_emit:
+                            rc = watch_tmux_handoff.main()
+
+        self.assertEqual(0, rc)
+        mock_record.assert_not_called()
+        mock_emit.assert_not_called()
 
     def test_tmux_skill_doc_points_to_explain_and_summary_entrypoints(self) -> None:
         skill_doc = Path("/Users/busiji/workbot/skills/tmux-skills/SKILL.md").read_text(encoding="utf-8")

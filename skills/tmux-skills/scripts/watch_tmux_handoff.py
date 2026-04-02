@@ -5,7 +5,8 @@
 # 1. pane_dead > 0
 # 2. 首次采样只建立 baseline，不立即报停
 # 3. baseline 建立后，按轮询间隔连续 3 次比较最近 5 行输出 hash 都无变化
-#    默认轮询间隔为 10 秒，因此默认约 30 秒后触发 pane_stopped
+# 4. hash 连续命中阈值后直接触发 pane_stopped，不再对 Claude prompt 做豁免
+#    默认轮询间隔为 3 秒，因此默认约 9 秒后触发 pane_stopped
 
 from __future__ import annotations
 
@@ -15,8 +16,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from runtime_enforcement import enforce_orchestrator_only
-enforce_orchestrator_only("watch_tmux_handoff.py")
+from runtime_enforcement import RUNTIME_OWNER_TOKEN_ENV, enforce_runtime_owner_only
+enforce_runtime_owner_only("watch_tmux_handoff.py")
 # ==============================================================================
 
 import argparse
@@ -29,9 +30,7 @@ import time
 from typing import Any
 
 from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
-
-
-DEFAULT_POLL_INTERVAL_SECONDS = 10.0
+DEFAULT_POLL_INTERVAL_SECONDS = 3.0
 DEFAULT_CAPTURE_START = -5
 DEFAULT_UNCHANGED_OUTPUT_THRESHOLD = 3
 DEFAULT_DELIVERY_QUEUE_DIR = Path(
@@ -408,6 +407,7 @@ def spawn_delivery_runner(
     stdout_log_path = Path(stdout_log)
     stdout_log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = stdout_log_path.open("a", encoding="utf-8")
+    env = dict(os.environ)
     process = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
@@ -415,6 +415,7 @@ def spawn_delivery_runner(
         stderr=subprocess.STDOUT,
         start_new_session=True,
         text=True,
+        env=env,
     )
     handle.close()
     return int(process.pid)

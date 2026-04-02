@@ -1,7 +1,7 @@
 {
-  "validation_id": "VAL_KB_20260326_095043",
+  "validation_id": "VAL_KB_20260402_050912",
   "validation_type": "kb_closure",
-  "validated_at": "2026-03-26T09:50:43.627387",
+  "validated_at": "2026-04-02T05:09:12.861275",
   "frozen_values": {
     "region_id": "CN_AH",
     "curriculum_version_id": "PHY_PEP_G1_V1",

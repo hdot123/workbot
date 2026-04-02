@@ -42,12 +42,14 @@ def load_event(event_file: str | None) -> dict[str, Any]:
 
 
 def build_notification_message(event: dict[str, Any]) -> str:
-    pane_title = str(event.get("pane_title") or "").strip() or "未知 pane"
     target = str(event.get("target") or "").strip()
-    state_label = str(event.get("state_label") or "").strip() or "停止"
-    reason = str(event.get("reason") or "").strip()
     if not target:
         raise ValueError("target is required for tmux-runtime handoff notification")
+    if str(event.get("event") or "").strip() in {"pane_stopped", "pane_unreachable"}:
+        return f"去{target}检查 SOP 状态"
+    pane_title = str(event.get("pane_title") or "").strip() or "未知 pane"
+    state_label = str(event.get("state_label") or "").strip() or "停止"
+    reason = str(event.get("reason") or "").strip()
     if reason:
         return f"{pane_title} {state_label}：{target}。原因：{reason}"
     return f"{pane_title} {state_label}：{target}"

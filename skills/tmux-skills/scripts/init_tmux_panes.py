@@ -9,8 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from runtime_enforcement import enforce_orchestrator_only
-enforce_orchestrator_only("init_tmux_panes.py")
+from runtime_enforcement import enforce_startup_chain_only
+enforce_startup_chain_only("init_tmux_panes.py")
 # ==============================================================================
 
 import argparse

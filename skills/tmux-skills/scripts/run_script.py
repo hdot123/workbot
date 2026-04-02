@@ -33,6 +33,7 @@ SCRIPTS_DIR = Path(__file__).parent
 # This ensures a single source of truth for all scheduler logic
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from tmux_scheduler import (
+    ensure_project_python,
     load_registry,
     is_hidden_pty,
     is_visible_terminal,
@@ -50,6 +51,7 @@ from tmux_scheduler import (
 
 
 def main() -> int:
+    ensure_project_python()
     parser = argparse.ArgumentParser(
         description="tmux-skills Script Scheduler",
         formatter_class=argparse.RawDescriptionHelpFormatter,

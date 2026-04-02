@@ -1,4 +1,4 @@
-"""Minimal OCR interface supporting local and Baidu providers."""
+"""Minimal OCR interface supporting the Baidu OCR provider."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from app.models.constants import SCAN_OCR_REVIEW_THRESHOLD
 
-ALLOWED_OCR_PROVIDERS = frozenset({"local", "baidu"})
+ALLOWED_OCR_PROVIDERS = frozenset({"baidu"})
 ALLOWED_DOCUMENT_TYPES = frozenset(
     {
         "homework_sheet",
@@ -235,19 +235,6 @@ HTTPPost = Callable[[str, bytes, dict[str, str]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
-class LocalOCRConfig:
-    backend: str
-    model: str
-
-    @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> "LocalOCRConfig":
-        source = os.environ if env is None else env
-        backend = source.get("LOCAL_OCR_PROVIDER", "ollama").strip() or "ollama"
-        model = source.get("LOCAL_OCR_MODEL", "glm-ocr").strip() or "glm-ocr"
-        return cls(backend=backend, model=model)
-
-
-@dataclass(frozen=True)
 class BaiduOCRConfig:
     api_key: str
     secret_key: str
@@ -289,59 +276,7 @@ def _read_baidu_image_payload(source_file_ref: str) -> str:
     if not source_path.exists():
         raise FileNotFoundError(f"OCR source file not found: {source_file_ref}")
 
-    if source_path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".bmp"}:
-        raise OCRConfigurationError(
-            "baidu OCR runner currently supports image files only; provide png/jpg/jpeg/bmp"
-        )
-
     return base64.b64encode(source_path.read_bytes()).decode("ascii")
-
-
-def _split_text_to_blocks(text: str) -> tuple[OCRTextBlock, ...]:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return ()
-    confidence = 0.90
-    return tuple(
-        OCRTextBlock(
-            text=line,
-            confidence=confidence,
-            page_number=1,
-            region_ref=f"local_block_{index}",
-        )
-        for index, line in enumerate(lines, start=1)
-    )
-
-
-def _read_text_from_file(source_path: Path) -> str:
-    suffix = source_path.suffix.lower()
-    if suffix in {".txt", ".md", ".csv"}:
-        return source_path.read_text(encoding="utf-8").strip()
-    if suffix == ".json":
-        payload = json.loads(source_path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            if "text" in payload and isinstance(payload["text"], str):
-                return payload["text"].strip()
-            return json.dumps(payload, ensure_ascii=False)
-        if isinstance(payload, list):
-            return json.dumps(payload, ensure_ascii=False)
-    return ""
-
-
-def _run_local_ocr_command(command_template: str, source_file_ref: str) -> str:
-    command = command_template.format(file=source_file_ref)
-    result = subprocess.run(
-        command,
-        shell=True,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise OCRConfigurationError(
-            f"local OCR command failed with exit code {result.returncode}: {result.stderr.strip()}"
-        )
-    return result.stdout.strip()
 
 
 def _pdf_to_images_base64(pdf_path: str, max_pages: int = 10) -> list[tuple[int, str]]:
@@ -377,165 +312,30 @@ def _pdf_to_images_base64(pdf_path: str, max_pages: int = 10) -> list[tuple[int,
     return images
 
 
-def _run_ollama_ocr(base64_image: str, model: str, timeout: int = 120) -> str:
-    """Run OCR on a base64-encoded image using ollama.
+def _read_baidu_page_payloads(request: OCRRequest, *, max_pdf_pages: int = 20) -> list[tuple[int, str]]:
+    source_path = Path(request.source_file_ref)
+    if not source_path.exists():
+        raise FileNotFoundError(f"OCR source file not found: {request.source_file_ref}")
 
-    Args:
-        base64_image: Base64-encoded image data
-        model: Model name (e.g., glm-ocr)
-        timeout: Request timeout in seconds
+    suffix = source_path.suffix.lower()
+    page_numbers = set(request.page_numbers)
 
-    Returns:
-        Extracted text from image
-    """
-    import json
+    if suffix in {".png", ".jpg", ".jpeg", ".bmp"}:
+        if page_numbers and page_numbers != {1}:
+            raise OCRConfigurationError("image OCR requests may only reference page 1")
+        return [(1, _read_baidu_image_payload(request.source_file_ref))]
 
-    # Build the prompt for OCR
-    prompt = "请识别这张图片中的所有文字内容，按原样输出，不要添加任何解释或评论。"
+    if suffix == ".pdf":
+        pages = _pdf_to_images_base64(str(source_path), max_pages=max_pdf_pages)
+        if page_numbers:
+            pages = [(page_number, image) for page_number, image in pages if page_number in page_numbers]
+        if not pages:
+            raise OCRConfigurationError("no PDF pages available for baidu OCR request")
+        return pages
 
-    # Build the request payload
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "images": [base64_image],
-        "stream": False,
-    }
-
-    try:
-        from urllib.request import Request, urlopen
-        from urllib.error import URLError
-
-        # Default ollama server URL
-        ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        if not ollama_url.startswith("http"):
-            ollama_url = f"http://{ollama_url}:11434"
-
-        endpoint = f"{ollama_url}/api/generate"
-
-        data = json.dumps(payload).encode("utf-8")
-        request = Request(
-            endpoint,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        with urlopen(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            return result.get("response", "").strip()
-
-    except Exception as e:
-        raise OCRConfigurationError(f"ollama OCR request failed: {e}")
-
-
-def build_local_runner(config: LocalOCRConfig, env: dict[str, str] | None = None) -> OCRRunner:
-    source = os.environ if env is None else env
-    command_template = (source.get("LOCAL_OCR_COMMAND") or "").strip()
-
-    def runner(request: OCRRequest) -> OCRDocumentResult:
-        source_path = Path(request.source_file_ref)
-        if not source_path.exists():
-            raise FileNotFoundError(f"OCR source file not found: {request.source_file_ref}")
-
-        extracted_text = _read_text_from_file(source_path)
-        warnings: list[str] = []
-        pages_result: list[OCRPageResult] = []
-
-        # If no text extracted from plain file, try OCR
-        if not extracted_text and command_template:
-            extracted_text = _run_local_ocr_command(command_template, request.source_file_ref)
-
-        # For image/PDF files, use ollama-based OCR if available
-        if not extracted_text and source_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".pdf"}:
-            try:
-                if source_path.suffix.lower() == ".pdf":
-                    # Convert PDF to images and OCR each page
-                    page_images = _pdf_to_images_base64(str(source_path), max_pages=20)
-                    all_page_blocks = []
-
-                    for page_num, img_base64 in page_images:
-                        try:
-                            page_text = _run_ollama_ocr(img_base64, config.model, timeout=180)
-                            if page_text:
-                                blocks = _split_text_to_blocks(page_text)
-                                # Re-assign page numbers to blocks
-                                page_blocks = tuple(
-                                    OCRTextBlock(
-                                        text=block.text,
-                                        confidence=block.confidence,
-                                        page_number=page_num,
-                                        region_ref=block.region_ref,
-                                    )
-                                    for block in blocks
-                                )
-                                pages_result.append(OCRPageResult(
-                                    page_number=page_num,
-                                    blocks=page_blocks,
-                                    image_ref=str(source_path),
-                                ))
-                                all_page_blocks.extend(page_blocks)
-                        except Exception as e:
-                            warnings.append(f"page_{page_num}_ocr_failed:{str(e)[:50]}")
-
-                    # Extract text from all blocks
-                    if all_page_blocks:
-                        extracted_text = "\n".join(block.text for block in all_page_blocks)
-
-                else:
-                    # Single image file
-                    with open(source_path, "rb") as f:
-                        img_base64 = base64.b64encode(f.read()).decode("ascii")
-
-                    img_text = _run_ollama_ocr(img_base64, config.model, timeout=180)
-                    if img_text:
-                        extracted_text = img_text
-                        blocks = _split_text_to_blocks(extracted_text)
-                        pages_result.append(OCRPageResult(
-                            page_number=1,
-                            blocks=blocks,
-                            image_ref=str(source_path),
-                        ))
-
-            except Exception as e:
-                warnings.append(f"ollama_ocr_failed:{str(e)[:50]}")
-
-        # Build pages if not already built
-        if not pages_result and extracted_text:
-            blocks = _split_text_to_blocks(extracted_text)
-            pages_result.append(OCRPageResult(page_number=1, blocks=blocks, image_ref=str(source_path)))
-
-        document_type = _default_document_type(request.document_type_hint)
-
-        if pages_result:
-            # Build result from pages
-            result = OCRDocumentResult(
-                provider=request.provider,
-                raw_input_ref=request.raw_input_ref,
-                source_file_ref=request.source_file_ref,
-                trace_id=request.trace_id,
-                document_type=document_type,
-                pages=tuple(pages_result),
-                overall_confidence=sum(p.page_confidence for p in pages_result) / len(pages_result) if pages_result else 0.0,
-                event_status="success",
-                review_needed=False,
-                extracted_text=extracted_text,
-                warnings=tuple(warnings),
-                review_reasons=(),
-                provider_payload={"backend": config.backend, "model": config.model},
-            )
-        else:
-            # Fallback for empty result
-            result = OCRDocumentResult.from_pages(
-                request=request,
-                document_type=document_type,
-                pages=[OCRPageResult(page_number=1, blocks=(), image_ref=str(source_path))],
-                warnings=warnings + ["local_ocr_backend_not_wired:" + f"{config.backend}/{config.model}"],
-                provider_payload={"backend": config.backend, "model": config.model},
-            )
-
-        return result
-
-    return runner
+    raise OCRConfigurationError(
+        "baidu OCR runner currently supports png/jpg/jpeg/bmp images and PDF files"
+    )
 
 
 def build_baidu_runner(
@@ -562,54 +362,51 @@ def build_baidu_runner(
         if not access_token:
             raise OCRConfigurationError("failed to fetch baidu OCR access token")
 
-        image_payload = _read_baidu_image_payload(request.source_file_ref)
-        ocr_payload = urlencode({"image": image_payload, "probability": "true"}).encode("utf-8")
-        ocr_response = post(
-            f"{config.ocr_url}?access_token={access_token}",
-            ocr_payload,
-            {"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        pages: list[OCRPageResult] = []
+        response_pages: list[dict[str, Any]] = []
+        for page_number, image_payload in _read_baidu_page_payloads(request):
+            ocr_payload = urlencode({"image": image_payload, "probability": "true"}).encode("utf-8")
+            ocr_response = post(
+                f"{config.ocr_url}?access_token={access_token}",
+                ocr_payload,
+                {"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response_pages.append({"page_number": page_number, "response": ocr_response})
 
-        blocks: list[OCRTextBlock] = []
-        for index, item in enumerate(ocr_response.get("words_result", []), start=1):
-            text = str(item.get("words", "")).strip()
-            if not text:
-                continue
-            probability = item.get("probability", {})
-            confidence = probability.get("average")
-            if confidence is None:
-                confidence = 1.0
-            blocks.append(
-                OCRTextBlock(
-                    text=text,
-                    confidence=float(confidence),
-                    page_number=1,
-                    region_ref=f"baidu_block_{index}",
+            blocks: list[OCRTextBlock] = []
+            for index, item in enumerate(ocr_response.get("words_result", []), start=1):
+                text = str(item.get("words", "")).strip()
+                if not text:
+                    continue
+                probability = item.get("probability", {})
+                confidence = probability.get("average")
+                if confidence is None:
+                    confidence = 1.0
+                blocks.append(
+                    OCRTextBlock(
+                        text=text,
+                        confidence=float(confidence),
+                        page_number=page_number,
+                        region_ref=f"baidu_block_{page_number}_{index}",
+                    )
+                )
+
+            pages.append(
+                OCRPageResult(
+                    page_number=page_number,
+                    blocks=tuple(blocks),
+                    image_ref=request.source_file_ref,
                 )
             )
 
-        page = OCRPageResult(page_number=1, blocks=tuple(blocks), image_ref=request.source_file_ref)
         return OCRDocumentResult.from_pages(
             request=request,
             document_type=_default_document_type(request.document_type_hint),
-            pages=[page],
-            provider_payload=ocr_response,
+            pages=pages,
+            provider_payload={"pages": response_pages},
         )
 
     return runner
-
-
-def build_local_provider(
-    *,
-    runner: OCRRunner | None = None,
-    env: dict[str, str] | None = None,
-) -> "LocalOCRProvider":
-    config = LocalOCRConfig.from_env(env)
-
-    if runner is None:
-        runner = build_local_runner(config, env=env)
-
-    return LocalOCRProvider(runner=runner)
 
 
 def build_baidu_provider(
@@ -626,19 +423,32 @@ def build_baidu_provider(
 def build_ocr_service_from_env(
     *,
     env: dict[str, str] | None = None,
-    local_runner: OCRRunner | None = None,
     baidu_http_post: HTTPPost | None = None,
 ) -> "OCRService":
+    """Build OCR service with baidu as the only official provider.
+
+    Args:
+        env: Environment variables (BAIDU_OCR_API_KEY, BAIDU_OCR_SECRET_KEY required)
+        baidu_http_post: Optional HTTP post function for testing
+
+    Returns:
+        OCRService with baidu provider registered
+
+    Raises:
+        OCRConfigurationError: If baidu credentials are missing
+    """
     service = OCRService()
-    service.register(build_local_provider(runner=local_runner, env=env))
 
     try:
-        baidu_config = BaiduOCRConfig.from_env(env, required=False)
+        baidu_config = BaiduOCRConfig.from_env(env, required=True)
     except OCRConfigurationError as exc:
-        raise OCRConfigurationError(f"invalid baidu OCR env configuration: {exc}") from exc
+        raise OCRConfigurationError(
+            f"baidu OCR is the only supported provider. "
+            f"Configure BAIDU_OCR_API_KEY and BAIDU_OCR_SECRET_KEY. "
+            f"Original error: {exc}"
+        ) from exc
 
-    if baidu_config is not None:
-        service.register(BaiduOCRProvider(runner=build_baidu_runner(baidu_config, http_post=baidu_http_post)))
+    service.register(BaiduOCRProvider(runner=build_baidu_runner(baidu_config, http_post=baidu_http_post)))
 
     return service
 
@@ -654,15 +464,6 @@ def _run_provider(provider_name: str, request: OCRRequest, runner: OCRRunner) ->
         source_file_ref=request.source_file_ref,
         trace_id=request.trace_id,
     )
-
-
-@dataclass
-class LocalOCRProvider:
-    runner: OCRRunner
-    name: str = field(init=False, default="local")
-
-    def recognize(self, request: OCRRequest) -> OCRDocumentResult:
-        return _run_provider(self.name, request, self.runner)
 
 
 @dataclass

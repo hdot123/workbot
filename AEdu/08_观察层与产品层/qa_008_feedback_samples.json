@@ -1,0 +1,315 @@
+{
+  "document_id": "QA-008-FEEDBACK-SAMPLES",
+  "version": "V1.0",
+  "created_at": "2026-04-02",
+  "purpose": "为 QA-008 提供反馈闭环验收标准样例",
+  "related_docs": [
+    "OBS-010 产品交互与反馈闭环",
+    "app/models/feedback_event.py",
+    "tests/test_feedback_loop.py"
+  ],
+  "samples": [
+    {
+      "sample_id": "FB-SAMPLE-001",
+      "scenario": "家长查看周报后反馈'与实际不符'",
+      "input": {
+        "source_role": "parent",
+        "source_user_id": "USR_PARENT_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "WKR_2026-03-24_STU_001",
+        "feedback_option": {
+          "option_id": "PR_INACCURATE",
+          "label": "报告内容与实际不符",
+          "feedback_type": "calibration"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "calibration",
+        "routed_to": "review_queue",
+        "status": "routed",
+        "pool_name": "状态校准池"
+      },
+      "assertion": "ASSERT-FB-001: calibration 必路由至 review_queue"
+    },
+    {
+      "sample_id": "FB-SAMPLE-002",
+      "scenario": "家长查看周报后反馈'有帮助'",
+      "input": {
+        "source_role": "parent",
+        "source_user_id": "USR_PARENT_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "WKR_2026-03-24_STU_001",
+        "feedback_option": {
+          "option_id": "PR_HELPFUL",
+          "label": "报告对我有帮助",
+          "feedback_type": "experience"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "experience",
+        "routed_to": "product_pool",
+        "status": "routed",
+        "pool_name": "产品优化池"
+      },
+      "assertion": "ASSERT-FB-002: experience 必路由至 product_pool"
+    },
+    {
+      "sample_id": "FB-SAMPLE-003",
+      "scenario": "老师查看学生详情后反馈'已跟进'",
+      "input": {
+        "source_role": "teacher",
+        "source_user_id": "USR_TEACHER_001",
+        "tenant_id": "SCH_001",
+        "target_type": "teacher_detail",
+        "target_ref": "TSD_STU_001_20260326",
+        "feedback_option": {
+          "option_id": "TD_FOLLOWED",
+          "label": "已跟进",
+          "feedback_type": "operation"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "operation",
+        "routed_to": "operation_pool",
+        "status": "routed",
+        "pool_name": "运营动作池"
+      },
+      "assertion": "ASSERT-FB-003: operation 必路由至 operation_pool"
+    },
+    {
+      "sample_id": "FB-SAMPLE-004",
+      "scenario": "老师查看学生详情后反馈'映射错误'",
+      "input": {
+        "source_role": "teacher",
+        "source_user_id": "USR_TEACHER_001",
+        "tenant_id": "SCH_001",
+        "target_type": "teacher_detail",
+        "target_ref": "TSD_STU_001_20260326",
+        "feedback_option": {
+          "option_id": "TD_ERROR",
+          "label": "存在映射错误",
+          "feedback_type": "calibration"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "calibration",
+        "routed_to": "review_queue",
+        "status": "routed",
+        "pool_name": "状态校准池"
+      },
+      "assertion": "ASSERT-FB-001: calibration 必路由至 review_queue"
+    },
+    {
+      "sample_id": "FB-SAMPLE-005",
+      "scenario": "学校查看班级看板后反馈'数据异常'",
+      "input": {
+        "source_role": "school",
+        "source_user_id": "USR_SCHOOL_001",
+        "tenant_id": "SCH_001",
+        "target_type": "class_dashboard",
+        "target_ref": "CLS_DASH_001",
+        "feedback_option": {
+          "option_id": "DB_ANOMALY",
+          "label": "数据异常",
+          "feedback_type": "exception"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "exception",
+        "routed_to": "tech_pool",
+        "status": "routed",
+        "pool_name": "技术问题池"
+      },
+      "assertion": "ASSERT-FB-004: exception 必路由至 tech_pool"
+    },
+    {
+      "sample_id": "FB-SAMPLE-006",
+      "scenario": "学校查看总览后反馈'推进顺畅'",
+      "input": {
+        "source_role": "school",
+        "source_user_id": "USR_SCHOOL_001",
+        "tenant_id": "SCH_001",
+        "target_type": "school_dashboard",
+        "target_ref": "SCH_DASH_001",
+        "feedback_option": {
+          "option_id": "DB_SMOOTH",
+          "label": "推进顺畅",
+          "feedback_type": "experience"
+        }
+      },
+      "expected_output": {
+        "feedback_type": "experience",
+        "routed_to": "product_pool",
+        "status": "routed",
+        "pool_name": "产品优化池"
+      },
+      "assertion": "ASSERT-FB-002: experience 必路由至 product_pool"
+    },
+    {
+      "sample_id": "FB-SAMPLE-007",
+      "scenario": "家长自由文本反馈（状态校准）",
+      "input": {
+        "source_role": "parent",
+        "source_user_id": "USR_PARENT_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "WKR_2026-03-24_STU_001",
+        "feedback_type": "calibration",
+        "feedback_text": "这周报告说孩子计算错误多，但实际是审题问题，不是计算问题"
+      },
+      "expected_output": {
+        "feedback_type": "calibration",
+        "routed_to": "review_queue",
+        "status": "routed",
+        "has_feedback_text": true
+      },
+      "assertion": "ASSERT-FB-001 + 自由文本反馈可创建"
+    },
+    {
+      "sample_id": "FB-SAMPLE-008",
+      "scenario": "老师自由文本反馈（实施推进）",
+      "input": {
+        "source_role": "teacher",
+        "source_user_id": "USR_TEACHER_001",
+        "tenant_id": "SCH_001",
+        "target_type": "teacher_detail",
+        "target_ref": "TSD_STU_001_20260326",
+        "feedback_type": "operation",
+        "feedback_text": "已与家长沟通，建议每天监督孩子完成 10 道口算题",
+        "tags": ["follow_up", "parent_communication"]
+      },
+      "expected_output": {
+        "feedback_type": "operation",
+        "routed_to": "operation_pool",
+        "status": "routed",
+        "has_tags": true
+      },
+      "assertion": "ASSERT-FB-003 + tags 字段可记录"
+    },
+    {
+      "sample_id": "FB-SAMPLE-009",
+      "scenario": "完整生命周期：pending → routed → in_progress → resolved",
+      "input": {
+        "initial_state": {
+          "source_role": "parent",
+          "source_user_id": "USR_PARENT_001",
+          "tenant_id": "SCH_001",
+          "target_type": "parent_report",
+          "target_ref": "WKR_2026-03-24_STU_001",
+          "feedback_type": "calibration",
+          "feedback_text": "报告内容不准确"
+        },
+        "lifecycle_steps": [
+          {"action": "create", "expected_status": "pending"},
+          {"action": "route", "expected_status": "routed", "expected_routed_to": "review_queue"},
+          {"action": "mark_in_progress", "assigned_to": "USR_REVIEWER_001", "expected_status": "in_progress"},
+          {"action": "mark_resolved", "resolution_notes": "已确认并修正状态", "expected_status": "resolved"}
+        ]
+      },
+      "expected_output": {
+        "final_status": "resolved",
+        "has_resolution_notes": true
+      },
+      "assertion": "ASSERT-FB-005: 状态流转顺序正确"
+    },
+    {
+      "sample_id": "FB-SAMPLE-010",
+      "scenario": "边界测试：无效 source_role",
+      "input": {
+        "source_role": "invalid_role",
+        "source_user_id": "USR_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "RPT_001",
+        "feedback_type": "calibration",
+        "feedback_text": "测试"
+      },
+      "expected_output": {
+        "is_valid": false,
+        "error_contains": "source_role"
+      },
+      "assertion": "ASSERT-FB-006: 无效 source_role 导致验证失败"
+    },
+    {
+      "sample_id": "FB-SAMPLE-011",
+      "scenario": "边界测试：无效 feedback_type",
+      "input": {
+        "source_role": "parent",
+        "source_user_id": "USR_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "RPT_001",
+        "feedback_type": "invalid_type",
+        "feedback_text": "测试"
+      },
+      "expected_output": {
+        "is_valid": false,
+        "error_contains": "feedback_type"
+      },
+      "assertion": "ASSERT-FB-007: 无效 feedback_type 导致验证失败"
+    },
+    {
+      "sample_id": "FB-SAMPLE-012",
+      "scenario": "边界测试：rating 超出 1-5 范围",
+      "input": {
+        "source_role": "parent",
+        "source_user_id": "USR_001",
+        "tenant_id": "SCH_001",
+        "target_type": "parent_report",
+        "target_ref": "RPT_001",
+        "feedback_type": "experience",
+        "feedback_text": "很好",
+        "rating": 10
+      },
+      "expected_output": {
+        "is_valid": false,
+        "error_contains": "rating"
+      },
+      "assertion": "ASSERT-FB-008: rating 超出 1-5 导致验证失败"
+    }
+  ],
+  "assertions_summary": [
+    {
+      "assertion_id": "ASSERT-FB-001",
+      "content": "calibration（状态校准类）反馈必路由至 review_queue（状态校准池）",
+      "covered_by": ["FB-SAMPLE-001", "FB-SAMPLE-004", "FB-SAMPLE-007"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-002",
+      "content": "experience（产品体验类）反馈必路由至 product_pool（产品优化池）",
+      "covered_by": ["FB-SAMPLE-002", "FB-SAMPLE-006"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-003",
+      "content": "operation（实施推进类）反馈必路由至 operation_pool（运营动作池）",
+      "covered_by": ["FB-SAMPLE-003", "FB-SAMPLE-008"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-004",
+      "content": "exception（异常故障类）反馈必路由至 tech_pool（技术问题池）",
+      "covered_by": ["FB-SAMPLE-005"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-005",
+      "content": "状态流转顺序：pending → routed → in_progress → resolved",
+      "covered_by": ["FB-SAMPLE-009"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-006",
+      "content": "无效 source_role 导致验证失败",
+      "covered_by": ["FB-SAMPLE-010"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-007",
+      "content": "无效 feedback_type 导致验证失败",
+      "covered_by": ["FB-SAMPLE-011"]
+    },
+    {
+      "assertion_id": "ASSERT-FB-008",
+      "content": "rating 超出 1-5 范围导致验证失败",
+      "covered_by": ["FB-SAMPLE-012"]
+    }
+  ]
+}

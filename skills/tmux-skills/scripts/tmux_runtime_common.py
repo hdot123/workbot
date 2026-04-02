@@ -84,6 +84,49 @@ def normalize_pane_title(value: str) -> str:
     return value.lstrip("✳* ").strip()
 
 
+def is_claude_code_title(value: str) -> bool:
+    normalized = normalize_pane_title(value)
+    if not normalized:
+        return False
+    return "claude code" in normalized.casefold()
+
+
+def pane_is_claude_runtime_surface(
+    pane: dict[str, Any],
+    *,
+    allow_empty_title: bool = False,
+) -> bool:
+    current_command = str(
+        pane.get("current_command") or pane.get("pane_current_command") or ""
+    ).strip()
+    if current_command != "node":
+        return False
+    normalized_title = normalize_pane_title(
+        str(pane.get("pane_title_normalized") or pane.get("pane_title") or "")
+    )
+    if normalized_title:
+        return is_claude_code_title(normalized_title)
+    return allow_empty_title
+
+
+def pane_has_claude_prompt(capture: str) -> bool:
+    for raw_line in reversed(str(capture).splitlines()[-12:]):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped == "❯":
+            return True
+        if stripped.startswith("❯") and len(stripped) > 1 and str(stripped[1]).isspace():
+            return True
+    return False
+
+
+def snapshot_has_interactive_claude_prompt(snapshot: dict[str, Any]) -> bool:
+    if not pane_is_claude_runtime_surface(snapshot):
+        return False
+    return pane_has_claude_prompt(str(snapshot.get("recent_output", "")))
+
+
 def resolve_formal_session_name(
     runtime_ledger: dict[str, Any] | None = None,
     override: str | None = None,

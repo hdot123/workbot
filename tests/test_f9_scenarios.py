@@ -11,6 +11,14 @@ Covers:
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
+
+# Add repository root to Python path for running tests from root directory
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 from datetime import datetime
 
 from app.models.event_assembler import TextInput, assemble_event
@@ -326,3 +334,28 @@ def run_all_scenarios() -> dict:
 if __name__ == "__main__":
     results = run_all_scenarios()
     print(json.dumps(results, indent=2, ensure_ascii=False))
+
+
+# ============== Pytest wrapper ==============
+# Minimal pytest-compatible tests for CI integration
+
+def test_f9_normal_scenario():
+    """F9-T2-N: Normal scenario test."""
+    success, message, output = run_normal_scenario()
+    assert success, message
+    assert output.get("twin_update_success") is True
+    assert output.get("retrieval_complete") is True
+
+
+def test_f9_degraded_scenario():
+    """F9-T2-D: Degraded scenario test."""
+    success, message, output = run_degraded_scenario()
+    assert success, message
+    assert output.get("is_expected_behavior") is True
+
+
+def test_f9_review_needed_scenario():
+    """F9-T2-R: Review needed scenario test."""
+    success, message, output = run_review_needed_scenario()
+    assert success, message
+    assert output.get("is_expected_behavior") is True

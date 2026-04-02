@@ -46,6 +46,12 @@ def coerce_codex_thread_bound(value: Any) -> bool:
     return bool(value)
 
 
+def normalize_runtime_owner_token(value: Any | None) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def normalize_target(value: Any | None) -> str:
     if value is None:
         return ""
@@ -155,6 +161,7 @@ def init_current_runtime_ledger(
     codex_thread_bound: bool = False,
     runtime_status: str = "INIT_IN_PROGRESS",
     worker_ceiling: int = DEFAULT_WORKER_CEILING,
+    runtime_owner_token: str = "",
 ) -> dict[str, Any]:
     now = utc_now()
     ledger = {
@@ -168,6 +175,7 @@ def init_current_runtime_ledger(
         "watcher": coerce_watcher(watcher or {}),
         "codex_thread_bound": coerce_codex_thread_bound(codex_thread_bound),
         "worker_ceiling": int(worker_ceiling),
+        "runtime_owner_token": normalize_runtime_owner_token(runtime_owner_token),
         "created_at": now,
         "updated_at": now,
     }
@@ -192,6 +200,8 @@ def update_current_runtime_ledger(**fields: Any) -> dict[str, Any]:
         fields["codex_thread_bound"] = coerce_codex_thread_bound(fields["codex_thread_bound"])
     if "worker_ceiling" in fields:
         fields["worker_ceiling"] = int(fields["worker_ceiling"])
+    if "runtime_owner_token" in fields:
+        fields["runtime_owner_token"] = normalize_runtime_owner_token(fields["runtime_owner_token"])
     ledger.update(fields)
     ledger["updated_at"] = utc_now()
     return write_current_runtime_ledger(ledger)

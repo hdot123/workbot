@@ -5,6 +5,7 @@
 # 1. pane_dead > 0
 # 2. 首次采样只建立 baseline，不立即报停
 # 3. baseline 建立后，按轮询间隔连续 3 次比较最近 5 行输出 hash 都无变化
+#    但 Claude Code 正常等待输入且 prompt 可见时，不应按 stopped 处理
 #    默认轮询间隔为 10 秒，因此默认约 30 秒后触发 pane_stopped
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import time
 from typing import Any
 
 from runtime_ledger import CURRENT_RUNTIME_LEDGER_PATH
+from tmux_runtime_common import snapshot_has_interactive_claude_prompt
 
 
 DEFAULT_POLL_INTERVAL_SECONDS = 10.0
@@ -593,6 +595,19 @@ def main() -> int:
             else:
                 classification = classify_snapshot(snapshot)
                 if classification is None:
+                    if snapshot_has_interactive_claude_prompt(snapshot):
+                        reset_output_hash_state(
+                            target,
+                            last_output_hash=last_output_hash,
+                            unchanged_output_count=unchanged_output_count,
+                        )
+                        last_report_signature.pop(target, None)
+                        clear_pending_event(
+                            target,
+                            pending_release_events=pending_release_events,
+                            pending_release_order=pending_release_order,
+                        )
+                        continue
                     unchanged_count = advance_output_hash_state(
                         target,
                         snapshot,

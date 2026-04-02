@@ -2,13 +2,13 @@
 type: [KB:DECISION]
 title: "Workbot 项目级 Agents 与正式运行面规范"
 created: 2026-03-25
-updated: 2026-03-30
-last_verified: 2026-03-30
+updated: 2026-04-02
+last_verified: 2026-04-02
 source: Manual
 confidence: high
 tags: [workbot, claude, agents, runtime, runtime-surfaces, tmux-to, bailian, qwen3.5-plus]
 related: [workbot, 2026-03-04-4-bot-workflow-planning, 2026-03-02-bailian-coding-plan-models]
-version: v1.7
+version: v1.8
 status: active
 ---
 
@@ -16,10 +16,9 @@ status: active
 
 ## 结论
 
-- `dev-bot` 与 `qa-bot` 的项目级 agent 真源固定在 `/Users/busiji/workbot/.claude/agents/`
-- `doc-bot` 的项目级 agent 真源也固定在 `/Users/busiji/workbot/.claude/agents/`
-- 当前项目不再把 `/Users/busiji/workbot/agents/` 作为 `dev-bot` / `qa-bot` / `doc-bot` 的运行真源
-- `dev-bot`、`qa-bot` 与 `doc-bot` 当前主模型统一固定为 `qwen3.5-plus`
+- `dev-bot`、`qa-bot`、`doc-bot` 与 `rea-bot` 的项目级 agent 真源固定在 `/Users/busiji/workbot/.claude/agents/`
+- 当前项目不再把 `/Users/busiji/workbot/agents/` 作为 `dev-bot` / `qa-bot` / `doc-bot` / `rea-bot` 的运行真源
+- `dev-bot`、`qa-bot`、`doc-bot` 与 `rea-bot` 当前主模型统一固定为 `qwen3.5-plus`
 - 百炼连接参数放在项目本地 Claude settings 层，不放在 agent markdown 正文中
 - tmux pane / window / slot 只是当前 attached session 内的临时工作分区或临时标签，不是项目级 bot 身份对象
 - tmux 正式运行面必须收口为一个前台 attached 的 `formal-session`
@@ -32,8 +31,9 @@ status: active
 - `/Users/busiji/workbot/.claude/agents/dev-bot.md`
 - `/Users/busiji/workbot/.claude/agents/qa-bot.md`
 - `/Users/busiji/workbot/.claude/agents/doc-bot.md`
+- `/Users/busiji/workbot/.claude/agents/rea-bot.md`
 
-这两个文件是当前项目的 Claude project agents 真源，用于 Claude 会话直接加载。
+这四个文件是当前项目的 Claude project agents 真源，用于 Claude 会话直接加载。
 
 ### 共享角色库
 
@@ -48,6 +48,7 @@ status: active
 - `dev-bot`：`qwen3.5-plus`
 - `qa-bot`：`qwen3.5-plus`
 - `doc-bot`：`qwen3.5-plus`
+- `rea-bot`：`qwen3.5-plus`
 
 ### 配置原则
 
@@ -193,7 +194,7 @@ status: active
 以下项目全部准备完成后，才允许启用任务/监控线程分流与单 formal-session 正式运行面：
 
 1. 当天任务范围已经收口，并且唯一状态源已经明确
-2. 当天任务面板已经写好，并明确 `dev-bot` / `qa-bot` 的分工
+2. 当天任务面板已经写好，并明确 `dev-bot` / `rea-bot` / `qa-bot` / `doc-bot` 的分工
 3. 当天任务线程 ID 已创建
 4. 当天监控线程 ID 已创建
 5. `tmux-to` 任务流与监控流的目标线程已经明确
@@ -230,7 +231,7 @@ status: active
 
 ## 日报规则
 
-- 从 2026-03-25 起，`dev-bot` 与 `qa-bot` 的每日任务进度必须强制写入 `workspace/memory/log/` 的对应日期日志
+- 从 2026-03-25 起，`dev-bot`、`rea-bot` 与 `qa-bot` 的每日任务进度必须强制写入 `workspace/memory/log/` 的对应日期日志
 - 日报至少包含：
   - 当日 bot 身份
   - 已完成事项

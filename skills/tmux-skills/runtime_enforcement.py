@@ -1,15 +1,109 @@
 #!/usr/bin/env python3
-"""
-tmux-skills Runtime Enforcement Module
+"""tmux-skills runtime enforcement helpers."""
 
-Enforces that scripts are called through the scheduler, not directly.
-
-Usage: Add to the top of scripts that should not be called directly.
-"""
-
+import json
+import inspect
 import os
 import sys
 from pathlib import Path
+
+WORKBOT_ROOT = Path(__file__).resolve().parents[2]
+TMUX_RUNTIME_ARTIFACT_DIR = WORKBOT_ROOT / "workspace" / "artifacts" / "tmux-runtime"
+START_CHAIN_LOCK_INFO_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "start-formal-runtime-chain.lock.json"
+CURRENT_RUNTIME_LEDGER_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "current-runtime.json"
+START_CHAIN_LOCK_TOKEN_ENV = "TMUX_START_CHAIN_LOCK_TOKEN"
+RUNTIME_OWNER_TOKEN_ENV = "TMUX_RUNTIME_OWNER_TOKEN"
+
+
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _metadata_value(payload: dict, key: str) -> str:
+    return str(payload.get(key, "") or "").strip()
+
+
+def _env_value(name: str) -> str:
+    return str(os.environ.get(name, "") or "").strip()
+
+
+def _skip_enforcement_enabled() -> bool:
+    return _env_value("TMUX_SKIP_ENFORCEMENT") == "true"
+
+
+def _called_from_main_module() -> bool:
+    frame = inspect.currentframe()
+    caller = frame.f_back if frame else None
+    try:
+        while caller and caller.f_globals.get("__name__") == __name__:
+            caller = caller.f_back
+        return bool(caller and caller.f_globals.get("__name__") == "__main__")
+    finally:
+        del frame
+        del caller
+
+
+def _require_owner_token(
+    *,
+    script_name: str,
+    env_name: str,
+    metadata_path: Path,
+    metadata_field: str,
+    owner_label: str,
+) -> None:
+    if not _called_from_main_module():
+        return
+    if _skip_enforcement_enabled():
+        sys.stderr.write(f"WARNING: Scheduler enforcement skipped for {script_name}\n")
+        return
+
+    supplied_token = _env_value(env_name)
+    if not supplied_token:
+        raise SystemExit(
+            f"ERROR: {script_name} requires {owner_label} token via {env_name}; direct execution is not allowed."
+        )
+
+    metadata = _load_json(metadata_path)
+    expected_token = _metadata_value(metadata, metadata_field)
+    if not expected_token:
+        raise SystemExit(
+            f"ERROR: {script_name} requires active {owner_label} metadata at {metadata_path}."
+        )
+
+    if supplied_token != expected_token:
+        raise SystemExit(
+            f"ERROR: {script_name} received invalid {owner_label} token; refusing direct execution."
+        )
+
+
+def enforce_startup_chain_only(script_name: str | None = None) -> None:
+    if script_name is None:
+        script_name = "unknown"
+    _require_owner_token(
+        script_name=script_name,
+        env_name=START_CHAIN_LOCK_TOKEN_ENV,
+        metadata_path=START_CHAIN_LOCK_INFO_PATH,
+        metadata_field="owner_token",
+        owner_label="startup_chain",
+    )
+
+
+def enforce_runtime_owner_only(script_name: str | None = None) -> None:
+    if script_name is None:
+        script_name = "unknown"
+    _require_owner_token(
+        script_name=script_name,
+        env_name=RUNTIME_OWNER_TOKEN_ENV,
+        metadata_path=CURRENT_RUNTIME_LEDGER_PATH,
+        metadata_field="runtime_owner_token",
+        owner_label="runtime_owner",
+    )
 
 
 def enforce_via_scheduler(script_name: str = None) -> None:
@@ -25,6 +119,9 @@ def enforce_via_scheduler(script_name: str = None) -> None:
     Raises:
         SystemExit: If called directly without going through scheduler
     """
+    if not _called_from_main_module():
+        return
+
     if script_name is None:
         # Infer from call stack
         import inspect
@@ -107,25 +204,7 @@ def enforce_orchestrator_only(script_name: str = None) -> None:
         else:
             script_name = "unknown"
 
-    orchestrator_context = os.environ.get("TMUX_ORCHESTRATOR_CONTEXT", "")
-
-    if orchestrator_context == "true":
-        return
-
-    sys.stderr.write(f"""
-ERROR: {script_name} can only be called by the orchestrator.
-
-This script is marked as orchestrator_only and must be called through
-start_formal_runtime_chain.py or by setting TMUX_ORCHESTRATOR_CONTEXT=true.
-
-Usage (through scheduler):
-    python3 run_script.py --script {script_name} [args...]
-
-Usage (from orchestrator):
-    export TMUX_ORCHESTRATOR_CONTEXT=true
-    python3 {script_name} [args...]
-""")
-    sys.exit(1)
+    enforce_startup_chain_only(script_name)
 
 
 def enforce_internal_only(script_name: str = None) -> None:
@@ -142,6 +221,9 @@ def enforce_internal_only(script_name: str = None) -> None:
             enforce_internal_only("script_name.py")
             # ... rest of __main__ code ...
     """
+    if not _called_from_main_module():
+        return
+
     internal_call = os.environ.get("TMUX_INTERNAL_CALL", "")
 
     if internal_call == "true":

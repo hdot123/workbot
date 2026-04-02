@@ -4,6 +4,14 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
+
+# Add repository root to Python path for running tests from root directory
+repo_root = Path(__file__).resolve().parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 from datetime import datetime
 
 from app.models.graph_models import GraphEdge, GraphSnapshot, KnowledgeNode, StudentNode
@@ -353,3 +361,48 @@ def run_all_tests() -> dict:
 if __name__ == "__main__":
     results = run_all_tests()
     print(json.dumps(results, indent=2, ensure_ascii=False))
+
+
+# ============== Pytest wrapper ==============
+# Minimal pytest-compatible tests for CI integration
+
+def test_f8_confidence_level():
+    """F8-T3-C: Confidence level classification."""
+    success, message = test_confidence_level()
+    assert success, message
+
+
+def test_f8_version_chain():
+    """F8-T3-V: Version chain tracking."""
+    success, message = test_version_chain()
+    assert success, message
+
+
+def test_f8_node_rollback():
+    """F8-T3-N: Node rollback functionality."""
+    success, message = test_node_rollback()
+    assert success, message
+
+
+def test_f8_edge_rollback():
+    """F8-T3-E: Edge rollback functionality."""
+    success, message = test_edge_rollback()
+    assert success, message
+
+
+def test_f8_degraded_write():
+    """F8-T3-D: Degraded write with low confidence."""
+    success, message = test_degraded_write()
+    assert success, message
+
+
+def test_f8_rollback_if_degraded():
+    """F8-T3-R: Automatic rollback of degraded entities."""
+    success, message = test_rollback_if_degraded()
+    assert success, message
+
+
+def test_f8_version_chain_integrity():
+    """F8-T3-I: Version chain integrity through rollback."""
+    success, message = test_version_chain_integrity()
+    assert success, message

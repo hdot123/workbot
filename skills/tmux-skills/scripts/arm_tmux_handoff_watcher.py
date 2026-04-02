@@ -25,7 +25,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from runtime_ledger import update_current_runtime_ledger
+from runtime_ledger import (
+    coerce_slot_bindings,
+    load_current_runtime_ledger,
+    update_current_runtime_ledger,
+)
+from runtime_enforcement import RUNTIME_OWNER_TOKEN_ENV
 from tmux_runtime_common import inspect_runtime
 
 
@@ -63,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--interval",
         type=float,
-        default=10.0,
+        default=3.0,
         help="Polling interval for the watcher.",
     )
     parser.add_argument(
@@ -151,15 +156,28 @@ def discover_targets(snapshot: dict[str, Any], args: argparse.Namespace) -> list
         for pane_id in args.pane_ids
         if str(pane_id).strip() in pane_id_to_target
     )
-    if explicit_targets:
+    if explicit_targets or args.targets or args.pane_ids:
         return sorted(dict.fromkeys(explicit_targets))
 
+    runtime_ledger = snapshot.get("runtime_ledger")
+    if not isinstance(runtime_ledger, dict) or not runtime_ledger:
+        runtime_ledger = load_current_runtime_ledger()
+
+    slot_bindings = coerce_slot_bindings(runtime_ledger.get("slot_bindings"))
+    if not slot_bindings:
+        return []
+
+    def binding_sort_key(item: tuple[str, dict[str, str]]) -> tuple[int, str]:
+        slot_name = str(item[0]).strip()
+        _, _, suffix = slot_name.partition("_")
+        if suffix.isdigit():
+            return (int(suffix), slot_name)
+        return (sys.maxsize, slot_name)
+
     targets: list[str] = []
-    for pane in snapshot.get("panes", []):
-        if pane.get("session_name") != args.formal_session_name:
-            continue
-        target = str(pane.get("target", "")).strip()
-        if target:
+    for _, binding in sorted(slot_bindings.items(), key=binding_sort_key):
+        target = str(binding.get("target", "")).strip()
+        if target.startswith(f"{args.formal_session_name}:"):
             targets.append(target)
     return sorted(dict.fromkeys(targets))
 
@@ -285,11 +303,19 @@ def ensure_tmux_thread_binding() -> str:
     return ""
 
 
-def start_watcher(command: list[str], stdout_log: Path) -> int:
+def resolve_runtime_owner_token() -> str:
+    token = str(os.environ.get(RUNTIME_OWNER_TOKEN_ENV, "")).strip()
+    if token:
+        return token
+    ledger = load_current_runtime_ledger()
+    return str(ledger.get("runtime_owner_token", "") or "").strip()
+
+
+def start_watcher(command: list[str], stdout_log: Path, *, runtime_owner_token: str) -> int:
     stdout_log.parent.mkdir(parents=True, exist_ok=True)
     stdout_handle = stdout_log.open("a", encoding="utf-8")
     env = dict(os.environ)
-    env["TMUX_ORCHESTRATOR_CONTEXT"] = "true"
+    env[RUNTIME_OWNER_TOKEN_ENV] = runtime_owner_token
     process = subprocess.Popen(
         command,
         stdout=stdout_handle,
@@ -344,6 +370,7 @@ def main() -> int:
     snapshot = inspect_runtime(args.formal_session_name, include_bell_processes=False)
     targets = discover_targets(snapshot, args)
     codex_thread_id = ensure_tmux_thread_binding()
+    runtime_owner_token = resolve_runtime_owner_token()
     preflight = build_preflight(
         snapshot,
         args,
@@ -384,6 +411,10 @@ def main() -> int:
             raise SystemExit(
                 f"current caller is not inside the visible formal session {args.formal_session_name}; refusing to arm watcher"
             )
+        if not targets and not args.targets and not args.pane_ids:
+            raise SystemExit(
+                "runtime ledger has no formal slot bindings; refusing to auto-discover watcher targets"
+            )
         if not targets:
             raise SystemExit(
                 f"no eligible targets found in formal session {args.formal_session_name}"
@@ -397,6 +428,8 @@ def main() -> int:
 
         if not codex_thread_id and not args.no_deliver:
             raise SystemExit("CODEX_THREAD_ID is not bound in tmux; cannot arm delivery watcher")
+        if not runtime_owner_token:
+            raise SystemExit("runtime owner token is missing; refusing to arm watcher")
 
         stopped_pids: list[int] = []
         if not args.keep_existing:
@@ -411,7 +444,7 @@ def main() -> int:
         if args.dry_run:
             result["status"] = "dry_run"
         else:
-            pid = start_watcher(command, stdout_log)
+            pid = start_watcher(command, stdout_log, runtime_owner_token=runtime_owner_token)
             result["status"] = "armed"
             result["watcher_pid"] = pid
             maybe_write_ledger(result["status"], codex_thread_id, targets, pid)

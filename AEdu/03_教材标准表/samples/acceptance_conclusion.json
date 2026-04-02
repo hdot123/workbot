@@ -34,8 +34,8 @@
     ]
   },
   "validation_summary": {
-    "validation_id": "VAL_KB_20260324_161736",
-    "validated_at": "2026-03-24T16:17:36.273941",
+    "validation_id": "VAL_KB_20260402_045858",
+    "validated_at": "2026-04-02T04:58:58.934720",
     "result": "pass",
     "chapter_tree_nodes": 29,
     "knowledge_points": 22,
@@ -84,10 +84,11 @@
   "acceptance_conclusion": {
     "conclusion": "pass",
     "conclusion_type": "allow",
-    "rationale": "第一册结构化样例已扩展为整册节级骨架并通过闭环校验，可作为后续逐页 OCR 深化的稳定基础。",
+    "rationale": "第一册结构化样例已扩展为整册节级骨架并通过闭环校验；百度 OCR 主路径代码与自动化测试链已完成（`test_ocr_interface.py` 17/17、`test_ocr_event_bridge.py` 5/5、`test_ocr_integration.py` 4/4），并已于 2026-04-02 使用系统环境变量中的百度 OCR 凭据完成真实 API smoke。",
     "entry_gate_status": "满足",
     "exit_gate_status": "满足",
     "blocking_issues": [],
+    "qa_evidence": "ocr_qa_evidence.json",
     "follow_up_actions": [
       "继续逐页 OCR 深化第二章到第四章的正文锚点",
       "补充图像、图表、实验步骤级锚点",

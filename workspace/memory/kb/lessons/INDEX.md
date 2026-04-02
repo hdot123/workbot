@@ -10,6 +10,7 @@
 - `git.md`
 - `config.md`
 - `ops.md`
+- `tmux-commander-handoff.md`
 - `tailscale-baseline-sop.md`
 - `runbook.md`
 - `openclaw-tailscale-deployment.md`

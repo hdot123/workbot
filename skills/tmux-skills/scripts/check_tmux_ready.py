@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from tmux_scheduler import ensure_project_python
 from runtime_enforcement import enforce_via_scheduler
 enforce_via_scheduler("check_tmux_ready.py")
 # ==============================================================================
@@ -24,7 +25,11 @@ from runtime_ledger import (
     coerce_slot_bindings,
     evaluate_runtime_ledger_coherence,
 )
-from tmux_runtime_common import inspect_runtime
+from tmux_runtime_common import inspect_runtime, pane_is_claude_runtime_surface
+
+
+ROOT = Path("/Users/busiji/workbot")
+CLAUDE_PROJECT_AGENTS_DIR = ROOT / ".claude" / "agents"
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,6 +101,28 @@ def watcher_commands_for_targets(
         if expected.issubset(set(extract_targets_from_command(command))):
             commands.append(command)
     return commands
+
+
+def slot_binding_uses_project_agent(pane_title: str) -> bool:
+    normalized = str(pane_title).strip()
+    if not normalized:
+        return False
+    return (CLAUDE_PROJECT_AGENTS_DIR / f"{normalized}.md").is_file()
+
+
+def pane_matches_slot_binding(
+    pane: dict[str, Any],
+    *,
+    expected_title: str,
+) -> bool:
+    actual_title = str(pane.get("pane_title_normalized", "")).strip()
+    if not expected_title:
+        return True
+    if actual_title == expected_title:
+        return True
+    if slot_binding_uses_project_agent(expected_title) and pane_is_claude_runtime_surface(pane):
+        return True
+    return False
 
 
 def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
@@ -190,7 +217,7 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         next_action.append("refresh the runtime ledger after topology changes")
 
     actual_titles_by_target = {
-        str(pane.get("target", "")).strip(): str(pane.get("pane_title_normalized", "")).strip()
+        str(pane.get("target", "")).strip(): pane
         for pane in formal_panes
     }
     for slot_name, binding in slot_bindings.items():
@@ -199,9 +226,13 @@ def evaluate(snapshot: dict[str, Any], args: argparse.Namespace) -> dict[str, An
         if not target or target not in actual_titles_by_target:
             reasons.append(f"slot_bindings.{slot_name}.target does not exist in live formal panes")
             continue
-        if pane_title and actual_titles_by_target[target] != pane_title:
+        pane = actual_titles_by_target[target]
+        if not pane_matches_slot_binding(pane, expected_title=pane_title):
             reasons.append(
-                f"slot_bindings.{slot_name} expects {pane_title} at {target}, actual title is {actual_titles_by_target[target]}"
+                "slot_bindings."
+                + slot_name
+                + f" expects {pane_title} at {target}, actual title is "
+                + str(pane.get("pane_title_normalized", "")).strip()
             )
 
     codex_thread_bound = False
@@ -290,6 +321,7 @@ def summarize(result: dict[str, Any], snapshot: dict[str, Any], args: argparse.N
 
 
 def main() -> int:
+    ensure_project_python()
     args = parse_args()
     snapshot = inspect_runtime(
         args.formal_session_name,

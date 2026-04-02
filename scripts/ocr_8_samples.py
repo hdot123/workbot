@@ -123,11 +123,7 @@ def run_sample_ocr_test(
     """Run OCR on 8 sample pages and analyze structure."""
 
     # Set up OCR service
-    env = os.environ.copy()
-    env["LOCAL_OCR_PROVIDER"] = "ollama"
-    env["LOCAL_OCR_MODEL"] = "glm-ocr"
-
-    ocr_service = build_ocr_service_from_env(env=env)
+    ocr_service = build_ocr_service_from_env(env=os.environ.copy())
 
     results = {
         "test_name": "高中物理必修第一册_8 张样本截图识别测试",
@@ -164,7 +160,7 @@ def run_sample_ocr_test(
         try:
             # Create OCR request for image
             request = OCRRequest(
-                provider="local",
+                provider="baidu",
                 raw_input_ref=f"raw:sample_{page_file}",
                 source_file_ref=image_path,
                 trace_id=f"TRC_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{page_file}",

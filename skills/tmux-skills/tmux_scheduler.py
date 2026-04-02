@@ -18,9 +18,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 # Registry path - relative to this module's parent directory
+WORKBOT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_VENV_DIR = WORKBOT_ROOT / ".venv"
+PROJECT_VENV_PYTHON = PROJECT_VENV_DIR / "bin" / "python"
 SCRIPT_REGISTRY_PATH = Path(__file__).parent / "SCRIPT_REGISTRY.json"
 SCRIPTS_DIR = Path(__file__).parent / "scripts"
 
@@ -34,9 +37,37 @@ def load_registry() -> dict[str, Any]:
         return json.load(f)
 
 
-def get_script_meta(script_name: str, registry: dict[str, Any]) -> dict[str, Any] | None:
+def get_script_meta(script_name: str, registry: dict[str, Any]) -> Union[dict[str, Any], None]:
     """Get metadata for a registered script."""
     return registry["scripts"].get(script_name)
+
+
+def resolve_project_python(require_exists: bool = True) -> str:
+    """Return the project-scoped Python interpreter path for tmux-skills."""
+    python_path = PROJECT_VENV_PYTHON
+    if require_exists and not python_path.is_file():
+        raise FileNotFoundError(
+            f"Project Python not found: {python_path}. "
+            f"Create it with: python3 -m venv {PROJECT_VENV_DIR}"
+        )
+    if python_path.exists():
+        return str(python_path.resolve())
+    return str(python_path)
+
+
+def ensure_project_python() -> None:
+    """Re-exec the current entry script under the project venv Python when needed."""
+    target_python = Path(resolve_project_python()).resolve()
+    current_python = Path(str(sys.executable or "")).resolve()
+    if current_python == target_python:
+        return
+
+    script_path = str(Path(sys.argv[0]).resolve())
+    os.execve(
+        str(target_python),
+        [str(target_python), script_path, *sys.argv[1:]],
+        os.environ.copy(),
+    )
 
 
 def is_hidden_pty() -> bool:
@@ -363,7 +394,11 @@ def execute_script(script_name: str, script_meta: dict[str, Any], args: list[str
         return 1, "", f"Script entry point not found: {entry_point}"
 
     # Build command
-    cmd = [sys.executable, str(entry_point)] + args
+    try:
+        project_python = resolve_project_python()
+    except FileNotFoundError as exc:
+        return 1, "", str(exc)
+    cmd = [project_python, str(entry_point)] + args
 
     # Set scheduler context markers
     env = os.environ.copy()

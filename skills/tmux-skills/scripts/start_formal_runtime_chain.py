@@ -71,6 +71,7 @@ CHAIN_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "start-formal-runtime-chain.s
 START_CHAIN_LOCK_FILE_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "start-formal-runtime-chain.lock"
 START_CHAIN_LOCK_INFO_PATH = TMUX_RUNTIME_ARTIFACT_DIR / "start-formal-runtime-chain.lock.json"
 START_CHAIN_LOCK_TOKEN_ENV = "TMUX_START_CHAIN_LOCK_TOKEN"
+RUNTIME_OWNER_TOKEN_ENV = "TMUX_RUNTIME_OWNER_TOKEN"
 START_CHAIN_LOCK_STALE_SECONDS = 120.0
 BRIDGE_STDOUT_LOG_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.stdout.log"
 BRIDGE_PID_FILE_PATH = TMUX_SKILLS_ARTIFACT_DIR / "tmux-handoff-window-ipc-bridge.pid"
@@ -150,6 +151,10 @@ def read_json_file(path: Path) -> dict[str, Any]:
 
 def start_chain_lock_token() -> str:
     return str(os.environ.get(START_CHAIN_LOCK_TOKEN_ENV, "")).strip()
+
+
+def runtime_owner_token() -> str:
+    return str(os.environ.get(RUNTIME_OWNER_TOKEN_ENV, "")).strip()
 
 
 def start_chain_lock_mode(args: argparse.Namespace) -> str:
@@ -324,11 +329,46 @@ def release_start_chain_lock(owner_token: str) -> bool:
     return bool(released)
 
 
+def ensure_runtime_owner_token() -> str:
+    token = runtime_owner_token()
+    if token:
+        return token
+    token = secrets.token_hex(16)
+    os.environ[RUNTIME_OWNER_TOKEN_ENV] = token
+    return token
+
+
 def result_output_path() -> Path:
     override = str(os.environ.get(START_RESULT_PATH_ENV, "")).strip()
     if override:
         return Path(override).expanduser()
     return LAST_START_RESULT_PATH
+
+
+def resolve_terminal_app_result_paths() -> tuple[Path, Optional[Path]]:
+    canonical_path = result_output_path()
+    if str(os.environ.get(START_RESULT_PATH_ENV, "")).strip():
+        return canonical_path, None
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="tmux-start-result-",
+        delete=False,
+        encoding="utf-8",
+    ) as handle:
+        launch_result_path = Path(handle.name)
+    return launch_result_path, canonical_path
+
+
+def write_result_payload(path: Path, payload: dict[str, Any]) -> None:
+    materialized = dict(payload)
+    materialized["result_path"] = str(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(materialized, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def persist_chain_result(result: dict[str, Any]) -> None:
@@ -411,9 +451,10 @@ def build_launch_path_explanation(
 
 
 def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, start_ms: str) -> str:
+    script_path = str(Path(__file__).resolve())
     command = [
         resolve_project_python(),
-        str(Path(__file__).resolve()),
+        script_path,
         "--codex-thread-id",
         args.codex_thread_id,
         "--formal-session",
@@ -432,15 +473,18 @@ def build_terminal_app_command(args: argparse.Namespace, *, result_path: Path, s
         f"{START_RESULT_PATH_ENV}={shlex.quote(str(result_path))}",
         f"{START_TEST_START_MS_ENV}={shlex.quote(start_ms)}",
     ]
-    token = start_chain_lock_token()
-    if token:
-        env_parts.append(f"{START_CHAIN_LOCK_TOKEN_ENV}={shlex.quote(token)}")
+    for env_name in (START_CHAIN_LOCK_TOKEN_ENV, RUNTIME_OWNER_TOKEN_ENV):
+        env_value = str(os.environ.get(env_name, "")).strip()
+        if env_value:
+            env_parts.append(f"{env_name}={shlex.quote(env_value)}")
     env_prefix = " ".join(env_parts)
     quoted_command = " ".join(shlex.quote(part) for part in command)
     shell_path = os.environ.get("SHELL") or "/bin/zsh"
     return (
         f"cd {shlex.quote(str(ROOT))} && "
+        "printf '\\033[2J\\033[H'; "
         f"{env_prefix} {quoted_command}; rc=$?; "
+        "if [ $rc -eq 0 ]; then printf '\\033[2J\\033[Htmux-skills startup finished\\n'; fi; "
         "printf '\\n__TMUX_SKILLS_EXIT__=%s\\n' \"$rc\"; "
         f"if [ $rc -ne 0 ]; then exec {shlex.quote(shell_path)} -l; fi"
     )
@@ -467,7 +511,7 @@ def wait_for_result_file(path: Path, timeout_seconds: float = TERMINAL_APP_RESUL
 
 
 def launch_via_terminal_app(args: argparse.Namespace, steps: dict[str, Any]) -> dict[str, Any]:
-    result_path = result_output_path()
+    result_path, mirror_path = resolve_terminal_app_result_paths()
     try:
         result_path.unlink()
     except FileNotFoundError:
@@ -483,11 +527,19 @@ def launch_via_terminal_app(args: argparse.Namespace, steps: dict[str, Any]) -> 
     apple_script = f"""on run argv
   set commandText to item 1 of argv
   tell application "Terminal"
+    set hadWindows to ((count of windows) > 0)
     activate
-    do script ""
     delay 0.3
-    set bounds of front window to {{{left}, {top}, {right}, {bottom}}}
-    do script commandText in front window
+    if hadWindows then
+      do script ""
+      delay 0.3
+    else
+      reopen
+      delay 0.3
+    end if
+    set startupWindow to front window
+    set bounds of startupWindow to {{{left}, {top}, {right}, {bottom}}}
+    do script commandText in selected tab of startupWindow
   end tell
 end run
 """
@@ -518,7 +570,13 @@ end run
     if launch_output:
         steps["launcher"]["osascript_stdout"] = launch_output
 
-    return wait_for_result_file(result_path)
+    payload = wait_for_result_file(result_path)
+    if mirror_path and mirror_path != result_path:
+        write_result_payload(mirror_path, payload)
+        safe_unlink(result_path)
+        payload = dict(payload)
+        payload["result_path"] = str(mirror_path)
+    return payload
 
 
 def write_chain_context(steps: dict[str, Any], *, path: Optional[Path] = None) -> str:
@@ -613,7 +671,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print result JSON.")
     args = parser.parse_args()
-    if not args.explain_launch_path and not str(args.codex_thread_id or "").strip():
+    if (
+        not args.explain_launch_path
+        and not str(args.codex_thread_id or "").strip()
+    ):
         parser.error("--codex-thread-id is required unless --explain-launch-path is set")
     return args
 
@@ -942,7 +1003,12 @@ def build_post_launch_command(args: argparse.Namespace) -> str:
         command.append("--pretty")
 
     env_parts = [f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(str(POST_LAUNCH_CONTEXT_PATH))}"]
-    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV, START_CHAIN_LOCK_TOKEN_ENV):
+    for env_name in (
+        START_RESULT_PATH_ENV,
+        START_TEST_START_MS_ENV,
+        START_CHAIN_LOCK_TOKEN_ENV,
+        RUNTIME_OWNER_TOKEN_ENV,
+    ):
         env_value = str(os.environ.get(env_name, "")).strip()
         if env_value:
             env_parts.append(f"{env_name}={shlex.quote(env_value)}")
@@ -1338,7 +1404,12 @@ def build_inside_formal_command(args: argparse.Namespace, chain_context_path: st
     env_parts: list[str] = []
     if chain_context_path:
         env_parts.append(f"{CHAIN_CONTEXT_PATH_ENV}={shlex.quote(chain_context_path)}")
-    for env_name in (START_RESULT_PATH_ENV, START_TEST_START_MS_ENV, START_CHAIN_LOCK_TOKEN_ENV):
+    for env_name in (
+        START_RESULT_PATH_ENV,
+        START_TEST_START_MS_ENV,
+        START_CHAIN_LOCK_TOKEN_ENV,
+        RUNTIME_OWNER_TOKEN_ENV,
+    ):
         env_value = str(os.environ.get(env_name, "")).strip()
         if env_value:
             env_parts.append(f"{env_name}={shlex.quote(env_value)}")
@@ -1584,7 +1655,9 @@ def pane_has_claude_prompt(capture: str) -> bool:
         stripped = raw_line.strip()
         if not stripped:
             continue
-        if stripped == "❯" or stripped.startswith("❯ "):
+        if stripped == "❯":
+            return True
+        if stripped.startswith("❯") and len(stripped) > 1 and str(stripped[1]).isspace():
             return True
     return False
 
@@ -1837,6 +1910,7 @@ def run_runtime_activation_prelaunch(
 ) -> None:
     # Set orchestrator context before calling phase scripts
     set_orchestrator_context()
+    owner_token = ensure_runtime_owner_token()
 
     start_phase("thread_binding")
     steps["thread_binding"] = bind_tmux_thread_id(codex_thread_id)
@@ -1856,6 +1930,8 @@ def run_runtime_activation_prelaunch(
         "--codex-thread-bound",
         "--runtime-status",
         "READY",
+        "--runtime-owner-token",
+        owner_token,
     ]
     ledger_args.extend(build_slot_binding_args(batch_plan))
     steps["ledger"] = run_json_script(
@@ -1871,6 +1947,7 @@ def run_runtime_activation_prelaunch(
 
     steps["post_launch_context"] = {
         "path": str(POST_LAUNCH_CONTEXT_PATH),
+        "runtime_owner_token_present": bool(owner_token),
     }
     write_chain_context(steps, path=POST_LAUNCH_CONTEXT_PATH)
 

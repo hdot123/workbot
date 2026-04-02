@@ -1,127 +1,71 @@
 # AEdu Dev Task List
 
-## Status
-- `completed`
-- 首轮结构化样例与闭环校验完成时间：2026-03-24
-- 文本主链实现与最小运行验证完成时间：2026-03-26
-- F9 检索装配与主链判定完成时间：2026-03-26
-- 当前结果：`F1-F11` 全部完成，最小 E2E 测试通过，F9 3/3 场景通过，主链判定 pass
+## Role
+- 本单只记录开发执行状态
+- 本单管到 `dev_done`，不负责宣布 `qa_done` 或 `done`
+- bot 不自己维护本单状态；状态由指挥官统一回写
 
-## Scope
-- 只做 AEdu 第一阶段最小闭环研发任务
-- 冻结范围：安徽 / 高中 / 高一 / 物理 / `PHY_PEP_G1_V1`
-- 当前执行输入源：家长文本、老师反馈文本
-- 单页 OCR 与剩余 PDF 册次深化处理暂缓，等待资料前提与资源条件
-- 不扩到 `SIM` / 大规模 `GRAPH` / 多地区 / 多学科 / 多版本
-- 未经明确允许，不要 `commit`
+## Overall Status
+- `ce_synced`
+- 当前口径：当前无活跃开发执行卡；阶段二开发链已完成 CE 同步，DEV-001 ~ DEV-007 保持 `dev_done` 证据状态；OBS Contract 5 文档与 OPS 4 文档已通过 6+1 评审并冻结为"已冻结"；DEV-008/009/010/012/013/014/015/016 已完成本轮开发，`DEV-011 / #56` 已按本地 runner 退役口径完成生命周期收口；百度 OCR 真实 API smoke 已补证，本单当前转入阶段三生命周期守护与后续阶段准入准备
 
-## Task Count
-- 已完成任务数：`31`
-- 当前待执行任务数：`3` (F9 检索装配相关，等待资源)
-- 当前文件按任务卡粒度展开
+## Canonical Status Model
+- `todo`: 已登记，未开始
+- `in_progress`: 已开工，有明确 owner
+- `blocked`: 有阻塞，当前不能推进
+- `dev_done`: 开发完成，已做最小必要验证
+- `qa_done`: QA 完成，等待文档或 CE 同步
+- `doc_synced`: 文档与验收材料已同步
+- `ce_synced`: CE 已同步
+- `done`: 正式收口完成
 
-## Task Cards
-1. `F1-T1` 定义章节树节点模型。状态：`completed`
-2. `F1-T2` 实现冻结口径校验。状态：`completed`
-3. `F1-T3` 录入首版章节树样例。状态：`completed`
-4. `F2-T1` 定义知识点对象模型。状态：`completed`
-5. `F2-T2` 定义知识点准入规则。状态：`completed`
-6. `F2-T3` 产出首批知识点样例。状态：`completed`
-7. `F3-T1` 定义能力点对象模型。状态：`completed`
-8. `F3-T2` 定义 `knowledge -> ability` 映射规则。状态：`completed`
-9. `F3-T3` 产出首批能力点样例。状态：`completed`
-10. `F4-T1` 定义锚点对象模型。状态：`completed`
-11. `F4-T2` 定义锚点引用关系。状态：`completed`
-12. `F4-T3` 产出首批锚点样例。状态：`completed`
-13. `F5-T1` 定义最小闭环校验规则。状态：`completed`
-14. `F5-T2` 组装首个完整样例包。状态：`completed`
-15. `F5-T3` 输出最小验收结果。状态：`completed`
-16. `F5-T4` 已落冻结范围常量与门禁常量。状态：`completed`
-17. `F5-T5` 已落 TWIN ingest 输入契约与校验决策模型。状态：`completed`
-18. `F5-T6` 已落 OCR 输入接口层与 provider 骨架。状态：`completed`
-19. `F6-T1` 文本输入到标准学习事件的统一组装。状态：`completed`
-20. `F7-T1` 定义 TWIN 当前态实体模型。状态：`completed`
-21. `F7-T2` 实现 TWIN 状态更新器。状态：`completed`
-22. `F7-T3` 实现 TWIN 审计留痕与广播对象。状态：`completed`
-23. `F8-T1` 定义 GRAPH 最小对象模型。状态：`completed`
-24. `F8-T2` 实现 GRAPH 最小写入链。状态：`completed`
-25. `F9-T1` 实现 Retrieval Unit 最小检索装配。状态：`completed`
-26. `F9-T2` 组装文本主链联调样例。状态：`completed`
-27. `F9-T3` 输出主链通过 / 阻断判定。状态：`completed`
-28. `F10-T1` 定义 OBS 家长周报最小输出对象。状态：`completed`
-29. `F10-T2` 定义 OBS 老师学生详情最小输出对象。状态：`completed`
-30. `F10-T3` 实现 OBS 降级展示规则。状态：`completed`
-31. `F11-T1` 将文本主链实现稿真实落盘到 `app/models`。状态：`completed`
-32. `F11-T2` 对已落盘代码执行一次最小运行验证。状态：`completed`
-33. `F11-T3` 汇总运行结果并回写主链当前结论。状态：`completed`
+## Dev Owner Rule
+- 只保留一张开发单，不拆两张平行 `dev-task-list`
+- 一个任务卡只能有一个主 owner
+- 一个文件组同一时间只能给一个 owner
+- `dev-a` 与 `dev-b` 可以并行，但 `write_scope` 不允许重叠
+- `dev_done` 以后必须转入 QA，不允许开发单直接写 `done`
+- `dev_done` 以后对应 CE issue 必须继续保持 `opened`，等待 QA 和 Doc 在同一 issue 上续写
 
-## Grouping
-- `F1` 章节树标准化：`F1-T1` ~ `F1-T3` ✅
-- `F2` 知识点标准入库：`F2-T1` ~ `F2-T3` ✅
-- `F3` 能力点映射：`F3-T1` ~ `F3-T3` ✅
-- `F4` 锚点/证据挂接：`F4-T1` ~ `F4-T3` ✅
-- `F5` 最小闭环校验与样例包：`F5-T1` ~ `F5-T6` ✅
-- `F6-F10` 文本主链实现稿与最小对象层：事件组装 / TWIN / GRAPH / OBS ✅
-- `F11` 真实落盘与运行验证 ✅
-- `F9` 检索装配与主链判定：`F9-T1` ~ `F9-T3` ✅
+## Current Lanes
+- `dev-a`: 输入链 / 契约 / OCR / 事件组装 / OCR runner
+- `dev-b`: TWIN / GRAPH / OBS / 主链测试 / 观察层展示规则
 
-## Current Target Files
-- `AEdu/03_教材标准表/samples/chapter_tree_schema.json`
-- `AEdu/03_教材标准表/samples/knowledge_schema.json`
-- `AEdu/03_教材标准表/samples/ability_schema.json`
-- `AEdu/03_教材标准表/samples/anchor_schema.json`
-- `AEdu/03_教材标准表/samples/chapter_tree_sample.json`
-- `AEdu/03_教材标准表/samples/knowledge_sample.json`
-- `AEdu/03_教材标准表/samples/ability_sample.json`
-- `AEdu/03_教材标准表/samples/anchor_sample.json`
-- `AEdu/03_教材标准表/samples/dependency_sample.json`
-- `AEdu/03_教材标准表/samples/validation_report.json`
-- `AEdu/03_教材标准表/samples/acceptance_conclusion.json`
-- `AEdu/scripts/validate_kb_closure.py`
-- `app/models/constants.py`
-- `app/models/twin_ingest_contract.py`
-- `app/models/ocr_interface.py`
-- `app/models/event_assembler.py`
-- `app/models/twin_state.py`
-- `app/models/twin_updater.py`
-- `app/models/graph_models.py`
-- `app/models/graph_writer.py`
-- `app/models/obs_models.py`
+## Task Board
 
-## Constraints
-- 不要改无关 `.md` 文档
-- 只处理与第一阶段最小闭环直接相关的实现文件
-- 如发现范围冲突，先停下汇报
-- 先完成昨天已产出代码的真实落盘与最小运行验证，再决定是否继续往后扩
+| task_id | title | status | owner | write_scope | evidence | blocker | next_step |
+|---|---|---|---|---|---|---|---|
+| DEV-001 | KB 结构化样例与闭环校验基线 | `dev_done` | `dev-a` | `AEdu/03_教材标准表/samples/*`, `AEdu/scripts/validate_kb_closure.py` | `validation_report.json` 为 `pass` | - | 转 QA 做正式复核 |
+| DEV-002 | 冻结常量、TWIN ingest 契约、OCR 接口骨架 | `dev_done` | `dev-a` | `app/models/constants.py`, `app/models/twin_ingest_contract.py`, `app/models/ocr_interface.py` | `tests/test_twin_ingest_contract.py`, `tests/test_ocr_interface.py` | - | 冻结范围，不再扩写 |
+| DEV-003 | 文本与 OCR 到标准学习事件的统一组装 | `dev_done` | `dev-a` | `app/models/event_assembler.py`, `app/models/ocr_event_bridge.py` | `tests/test_text_main_chain.py`, `tests/test_ocr_event_bridge.py`, `tests/test_ocr_integration.py` | - | 转 QA 复核路由与回归风险 |
+| DEV-004 | 百度 OCR API 主路径验证与收口 | `dev_done` | `dev-a` | `app/models/ocr_interface.py`, `app/models/ocr_event_bridge.py`, `tests/test_ocr_interface.py`, `tests/test_ocr_event_bridge.py`, `tests/test_ocr_integration.py`, `scripts/ocr_8_samples.py`, `scripts/ocr_textbook.py` | 正式主路径已进一步收口：百度 provider 为唯一保留注册路径，OCR bridge / integration 证据已齐，教材图片与 PDF 脚本已切到 baidu 口径；OCR 测试本轮复核 `26/26` 通过 | - | 百度主路径证据已稳固，可继续维持 `dev_done` 口径 |
+| DEV-005 | TWIN 当前态与状态更新器 | `dev_done` | `dev-b` | `app/models/twin_state.py`, `app/models/twin_updater.py` | `tests/test_text_main_chain.py` 通过 | - | 转 QA 复核状态更新正确性 |
+| DEV-006 | GRAPH 写入、回滚、检索与主链判定 | `dev_done` | `dev-b` | `app/models/graph_*.py`, `app/models/retrieval_unit.py`, `app/models/main_chain_judge.py` | `tests/test_f8_rollback.py` (14/14) 与 `tests/test_f9_scenarios.py` (3/3) pytest 通过 | - | 转 QA 做联调复核 |
+| DEV-007 | OBS 最小输出对象与降级展示规则 | `dev_done` | `dev-b` | `app/models/obs_models.py` | `tests/test_text_main_chain.py` 通过 OBS 段 | - | 转 QA 复核展示降级边界 |
 
-## F11 验收结论
-- 落盘文件：
-  - `app/models/constants.py` (F5-T4)
-  - `app/models/twin_ingest_contract.py` (F5-T5)
-  - `app/models/ocr_interface.py` (F5-T6)
-  - `app/models/event_assembler.py` (F6-T1)
-  - `app/models/twin_state.py` (F7-T1)
-  - `app/models/twin_updater.py` (F7-T2, F7-T3)
-  - `app/models/graph_models.py` (F8-T1)
-  - `app/models/graph_writer.py` (F8-T2)
-  - `app/models/obs_models.py` (F10-T1 ~ F10-T3)
-  - `app/models/retrieval_unit.py` (F9-T1)
-  - `app/models/main_chain_judge.py` (F9-T3)
-- 测试文件：`tests/test_text_main_chain.py` (F11), `tests/test_f9_scenarios.py` (F9-T2)
-- 测试结果：
-  - F11 E2E 测试：4/4 通过
-  - F9-T2 场景测试：3/3 通过
-  - F9-T3 主链判定：pass
-- 结论：F1-F11 全部完成，文本主链最小闭环已跑通，检索装配与主链判定已完成
+## Next Round Intake
 
-## F9 验收结论
-- 落盘文件：
-  - `app/models/retrieval_unit.py` (F9-T1) - Retrieval Unit 检索装配
-  - `app/models/main_chain_judge.py` (F9-T3) - 主链通过/阻断判定
-  - `tests/test_f9_scenarios.py` (F9-T2) - 联调场景测试
-- 测试结果：
-  - Normal 场景：PASS - 完整流程，knowledge_refs 正常更新
-  - Degraded 场景：PASS - 低置信度事件正确路由到 review
-  - Review Needed 场景：PASS - 显式 review 事件正确路由到 review
-- 主链判定结论：pass（0 个 P0 阻断，0 个 P1 限制）
-- 结论：F9 任务完成，检索装配与主链判定功能正常
+| task_id | title | status | owner | write_scope | evidence | blocker | next_step |
+|---|---|---|---|---|---|---|---|
+| DEV-008 | 家长端周报/月报解释对象收口 | `dev_done` | `dev-b` | `app/models/obs_models.py` (新增 ExplanationBlock, ActionSuggestion, FeedbackEntry, ParentMonthlyReport), `tests/test_text_main_chain.py` | 家长端 contract 相关测试已通过，已形成交付摘要 | - | 转 QA-010 做 contract 复核 |
+| DEV-009 | 老师端学生详情结构化输出增强 | `dev_done` | `dev-b` | `app/models/obs_models.py` (新增 focus_subject/focus_knowledge_points/focus_exercise_types/focus_misconceptions/risk_level/recent_change/followed_up/action_items/feedback_entry/report_period, compute_focus_areas/compute_risk_level 方法), `tests/test_text_main_chain.py` | pytest 22/22 通过（含 DEV-009 专项测试），OBS-003 字段缺口已补齐 | - | 转 QA-006 做 contract 复核 |
+| DEV-010 | 学校班级看板聚合与降级规则 V1 | `dev_done` | `dev-a` | `app/models/obs_models.py`, `app/models/school_dashboard.py` (新增), `tests/test_school_dashboard.py` (新增) | 班级看板模型与相关测试已通过，已形成交付摘要 | - | 转 QA-008 做结构验收 |
+| DEV-011 | 接通本地 OCR runner backend 与真实失败模式 | `done` | `dev-a` | `app/models/ocr_interface.py`, `app/models/ocr_event_bridge.py`, `tests/test_ocr_integration.py` | GitLab CE `#56` 已按退役口径关闭；代码与脚本已切为 baidu-only，local runner/provider 已从代码路径退出，本项按策略变更完成生命周期收口 | - | 生命周期已收口；不再继续 backend 接通实现 |
+| DEV-012 | 反馈闭环事件记录与回流接口 V1 | `dev_done` | `dev-a` | `app/models/feedback_event.py` (新增 FeedbackEvent/FeedbackOption/FeedbackRouter, 4 种 feedback_type, 4 种 route_destination), `tests/test_feedback_loop.py` | pytest 16/16 通过，OBS-010 MVP 字段与回流边界已实现 | - | 转 QA-008 做 contract 复核 |
+| DEV-013 | 对比维度代码化与比较结果模型 | `dev_done` | `dev-a` | `app/models/compare_dimension.py` (CompareDimension/ComparisonResult/ComparisonRule/ComparisonWindow, 6 种 compare_type, 7 种标准维度模板), `tests/test_obs_compare_dimensions.py` | pytest 9/9 通过，OBS-007 对比维度与观察口径已代码化 | - | 转 QA-006 做 contract 复核 |
+| DEV-014 | 班级看板验收支撑样例与聚合断言补强 | `dev_done` | `dev-b` | `app/models/school_dashboard.py`, `app/models/obs_models.py`, `tests/test_school_dashboard.py` | pytest 18/18 通过，DashboardAssertions 聚合断言与 DashboardTestBuilder 验收样例已实现，OBS-007 compare 口径风险说明已支持；QA-008 已完成，本项证据已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
+| DEV-015 | 反馈闭环验收支撑样例与回流断言补强 | `dev_done` | `dev-a` | `app/models/feedback_event.py`, `tests/test_feedback_loop.py`, `AEdu/08_观察层与产品层/10_产品交互与反馈闭环.md`, `AEdu/08_观察层与产品层/qa_008_feedback_samples.json`, `AEdu/08_观察层与产品层/feedback_boundary_rules.md` | pytest 16/16 通过 + 12 个验收样例固化 + 8 条回流断言固化；DEV-015 交付结论：最小验收支撑已就绪；QA-008 已完成，本项证据已写入 `#31` 生命周期评论（note 206） | - | 生命周期已同步；后续只维护阶段三主线引用一致性 |
+| DEV-016 | 反馈闭环可追溯指标与试点问题库骨架 | `dev_done` | `dev-a` | `app/models/feedback_event.py`, `tests/test_feedback_traceability.py` | 已补 `PilotProblem`、`FeedbackTraceabilitySnapshot`、`FeedbackTraceabilityBuilder`，把反馈处理完成率 / 问题关闭率 / 干预执行回填率与周复盘汇总能力落到代码；反馈链联合回归 `20/20` 通过，并已写入 `#31` 生命周期评论（note 206） | - | QA-011 已完成且生命周期已同步；后续只维护阶段三主线引用一致性 |
+
+## Update Rule
+- 新任务先登记为 `todo`
+- owner 接手后改为 `in_progress`
+- 遇到外部依赖、资料前提或环境问题时改为 `blocked`
+- 有代码证据和最小验证后改为 `dev_done`
+- 后续 `qa_done`、`doc_synced`、`ce_synced` 由其他单据推动，不在本单主动宣告
+- 开发完成后只允许写“转 QA”，不允许写“CE 可关闭”
+
+## Evidence Rule
+- `evidence` 只写真实文件、测试或脚本结果
+- 不把口头判断写成完成证据
+- 同一任务若存在残余风险，写进 `blocker` 或 `next_step`

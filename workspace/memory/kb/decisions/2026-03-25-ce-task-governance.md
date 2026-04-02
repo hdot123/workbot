@@ -2,13 +2,13 @@
 type: [KB:DECISION]
 title: "GitLab CE 任务治理规则"
 created: 2026-03-25
-updated: 2026-03-25
-last_verified: 2026-03-25
+updated: 2026-04-02
+last_verified: 2026-04-02
 source: Manual
 confidence: high
 tags: [gitlab, ce, task-governance, commander, early-stage]
 related: [workbot, 2026-03-25-workbot-project-agents-and-runtime-surfaces, chatgpt-library-gitlab-ce-deployment]
-version: v1.0
+version: v1.1
 status: active
 ---
 
@@ -17,7 +17,7 @@ status: active
 ## 结论
 
 - `node-150` 上的 GitLab CE 任务系统用于管理指挥层任务，不用于给 bot 建立正式任务体系
-- 项目早期阶段，CE 不给 `dev-bot`、`qa-bot`、`doc-bot` 直接挂正式任务
+- 项目早期阶段，CE 不给 `dev-bot`、`qa-bot`、`doc-bot`、`rea-bot` 直接挂正式任务
 - bot 只作为执行工具或辅助资源出现，不作为 CE 任务系统的一等主体
 - CE 中的正式任务必须沿用现有 `aedu/workbot` 任务体系，不再另造平行编号体系
 

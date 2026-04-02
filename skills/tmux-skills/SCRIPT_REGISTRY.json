@@ -82,7 +82,7 @@
       "input_parameters": {
         "formal_session_name": {"type": "string", "required": false, "default": "formal-session"},
         "targets": {"type": "array<string>", "required": false},
-        "interval": {"type": "float", "required": false, "default": 10.0}
+        "interval": {"type": "float", "required": false, "default": 3.0}
       },
       "output": {
         "type": "json",
@@ -110,7 +110,7 @@
       "side_effects": ["writes_handoff_log"],
       "input_parameters": {
         "target": {"type": "string", "required": true},
-        "interval": {"type": "float", "required": false, "default": 10.0}
+        "interval": {"type": "float", "required": false, "default": 3.0}
       },
       "output": {
         "type": "jsonl",

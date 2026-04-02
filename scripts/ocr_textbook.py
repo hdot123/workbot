@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OCR textbook PDF using local glm-ocr model."""
+"""OCR textbook PDF using Baidu OCR."""
 
 from __future__ import annotations
 
@@ -36,16 +36,12 @@ def run_ocr_on_textbook(
         }
 
     try:
-        # Set up OCR service with glm-ocr
-        env = os.environ.copy()
-        env["LOCAL_OCR_PROVIDER"] = "ollama"
-        env["LOCAL_OCR_MODEL"] = "glm-ocr"
-
-        ocr_service = build_ocr_service_from_env(env=env)
+        # Set up OCR service with Baidu OCR credentials from environment
+        ocr_service = build_ocr_service_from_env(env=os.environ.copy())
 
         # Create OCR request
         request = OCRRequest(
-            provider="local",
+            provider="baidu",
             raw_input_ref=f"raw:textbook_{os.path.basename(pdf_path)}",
             source_file_ref=pdf_path,
             trace_id=f"TRC_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
