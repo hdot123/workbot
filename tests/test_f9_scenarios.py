@@ -124,6 +124,8 @@ def run_normal_scenario() -> tuple[bool, str, dict]:
             chapter_names={"PHY_PEP_G1_V1_CH_01": "第一章 运动的描述"},
             knowledge_names={"PHY_PEP_G1_V1_KP_001": "质点的概念"},
             ability_names={"PHY_AP_001": "理解概念的能力"},
+            chapter_knowledge_map={"PHY_PEP_G1_V1_CH_01": ["PHY_PEP_G1_V1_KP_001"]},
+            knowledge_to_ability_map={"PHY_PEP_G1_V1_KP_001": ["PHY_AP_001"]},
         )
 
         context = assembler.assemble(student_id)
@@ -201,6 +203,8 @@ def run_degraded_scenario() -> tuple[bool, str, dict]:
             chapter_names={"PHY_PEP_G1_V1_CH_01": "第一章 运动的描述"},
             knowledge_names={"PHY_PEP_G1_V1_KP_001": "质点的概念"},
             ability_names={"PHY_AP_001": "理解概念的能力"},
+            chapter_knowledge_map={"PHY_PEP_G1_V1_CH_01": ["PHY_PEP_G1_V1_KP_001"]},
+            knowledge_to_ability_map={"PHY_PEP_G1_V1_KP_001": ["PHY_AP_001"]},
         )
 
         context = assembler.assemble(student_id)
@@ -283,6 +287,8 @@ def run_review_needed_scenario() -> tuple[bool, str, dict]:
             chapter_names={"PHY_PEP_G1_V1_CH_01": "第一章 运动的描述"},
             knowledge_names={"PHY_PEP_G1_V1_KP_001": "质点的概念"},
             ability_names={"PHY_AP_001": "理解概念的能力"},
+            chapter_knowledge_map={"PHY_PEP_G1_V1_CH_01": ["PHY_PEP_G1_V1_KP_001"]},
+            knowledge_to_ability_map={"PHY_PEP_G1_V1_KP_001": ["PHY_AP_001"]},
         )
 
         context = assembler.assemble(student_id)

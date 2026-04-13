@@ -176,12 +176,16 @@ class RetrievalUnitAssembler:
         chapter_names: dict[str, str] | None = None,
         knowledge_names: dict[str, str] | None = None,
         ability_names: dict[str, str] | None = None,
+        chapter_knowledge_map: dict[str, list[str]] | None = None,
+        knowledge_to_ability_map: dict[str, list[str]] | None = None,
     ):
         self.twin_store = twin_store
         self.graph_store = graph_store
         self.chapter_names = chapter_names or {}
         self.knowledge_names = knowledge_names or {}
         self.ability_names = ability_names or {}
+        self.chapter_knowledge_map = chapter_knowledge_map or {}
+        self.knowledge_to_ability_map = knowledge_to_ability_map or {}
 
     def assemble_current_state(self, twin_state: StudentTwinState) -> CurrentStateView:
         """Assemble current state view from twin state."""
@@ -251,18 +255,25 @@ class RetrievalUnitAssembler:
         twin_state: StudentTwinState,
         graph_snapshot: GraphSnapshot | None = None,
     ) -> list[StructuralReference]:
-        """Assemble structural references from twin state and graph."""
+        """Assemble structural references from twin state and graph.
+
+        Args:
+            twin_state: Current student twin state.
+            graph_snapshot: Legacy parameter kept for backward compatibility; ignored.
+        """
         refs: list[StructuralReference] = []
 
         chapter_node_ids = set(twin_state.chapter_progress.keys())
 
         for chapter_id in chapter_node_ids:
-            knowledge_ids = [
-                kid for kid, ks in twin_state.knowledge_states.items()
-            ]
-            ability_ids = [
-                aid for aid in twin_state.ability_states.keys()
-            ]
+            knowledge_ids = list(self.chapter_knowledge_map.get(chapter_id, [])) if self.chapter_knowledge_map else []
+
+            ability_ids: list[str] = []
+            if self.knowledge_to_ability_map:
+                ability_set: set[str] = set()
+                for kid in knowledge_ids:
+                    ability_set.update(self.knowledge_to_ability_map.get(kid, []))
+                ability_ids = sorted(ability_set)
 
             refs.append(
                 StructuralReference(
@@ -314,7 +325,7 @@ class RetrievalUnitAssembler:
 
             if include_structural:
                 retrieval_unit.structural_refs = self.assemble_structural_refs(
-                    twin_state, graph_snapshot
+                    twin_state
                 )
 
         is_complete = len(missing_components) == 0 and retrieval_unit.current_state is not None
