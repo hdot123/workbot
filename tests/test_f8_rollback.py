@@ -220,6 +220,53 @@ def test_degraded_write() -> None:
     assert "Low confidence" in degraded.degradation_reason
 
 
+
+def test_degraded_edge_write() -> None:
+    """Test degraded edge write with low confidence.
+
+    Regression: write_edge_with_confidence previously called mark_degraded
+    with edge_id=... instead of entity_id=..., causing TypeError.
+    """
+    store = InMemoryGraphStore()
+    writer = GraphWriter(store)
+
+    # Create prerequisite nodes
+    from app.models.graph_models import StudentNode, KnowledgeNode
+    student = StudentNode(
+        node_id="STU_EDGE_001", node_type="student",
+        created_at="2026-03-26T10:00:00", updated_at="2026-03-26T10:00:00",
+        properties={"name": "测试学生"})
+    knowledge = KnowledgeNode(
+        node_id="KP_EDGE_001", node_type="knowledge",
+        created_at="2026-03-26T10:00:00", updated_at="2026-03-26T10:00:00",
+        properties={"name": "知识点"})
+    writer.write_nodes_and_edges([student, knowledge], [], trace_id="TRC_EDGE_SETUP")
+
+    d_writer = DegradedGraphWriter(store)
+
+    from app.models.graph_models import GraphEdge
+    edge = GraphEdge(
+        edge_id="EDGE_LOW_CONF",
+        source_node_id="STU_EDGE_001",
+        target_node_id="KP_EDGE_001",
+        edge_type="masters",
+        created_at="2026-03-26T10:00:00",
+        properties={"mastery_level": 0.3},
+    )
+    confidence_low = ConfidenceLevel(level="low", score=0.35)
+
+    # This used to raise TypeError: unexpected keyword argument 'edge_id'
+    result, is_degraded = d_writer.write_edge_with_confidence(edge, confidence_low)
+    assert result.success
+    assert is_degraded, "Low confidence edge should be degraded"
+
+    # Verify degradation record is retrievable by entity_type + entity_id
+    degraded = d_writer.rollback_manager.get_degraded("edge", "EDGE_LOW_CONF")
+    assert degraded is not None
+    assert degraded.confidence.score == 0.35
+    assert "Low confidence" in degraded.degradation_reason
+
+
 def test_rollback_if_degraded() -> None:
     """Test automatic rollback of degraded entities."""
     store = InMemoryGraphStore()
@@ -305,6 +352,97 @@ def test_version_chain_integrity() -> None:
             assert valid, f"Chain validation failed for KP_CHAIN_{i}: {message}"
 
 
+
+
+def test_rollback_if_degraded_auto() -> None:
+    """Test automatic rollback of degraded entities without manual target setting.
+
+    This is the core regression test: when rollback_target_snapshot_id is None,
+    rollback_if_degraded must use the version chain to find the prior snapshot,
+    NOT use the post-write snapshot as the target (which would be a no-op).
+    """
+    store = InMemoryGraphStore()
+    writer = DegradedGraphWriter(store)
+    writer.set_degradation_threshold(0.6)
+
+    # Initial write (high confidence) - establishes version 1
+    node_v1 = KnowledgeNode(
+        node_id="KP_AUTO",
+        node_type="knowledge",
+        created_at="2026-03-26T10:00:00",
+        updated_at="2026-03-26T10:00:00",
+        properties={"name": "初始状态", "mastery_level": 0.5},
+    )
+    confidence_high = ConfidenceLevel(level="high", score=0.85)
+    result1, is_degraded = writer.write_node_with_confidence(node_v1, confidence_high)
+    assert result1.success
+    assert not is_degraded
+
+    # Low confidence update (will be degraded) - establishes version 2
+    node_v2 = KnowledgeNode(
+        node_id="KP_AUTO",
+        node_type="knowledge",
+        created_at="2026-03-26T10:00:00",
+        updated_at="2026-03-26T11:00:00",
+        properties={"name": "低置信更新", "mastery_level": 0.9},
+    )
+    confidence_low = ConfidenceLevel(level="low", score=0.40)
+    result2, is_degraded = writer.write_node_with_confidence(node_v2, confidence_low)
+    assert result2.success
+    assert is_degraded
+
+    # Verify current state is v2
+    current = store.get_latest_snapshot()
+    assert current.nodes["KP_AUTO"].mastery_level == 0.9
+
+    # Do NOT set rollback_target_snapshot_id — this is the key difference
+    degraded = writer.rollback_manager.get_degraded("node", "KP_AUTO")
+    assert degraded is not None
+    assert degraded.rollback_target_snapshot_id is None  # Not manually set
+
+    # Auto rollback should find the prior snapshot via version chain
+    rollback_result = writer.rollback_if_degraded("node", "KP_AUTO")
+    assert rollback_result is not None
+    assert rollback_result.success, rollback_result.error
+    # Must NOT be a no-op: target should differ from the degraded snapshot
+    assert rollback_result.to_snapshot_id != degraded.original_snapshot_id,         "Rollback target should not be the post-write snapshot (no-op)"
+
+    # Verify state is back to v1
+    current = store.get_latest_snapshot()
+    assert current.nodes["KP_AUTO"].mastery_level == 0.5
+    assert current.nodes["KP_AUTO"].properties["name"] == "初始状态"
+
+
+def test_rollback_if_degraded_first_write_no_prior() -> None:
+    """Test that degrading the very first write of an entity returns a clear error.
+
+    When an entity has no prior snapshot (first write is degraded),
+    rollback_if_degraded should fail with an explicit error, not silently succeed.
+    """
+    store = InMemoryGraphStore()
+    writer = DegradedGraphWriter(store)
+    writer.set_degradation_threshold(0.6)
+
+    # Single low-confidence write — no prior snapshot exists
+    node = KnowledgeNode(
+        node_id="KP_FIRST",
+        node_type="knowledge",
+        created_at="2026-03-26T10:00:00",
+        updated_at="2026-03-26T10:00:00",
+        properties={"name": "孤立写入"},
+    )
+    confidence_low = ConfidenceLevel(level="low", score=0.35)
+    result, is_degraded = writer.write_node_with_confidence(node, confidence_low)
+    assert result.success
+    assert is_degraded
+
+    # Auto rollback should fail with clear error (no prior snapshot)
+    rollback_result = writer.rollback_if_degraded("node", "KP_FIRST")
+    assert rollback_result is not None
+    assert rollback_result.success is False
+    assert "No prior snapshot" in rollback_result.error
+
+
 def run_all_tests() -> dict:
     """Run all F8-T3 tests and report results."""
     tests = [
@@ -313,7 +451,10 @@ def run_all_tests() -> dict:
         ("node_rollback", test_node_rollback),
         ("edge_rollback", test_edge_rollback),
         ("degraded_write", test_degraded_write),
+        ("degraded_edge_write", test_degraded_edge_write),
         ("rollback_if_degraded", test_rollback_if_degraded),
+        ("rollback_if_degraded_auto", test_rollback_if_degraded_auto),
+        ("rollback_if_degraded_first_write_no_prior", test_rollback_if_degraded_first_write_no_prior),
         ("version_chain_integrity", test_version_chain_integrity),
     ]
 
@@ -375,3 +516,19 @@ def test_f8_rollback_if_degraded():
 def test_f8_version_chain_integrity():
     """F8-T3-I: Version chain integrity through rollback."""
     test_version_chain_integrity()
+
+
+def test_f8_rollback_if_degraded_auto():
+    """F8-T3-A: Automatic rollback of degraded entities (no manual target)."""
+    test_rollback_if_degraded_auto()
+
+
+def test_f8_rollback_if_degraded_first_write_no_prior():
+    """F8-T3-F: First-write degradation with no prior snapshot."""
+    test_rollback_if_degraded_first_write_no_prior()
+
+def test_f8_degraded_edge_write():
+    """F8-T3-G: Degraded edge write with low confidence."""
+    test_degraded_edge_write()
+
+

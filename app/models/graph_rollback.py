@@ -531,7 +531,7 @@ class DegradedGraphWriter:
             if is_degraded:
                 self.rollback_manager.mark_degraded(
                     entity_type="edge",
-                    edge_id=edge.edge_id,
+                    entity_id=edge.edge_id,
                     confidence=confidence,
                     reason=f"Low confidence write (score={confidence.score})",
                 )
@@ -560,8 +560,26 @@ class DegradedGraphWriter:
         # Find the snapshot before degradation
         target_snapshot_id = degraded.rollback_target_snapshot_id
         if target_snapshot_id is None:
-            # Use the original snapshot as rollback target
-            target_snapshot_id = degraded.original_snapshot_id
+            # Use version chain to find the snapshot prior to the degraded write
+            chain = self.rollback_manager.get_version_chain(
+                degraded.entity_type, degraded.entity_id
+            )
+            if chain is not None:
+                target_snapshot_id = chain.get_previous_version(
+                    degraded.original_snapshot_id
+                )
+            if target_snapshot_id is None:
+                # Fallback: no prior version available, cannot rollback safely
+                now = datetime.now().isoformat()
+                return RollbackResult(
+                    success=False,
+                    entity_type=degraded.entity_type,
+                    entity_id=degraded.entity_id,
+                    from_snapshot_id=degraded.original_snapshot_id,
+                    to_snapshot_id='none',
+                    rolled_back_at=now,
+                    error='No prior snapshot available for degraded entity rollback',
+                )
 
         if entity_type == "node":
             return self.rollback_manager.rollback_node(entity_id, target_snapshot_id)
