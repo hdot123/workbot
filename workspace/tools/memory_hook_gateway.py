@@ -299,10 +299,17 @@ def noop_for_external_host(host: str) -> int:
 def determine_project_scope(cwd: Path) -> str:
     if not path_within_repo(cwd):
         return "workbot"
-    cwd_str = str(cwd)
-    if "/workspace/projects/AEdu" in cwd_str or cwd == REPO_ROOT / "AEdu" or "/workbot/AEdu" in cwd_str:
+    rel = cwd.resolve().relative_to(REPO_ROOT.resolve())
+    rel_parts = rel.parts
+    if rel_parts[:1] == ("AEdu",) or rel_parts[:3] == ("workspace", "projects", "AEdu"):
         return "AEdu"
-    if any(segment in cwd_str for segment in ("/workbot/app", "/workbot/agents", "/workbot/gpt-web-to", "/workspace/projects/app", "/workspace/projects/agents", "/workspace/projects/skills")):
+    if rel_parts[:1] in {("app",), ("agents",), ("gpt-web-to",)}:
+        return "platform-capabilities"
+    if rel_parts[:3] in {
+        ("workspace", "projects", "app"),
+        ("workspace", "projects", "agents"),
+        ("workspace", "projects", "skills"),
+    }:
         return "platform-capabilities"
     return "workbot"
 

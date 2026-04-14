@@ -351,6 +351,10 @@ class GraphWriter:
         """Write multiple nodes and edges atomically."""
         snapshot = self.get_current_snapshot()
 
+        # Detect create vs update BEFORE modifying the snapshot
+        existing_node_ids = set(snapshot.nodes.keys())
+        existing_edge_ids = set(snapshot.edges.keys())
+
         # Create new snapshot ID before modifying
         new_snapshot_id = self._generate_snapshot_id()
 
@@ -369,7 +373,7 @@ class GraphWriter:
 
         for node in nodes:
             self.write_log.add_entry(
-                operation="create",
+                operation="update" if node.node_id in existing_node_ids else "create",
                 entity_type="node",
                 entity_id=node.node_id,
                 snapshot_id=new_snapshot_id,
@@ -377,7 +381,7 @@ class GraphWriter:
             )
         for edge in edges:
             self.write_log.add_entry(
-                operation="create",
+                operation="update" if edge.edge_id in existing_edge_ids else "create",
                 entity_type="edge",
                 entity_id=edge.edge_id,
                 snapshot_id=new_snapshot_id,
