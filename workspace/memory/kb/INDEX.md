@@ -1,10 +1,9 @@
 # Memory KB Index
 
-Status: rule-only, records-cleared
+Status: active, records present
 
 ## Active Sections
 - `global/` for system rules
-- `decisions/` empty placeholder
-- `lessons/` empty placeholder
-- `projects/` empty placeholder
-
+- `decisions/` for裁决 records
+- `lessons/` for active lessons
+- `projects/` for active project canonicals
