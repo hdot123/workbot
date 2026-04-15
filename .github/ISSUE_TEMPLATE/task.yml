@@ -1,0 +1,41 @@
+name: 通用任务
+description: 文档、运维、测试、其他非功能类任务
+title: "[Task] "
+labels: ["type:docs"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      placeholder: 请描述背景
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: 目标
+      placeholder: 请描述目标
+    validations:
+      required: true
+
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: 交付物
+      placeholder: |
+        - 
+        - 
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
