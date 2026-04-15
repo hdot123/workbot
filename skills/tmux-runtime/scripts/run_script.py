@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+TMUX_RETIRED_ERROR = "tmux runtime is retired in workbot; use cmux runtime only"
+CMUX_BOOTSTRAP_HINT = "/Users/busiji/.agents/skills/cmux/scripts/bootstrap_claude_runtime.py"
+
 # Registry path
 SCRIPT_REGISTRY_PATH = Path(__file__).parent.parent / "SCRIPT_REGISTRY.json"
 SCRIPTS_DIR = Path(__file__).parent
@@ -79,8 +82,28 @@ Examples:
         action="store_true",
         help="List all registered scripts"
     )
+    parser.add_argument(
+        "--legacy-allow-tmux",
+        action="store_true",
+        help="Bypass retirement guard for emergency legacy debugging only.",
+    )
 
     args = parser.parse_args()
+
+    if not args.legacy_allow_tmux:
+        if args.list:
+            sys.stderr.write(
+                f"WARNING: {TMUX_RETIRED_ERROR}; listing historical scripts only.\n"
+            )
+        else:
+            payload = {
+                "status": "blocked",
+                "error": TMUX_RETIRED_ERROR,
+                "runtime": "cmux",
+                "cmux_bootstrap": CMUX_BOOTSTRAP_HINT,
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 2
 
     if args.list:
         try:

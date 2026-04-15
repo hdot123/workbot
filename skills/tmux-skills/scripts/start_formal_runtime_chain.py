@@ -18,6 +18,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+TMUX_RETIRED_ERROR = "tmux runtime is retired in workbot; use cmux runtime only"
+CMUX_BOOTSTRAP_HINT = "/Users/busiji/.agents/skills/cmux/scripts/bootstrap_claude_runtime.py"
+
 # Phase timing tracking
 _phase_timings = {}
 _phase_start_time = None
@@ -670,6 +673,11 @@ def parse_args() -> argparse.Namespace:
         help="Explain whether the current invocation will route through Terminal.app or continue directly.",
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print result JSON.")
+    parser.add_argument(
+        "--legacy-allow-tmux",
+        action="store_true",
+        help="Bypass retirement guard for emergency legacy debugging only.",
+    )
     args = parser.parse_args()
     if (
         not args.explain_launch_path
@@ -677,6 +685,19 @@ def parse_args() -> argparse.Namespace:
     ):
         parser.error("--codex-thread-id is required unless --explain-launch-path is set")
     return args
+
+
+def enforce_tmux_retired(args: argparse.Namespace) -> int:
+    if args.legacy_allow_tmux:
+        return 0
+    payload = {
+        "status": "blocked",
+        "error": TMUX_RETIRED_ERROR,
+        "runtime": "cmux",
+        "cmux_bootstrap": CMUX_BOOTSTRAP_HINT,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2 if args.pretty else None))
+    return 2
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -1976,8 +1997,11 @@ def run_runtime_activation_postlaunch(
 
 
 def main() -> int:
-    ensure_project_python()
     args = parse_args()
+    blocked = enforce_tmux_retired(args)
+    if blocked != 0:
+        return blocked
+    ensure_project_python()
     pane_titles = resolve_pane_titles(args)
     pane_count = args.pane_count or len(pane_titles)
     hidden_pty = is_hidden_pty()
