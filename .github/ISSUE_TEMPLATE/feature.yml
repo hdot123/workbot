@@ -1,0 +1,69 @@
+name: 功能需求
+description: 新功能、能力增强、业务需求
+title: "[Feature] "
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 这个需求为什么存在，解决什么问题
+      placeholder: 请描述背景
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 这次要达成什么结果
+      placeholder: 请描述目标
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围
+      description: 本次包含什么，不包含什么
+      placeholder: |
+        包含：
+        - 
+
+        不包含：
+        - 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 什么情况下算完成
+      placeholder: |
+        - [ ] 条件1
+        - [ ] 条件2
+        - [ ] 条件3
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: 风险与依赖
+      description: 依赖谁、可能卡在哪
+      placeholder: 请描述风险和依赖
+    validations:
+      required: false
+
+  - type: textarea
+    id: subtasks
+    attributes:
+      label: 子任务拆分
+      description: 可以先写初步拆解
+      placeholder: |
+        - [ ] 子任务1
+        - [ ] 子任务2
+        - [ ] 子任务3
+    validations:
+      required: false
