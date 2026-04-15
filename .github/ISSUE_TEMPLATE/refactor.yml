@@ -1,0 +1,52 @@
+name: 重构任务
+description: 代码质量、结构优化、可维护性提升
+title: "[Refactor] "
+labels: ["type:refactor"]
+body:
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: 当前问题
+      description: 当前实现有什么结构性问题
+      placeholder: 请描述问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: 重构目标
+      description: 想改善什么
+      placeholder: 请描述目标
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goal
+    attributes:
+      label: 非目标
+      description: 这次不做什么，防止扩面
+      placeholder: 请描述非目标
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: 方案
+      description: 准备怎么改
+      placeholder: 请描述改造方案
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] 行为不变
+        - [ ] 测试通过
+        - [ ] 代码复杂度下降
+        - [ ] 文档已更新
+    validations:
+      required: true
