@@ -1,0 +1,181 @@
+name: memory-core-auto-sync-deploy
+
+on:
+  repository_dispatch:
+    types: [memory_release_published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional memory release tag (e.g. v0.1.3); empty means latest release."
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync-verify-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve target memory release tag
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_TAG: ${{ github.event.client_payload.release_tag || '' }}
+          INPUT_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          if [ -n "$DISPATCH_TAG" ]; then
+            tag="$DISPATCH_TAG"
+          elif [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag=$(gh api repos/hdot123/memory/releases/latest --jq .tag_name)
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Unable to resolve target memory release tag." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target_ref=hdot123/memory@$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Read current external-core release ref
+        id: current
+        run: |
+          current=$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path("workspace/tools/memory_hook_adapters/workbot_runtime_profile.py").read_text(encoding="utf-8")
+          m = re.search(r'"EXTERNAL_CORE_RELEASE_REF":\s*"([^"]+)"', text)
+          print(m.group(1) if m else "")
+          PY
+          )
+          if [ -z "$current" ]; then
+            echo "Unable to parse EXTERNAL_CORE_RELEASE_REF." >&2
+            exit 1
+          fi
+          echo "current_ref=$current" >> "$GITHUB_OUTPUT"
+
+      - name: Exit when already on latest release
+        if: ${{ steps.current.outputs.current_ref == steps.target.outputs.target_ref }}
+        run: echo "Already up-to-date: ${{ steps.target.outputs.target_ref }}"
+
+      - name: Update EXTERNAL_CORE_RELEASE_REF
+        if: ${{ steps.current.outputs.current_ref != steps.target.outputs.target_ref }}
+        env:
+          TARGET_REF: ${{ steps.target.outputs.target_ref }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          path = Path("workspace/tools/memory_hook_adapters/workbot_runtime_profile.py")
+          text = path.read_text(encoding="utf-8")
+          target = os.environ["TARGET_REF"]
+          new_text, count = re.subn(
+              r'("EXTERNAL_CORE_RELEASE_REF":\s*")[^"]+(")',
+              rf'\g<1>{target}\2',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Failed to update EXTERNAL_CORE_RELEASE_REF")
+          path.write_text(new_text, encoding="utf-8")
+          PY
+
+      - name: Run regression and fail-closed gates
+        if: ${{ steps.current.outputs.current_ref != steps.target.outputs.target_ref }}
+        run: |
+          python3 -m pytest -q \
+            tests/test_memory_hook_gateway_m6_batch3_provider_switch.py \
+            tests/test_memory_hook_impls_policy_conflict.py \
+            tests/test_memory_hook_provider_rollback.py \
+            tests/test_memory_hook_gateway.py \
+            tests/test_f8_rollback.py
+
+          set +e
+          printf '{}\n' | \
+            MEMORY_HOOK_CORE_PROVIDER=external-core \
+            MEMORY_HOOK_EXTERNAL_CORE_MODULE=does.not.exist.module \
+            python3 workspace/tools/memory_hook_gateway.py \
+              --host codex \
+              --event session-start \
+              --no-delegate
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "expected non-zero exit for external-core load failure"
+            exit 1
+          fi
+
+      - name: Commit and push auto-upgrade
+        id: commit
+        if: ${{ steps.current.outputs.current_ref != steps.target.outputs.target_ref }}
+        env:
+          TARGET_TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          if git diff --quiet -- workspace/tools/memory_hook_adapters/workbot_runtime_profile.py; then
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add workspace/tools/memory_hook_adapters/workbot_runtime_profile.py
+          git commit -m "chore(memory): auto-upgrade external core to ${TARGET_TAG}"
+          git push origin HEAD:main
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy updated release (optional)
+        if: ${{ steps.commit.outputs.committed == 'true' && vars.MEMORY_AUTO_DEPLOY_COMMAND != '' }}
+        env:
+          DEPLOY_CMD: ${{ vars.MEMORY_AUTO_DEPLOY_COMMAND }}
+        run: |
+          bash -lc "$DEPLOY_CMD"
+
+      - name: Auto-rollback on deploy failure
+        if: ${{ failure() && steps.commit.outputs.committed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREV_REF: ${{ steps.current.outputs.current_ref }}
+          TARGET_TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+          path = Path("workspace/tools/memory_hook_adapters/workbot_runtime_profile.py")
+          text = path.read_text(encoding="utf-8")
+          prev = os.environ["PREV_REF"]
+          new_text, count = re.subn(
+              r'("EXTERNAL_CORE_RELEASE_REF":\s*")[^"]+(")',
+              rf'\g<1>{prev}\2',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Failed to rollback EXTERNAL_CORE_RELEASE_REF")
+          path.write_text(new_text, encoding="utf-8")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add workspace/tools/memory_hook_adapters/workbot_runtime_profile.py
+          git commit -m "revert(memory): auto-rollback external core after deploy failure (${TARGET_TAG})"
+          git push origin HEAD:main
+
+          gh api repos/${{ github.repository }}/issues \
+            --method POST \
+            -f title="Auto-rollback executed for memory external-core ${TARGET_TAG}" \
+            -f body="Deploy command failed after auto-upgrade. Rolled back EXTERNAL_CORE_RELEASE_REF to ${PREV_REF}."
