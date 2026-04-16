@@ -1,0 +1,54 @@
+name: memory-hook-external-core-only
+
+on:
+  pull_request:
+    paths:
+      - "workspace/tools/**"
+      - "tests/**"
+      - "docs/m8-external-core-contract-freeze.md"
+      - ".github/workflows/memory-hook-external-core-only.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "workspace/tools/**"
+      - "tests/**"
+      - "docs/m8-external-core-contract-freeze.md"
+      - ".github/workflows/memory-hook-external-core-only.yml"
+
+jobs:
+  external-core-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run M9 core regression set
+        run: |
+          python3 -m pytest -q \
+            tests/test_memory_hook_gateway_m6_batch3_provider_switch.py \
+            tests/test_memory_hook_impls_policy_conflict.py \
+            tests/test_memory_hook_provider_rollback.py \
+            tests/test_memory_hook_gateway.py \
+            tests/test_f8_rollback.py
+
+      - name: Enforce fail-closed when external-core cannot load
+        run: |
+          set +e
+          printf '{}\n' | \
+            MEMORY_HOOK_CORE_PROVIDER=external-core \
+            MEMORY_HOOK_EXTERNAL_CORE_MODULE=does.not.exist.module \
+            python3 workspace/tools/memory_hook_gateway.py \
+              --host codex \
+              --event session-start \
+              --no-delegate
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "ERROR: expected non-zero exit for external-core load failure"
+            exit 1
+          fi
