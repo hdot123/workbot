@@ -144,6 +144,7 @@ gpt-web-to/
 tests/autoresearch/
 tests/.gitignore
 node11-mihomo-config.yaml
+/.claude/settings.local.json
 
 # Python caches
 **/__pycache__/
