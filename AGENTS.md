@@ -80,3 +80,23 @@ This directory is the direct project discovery source used by Claude Code for `w
 - The `cmux-browser` board pane is a runtime board surface, not a formal bot identity.
 - Runtime `pane` / `surface` titles are lookup aids and visible labels; they are not repository identity truth.
 - `/Users/busiji/workbot/.codex/agents/` may wrap active identities for tooling, but it must not introduce standalone formal roles.
+
+## Daily Runtime Convention
+
+- Daily execution must follow the decision record at `/Users/busiji/workbot/workspace/memory/kb/decisions/2026-03-25-workbot-project-agents-and-runtime-surfaces.md`.
+- Daily task/monitor thread separation may start only after the preflight checklist is complete.
+- tmux must run in the foreground. Detached or background tmux sessions are not official runtime surfaces.
+- Each day may maintain one task thread and one monitor thread when task flow and monitoring flow need separate fact streams.
+- The official tmux runtime for the day must be exactly one attached formal session, normally named `formal-session`.
+- `task` / `monitor` and other temporary work panes must exist inside that one formal session, not as separate formal sessions.
+- `tmux-to` normal task flow must go only to the daily task thread.
+- `tmux-to` monitor and exception flow must go only to the daily monitor thread.
+- The tmux doorbell pipeline must use the `CODEX_THREAD_ID` injected by the active monitor work pane or temporary slot as its only delivery target. Any other candidate variable or fallback thread constant is deprecated; the doorbell should fail fast when `CODEX_THREAD_ID` is unset.
+- If preflight is incomplete, do not treat temporary tmux sessions or bootstrap surfaces as the official daily formal runtime.
+
+## Phase Git Convention
+
+- At the end of every phase task (`M*`, `P*`, `H*`), the executing agent must perform repository git delivery automatically.
+- Required delivery sequence: scoped `git add` -> commit with phase identifier in message -> push to `origin/main` -> write commit SHA into the corresponding Projects card evidence.
+- Do not leave completed phase work only in local working tree.
+- This repository forbids Codex-created local feature branches; phase delivery must remain on the official branch flow.
