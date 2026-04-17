@@ -34,6 +34,8 @@ jobs:
             tests/test_memory_hook_impls_policy_conflict.py \
             tests/test_memory_hook_provider_rollback.py \
             tests/test_memory_hook_gateway.py \
+            tests/test_memory_hook_gateway_p7_mainline.py \
+            tests/test_cmux_hook_bridge.py \
             tests/test_f8_rollback.py
 
       - name: Enforce fail-closed when external-core cannot load

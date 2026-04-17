@@ -113,6 +113,7 @@ class ClaudeDelegate(HostDelegate):
             self._which("cmux") is not None
             and bool(self.workspace_id)
             and bool(self.surface_id)
+            and bool(self._state_file)
         )
 
     def execute(
@@ -127,19 +128,9 @@ class ClaudeDelegate(HostDelegate):
             raise RuntimeError("missing required env: CMUX_WORKSPACE_ID")
         if not self.surface_id:
             raise RuntimeError("missing required env: CMUX_SURFACE_ID")
-
-        # State file resolution
-        if self._state_file:
-            state_file = self._state_file
-        else:
-            if self._state_path_factory is None:
-                try:
-                    from .cmux_hook_state import default_hook_state_path
-                except ImportError:
-                    from cmux_hook_state import default_hook_state_path  # type: ignore
-                state_file = str(default_hook_state_path(self._repo_root or Path.cwd()))
-            else:
-                state_file = str(self._state_path_factory(self._repo_root or Path.cwd()))
+        if not self._state_file:
+            raise RuntimeError("missing required env: CMUX_HOOK_STATE_FILE")
+        state_file = self._state_file
 
         if self._canonicalizer is None:
             workspace_ref = self.workspace_id

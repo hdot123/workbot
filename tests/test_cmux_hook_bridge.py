@@ -9,6 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRIDGE_SCRIPT = Path.home() / ".agents" / "skills" / "cmux" / "scripts" / "cmux_claude_hook_bridge.py"
@@ -69,7 +71,13 @@ def _run_bridge(event_name: str, state_file: Path, env: dict[str, str]) -> None:
     assert proc.returncode == 0, proc.stderr or proc.stdout or f"bridge failed for {event_name}"
 
 
+def _require_bridge_script() -> None:
+    if not BRIDGE_SCRIPT.exists():
+        pytest.skip(f"missing bridge script: {BRIDGE_SCRIPT}")
+
+
 def test_cmux_hook_bridge_records_all_required_event_counters() -> None:
+    _require_bridge_script()
     with tempfile.TemporaryDirectory() as tmp:
         temp_dir = Path(tmp)
         fake_bin = temp_dir / "bin"
@@ -96,6 +104,75 @@ def test_cmux_hook_bridge_records_all_required_event_counters() -> None:
         assert surface_state["last_event"] == "notification"
         assert surface_state["last_session_id"] == "notification-session"
         assert surface_state["last_cwd"] == str(REPO_ROOT)
+
+
+def test_cmux_hook_bridge_fails_closed_when_required_context_missing() -> None:
+    _require_bridge_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        temp_dir = Path(tmp)
+        fake_bin = temp_dir / "bin"
+        fake_bin.mkdir(parents=True)
+        _write_fake_cmux(fake_bin)
+
+        base_env = os.environ.copy()
+        base_env["PATH"] = f"{fake_bin}:{base_env.get('PATH', '')}"
+        base_env.pop("CMUX_WORKSPACE_ID", None)
+        base_env.pop("CMUX_SURFACE_ID", None)
+        base_env.pop("CMUX_HOOK_STATE_FILE", None)
+        base_env.pop("CMUX_PROJECT_DIR", None)
+
+        scenarios = [
+            (
+                "workspace",
+                [
+                    sys.executable,
+                    str(BRIDGE_SCRIPT),
+                    "session-start",
+                    "--surface",
+                    "surface:raw",
+                    "--state-file",
+                    str(temp_dir / "hook-state-a.json"),
+                ],
+            ),
+            (
+                "surface",
+                [
+                    sys.executable,
+                    str(BRIDGE_SCRIPT),
+                    "session-start",
+                    "--workspace",
+                    "workspace:raw",
+                    "--state-file",
+                    str(temp_dir / "hook-state-b.json"),
+                ],
+            ),
+            (
+                "state_file",
+                [
+                    sys.executable,
+                    str(BRIDGE_SCRIPT),
+                    "session-start",
+                    "--workspace",
+                    "workspace:raw",
+                    "--surface",
+                    "surface:raw",
+                ],
+            ),
+        ]
+
+        for expected_missing, command in scenarios:
+            proc = subprocess.run(
+                command,
+                input="{}",
+                text=True,
+                capture_output=True,
+                check=False,
+                env=base_env,
+            )
+            assert proc.returncode == 2
+            payload = json.loads(proc.stderr.strip())
+            assert payload["error"] == "missing_hook_context"
+            assert expected_missing in payload["missing"]
 
 
 if __name__ == "__main__":
