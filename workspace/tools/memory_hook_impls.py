@@ -10,6 +10,7 @@ This module provides default implementations for:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -977,6 +978,15 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
 class ArtifactSinkImpl(ArtifactSink):
     """Default artifact sink implementation."""
 
+    SHARED_PAYLOAD_SCHEMA_VERSION = "wb-hook-shared-v1"
+    HEAVY_PAYLOAD_KEYS = (
+        "system_context",
+        "project_context",
+        "allowed_reads",
+        "allowed_writes",
+        "evidence_refs",
+    )
+
     def __init__(
         self,
         context_root: Path,
@@ -986,9 +996,131 @@ class ArtifactSinkImpl(ArtifactSink):
         self._context_root = context_root
         self._event_log = event_log
         self._datetime = datetime_module
+        self._shared_root = context_root.parent / "shared"
 
     def ensure_dirs(self) -> None:
         self._context_root.mkdir(parents=True, exist_ok=True)
+        self._shared_root.mkdir(parents=True, exist_ok=True)
+        self._event_log.parent.mkdir(parents=True, exist_ok=True)
+
+    def _shared_payload_fields(self, package: dict[str, Any]) -> dict[str, Any]:
+        return {key: package[key] for key in self.HEAVY_PAYLOAD_KEYS if key in package}
+
+    def _shared_payload_digest(self, payload: dict[str, Any]) -> str:
+        rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+    def _shared_payload_ref(self, package: dict[str, Any]) -> dict[str, Any] | None:
+        shared_fields = self._shared_payload_fields(package)
+        if not shared_fields:
+            return None
+        digest = self._shared_payload_digest(shared_fields)
+        shared_path = self._shared_root / f"{digest}.json"
+        if not shared_path.exists():
+            rendered = json.dumps(
+                {
+                    "schema_version": self.SHARED_PAYLOAD_SCHEMA_VERSION,
+                    "digest": digest,
+                    "generated_at": package.get("generated_at"),
+                    "host": package.get("host"),
+                    "event": package.get("event"),
+                    "project_scope": package.get("project_scope"),
+                    "status": package.get("status"),
+                    "fields": list(shared_fields.keys()),
+                    "payload": shared_fields,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n"
+            shared_path.write_text(rendered, encoding="utf-8")
+        return {
+            "path": str(shared_path),
+            "digest": digest,
+            "schema_version": self.SHARED_PAYLOAD_SCHEMA_VERSION,
+            "fields": list(shared_fields.keys()),
+        }
+
+    def _system_context_summary(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"present": value is not None}
+        summary: dict[str, Any] = {}
+        for key in (
+            "project_map_validation",
+            "legality_contract_validation",
+            "truth_basis_validation",
+            "governance_frozen_tuple_validation",
+            "event_contract_alignment_validation",
+            "registration_commit_enforcement_result",
+            "core_provider",
+            "core_provider_requested",
+        ):
+            if key in value:
+                summary[key] = value[key]
+        gate = value.get("registration_commit_gate")
+        if isinstance(gate, dict):
+            summary["registration_commit_gate"] = {
+                "status": gate.get("status"),
+                "enforcement_result": gate.get("enforcement_result"),
+                "triggered_on_current_event": gate.get("triggered_on_current_event"),
+                "scope_clean": gate.get("scope_clean"),
+                "would_pass_if_enforced": gate.get("would_pass_if_enforced"),
+            }
+        for key in ("truth_basis_refs", "decision_refs", "lesson_refs", "docs_refs", "warnings"):
+            field_value = value.get(key)
+            if isinstance(field_value, list):
+                summary[f"{key}_count"] = len(field_value)
+        return summary
+
+    def _project_context_summary(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"present": value is not None}
+        summary: dict[str, Any] = {}
+        for key in ("scope", "truth_basis_canonical", "truth_status", "runtime_root", "conflict_status"):
+            if key in value:
+                summary[key] = value[key]
+        for key in ("source_refs", "authority_refs", "evidence_refs"):
+            field_value = value.get(key)
+            if isinstance(field_value, list):
+                summary[f"{key}_count"] = len(field_value)
+        return summary
+
+    def _list_summary(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, list):
+            return {"present": value is not None}
+        return {"count": len(value)}
+
+    def _write_target_summary(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"present": value is not None}
+        summary: dict[str, Any] = {"keys": sorted(value.keys())}
+        kb_policy = value.get("kb_policy")
+        if isinstance(kb_policy, dict):
+            summary["kb_policy"] = kb_policy
+        return summary
+
+    def _compact_package(
+        self,
+        package: dict[str, Any],
+        *,
+        artifact_refs: dict[str, str],
+        shared_payload_ref: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        compact = dict(package)
+        compact["artifact_refs"] = dict(artifact_refs)
+        if shared_payload_ref is None:
+            return compact
+        compact["artifact_refs"]["shared_payload"] = shared_payload_ref
+        compact["system_context"] = self._system_context_summary(package.get("system_context"))
+        compact["project_context"] = self._project_context_summary(package.get("project_context"))
+        compact["allowed_reads"] = self._list_summary(package.get("allowed_reads"))
+        compact["allowed_writes"] = self._write_target_summary(package.get("allowed_writes"))
+        compact["evidence_refs"] = self._list_summary(package.get("evidence_refs"))
+        compact["compaction"] = {
+            "mode": "shared-payload-ref",
+            "fields": list(shared_payload_ref["fields"]),
+            "digest": shared_payload_ref["digest"],
+        }
+        return compact
 
     def write(self, package: dict[str, Any]) -> dict[str, str]:
         self.ensure_dirs()
@@ -999,18 +1131,24 @@ class ArtifactSinkImpl(ArtifactSink):
             snapshot_path = self._context_root / f"{timestamp}-{suffix:02d}-{package['host']}-{package['event']}.json"
             suffix += 1
         latest_path = self._context_root / f"latest-{package['host']}-{package['event']}.json"
-
-        package["artifact_refs"] = {
+        shared_payload_ref = self._shared_payload_ref(package)
+        artifact_refs = {
             "snapshot": str(snapshot_path),
             "latest": str(latest_path),
             "event_log": str(self._event_log),
         }
-        rendered = json.dumps(package, ensure_ascii=False, indent=2) + "\n"
+        compact_package = self._compact_package(
+            package,
+            artifact_refs=artifact_refs,
+            shared_payload_ref=shared_payload_ref,
+        )
+        package["artifact_refs"] = dict(compact_package["artifact_refs"])
+        rendered = json.dumps(compact_package, ensure_ascii=False, indent=2) + "\n"
         snapshot_path.write_text(rendered, encoding="utf-8")
         latest_path.write_text(rendered, encoding="utf-8")
 
         with self._event_log.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(package, ensure_ascii=False) + "\n")
+            handle.write(json.dumps(compact_package, ensure_ascii=False) + "\n")
 
         return {"snapshot": str(snapshot_path), "latest": str(latest_path)}
 
