@@ -48,4 +48,4 @@ Evidence source:
 
 ## Repo Artifact Added by This Delivery
 
-- `/Users/busiji/workbot/docs/project-management/workbot-cmux-phase0-core-delivery-2026-04-17.md`
+- `/Users/busiji/workbot/docs/project-management/workbot-cmux-p10-core-delivery-2026-04-17.md`

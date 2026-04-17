@@ -11,6 +11,7 @@
 1. `NOW.md` - 当前状态与任务
 2. `memory/kb/INDEX.md` - 知识库索引
 3. `memory/docs/INDEX.md` - 文档索引
+4. `project-map/INDEX.md` - 合法目录地图入口
 
 **完整启动**（需要重建上下文时）：
 1. `NOW.md`
@@ -21,6 +22,12 @@
 ---
 
 ## 🎯 核心规则
+
+### 合法性入口
+- 只有被地图标为 `active-legal` 的条目或目录，才是合法资料；仅进入登记册不授予合法性。
+- 目录登记和目录状态迁移必须与相关文件同次 `git commit` 才生效。
+- 入口 canonical: `workspace/memory/kb/global/workbot-truth-model.md`
+- 合法目录地图入口: `project-map/INDEX.md`
 
 ### 绝对禁止
 - ❌ 覆盖任何 `memory/kb/**` 文件
@@ -92,6 +99,7 @@
 - `memory/docs/` - 文档库（资料层）
 - `memory/log/` - 日志（时间线）
 - `projects/` - 项目产物（交付层）
+- `project-map/` - 合法目录地图与登记册
 
 ### 快速参考
 - **知识库索引** → `memory/kb/INDEX.md`

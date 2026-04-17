@@ -82,7 +82,6 @@ related: [workbot-memory-system, workbot-truth-model, workbot-hook-contract]
 - `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md`
 - `/Users/busiji/workbot/docs/cmux-subagent-runtime-truth-table.md`
 - `/Users/busiji/workbot/docs/cmux-subagent-minimal-operating-guideline.md`
-- `/Users/busiji/workbot/workspace/memory/kb/global/workbot-truth-model.md`
 - `/Users/busiji/workbot/workspace/memory/kb/global/workbot-hook-contract.md`
 - `/Users/busiji/workbot/workspace/memory/kb/global/workbot-memory-system.md`
 
