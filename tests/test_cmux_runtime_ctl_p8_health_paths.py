@@ -25,6 +25,48 @@ def load_cmux_runtime_ctl_module():
     return module
 
 
+def fake_assignment(
+    *,
+    logical_target: str,
+    bot_name: str,
+    assignment_id: str,
+    workspace_ref: str,
+    pane_ref: str,
+    surface_ref: str,
+    status: str = "ACTIVE",
+):
+    return SimpleNamespace(
+        logical_target=logical_target,
+        bot_name=bot_name,
+        assignment_id=assignment_id,
+        workspace_ref=workspace_ref,
+        pane_ref=pane_ref,
+        surface_ref=surface_ref,
+        status=status,
+    )
+
+
+def fake_snapshot(
+    *,
+    workspace_ref: str,
+    pane_ref: str,
+    surface_ref: str,
+    surface_type: str,
+    title: str,
+    dead: bool,
+):
+    return SimpleNamespace(
+        workspace_ref=workspace_ref,
+        pane_ref=pane_ref,
+        surface_ref=surface_ref,
+        surface_type=surface_type,
+        title=title,
+        current_command="codex",
+        current_path="/Users/busiji/workbot",
+        dead=dead,
+    )
+
+
 def base_live_runtime(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "cmux_ping_ok": True,
@@ -94,6 +136,207 @@ def run_print_status(
     rc = module.print_status(SimpleNamespace(assignment_file=assignment_file))
     payload = json.loads(capsys.readouterr().out)
     return rc, payload
+
+
+def test_inspect_live_runtime_reports_five_plus_one_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "cmux-assignment.json"
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "workspace_name": "workbot",
+                "workspace_ref": "workspace:100",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:100")
+    monkeypatch.setattr(
+        module,
+        "list_workspaces",
+        lambda: [{"ref": "workspace:100", "name": "workbot", "selected": True}],
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="a1",
+                workspace_ref="workspace:100",
+                pane_ref="pane:1",
+                surface_ref="surface:1",
+            ),
+            fake_assignment(
+                logical_target="dev-bot",
+                bot_name="dev-bot",
+                assignment_id="a2",
+                workspace_ref="workspace:100",
+                pane_ref="pane:2",
+                surface_ref="surface:2",
+            ),
+            fake_assignment(
+                logical_target="qa-bot",
+                bot_name="qa-bot",
+                assignment_id="a3",
+                workspace_ref="workspace:100",
+                pane_ref="pane:3",
+                surface_ref="surface:3",
+            ),
+            fake_assignment(
+                logical_target="doc-bot",
+                bot_name="doc-bot",
+                assignment_id="a4",
+                workspace_ref="workspace:100",
+                pane_ref="pane:4",
+                surface_ref="surface:4",
+            ),
+            fake_assignment(
+                logical_target="rea-bot",
+                bot_name="rea-bot",
+                assignment_id="a5",
+                workspace_ref="workspace:100",
+                pane_ref="pane:5",
+                surface_ref="surface:5",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_tree",
+        lambda _: {
+            "surface:1": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:1",
+                surface_ref="surface:1",
+                surface_type="terminal",
+                title="pm-bot",
+                dead=False,
+            ),
+            "surface:2": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:2",
+                surface_ref="surface:2",
+                surface_type="terminal",
+                title="dev-bot",
+                dead=False,
+            ),
+            "surface:3": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:3",
+                surface_ref="surface:3",
+                surface_type="terminal",
+                title="qa-bot",
+                dead=False,
+            ),
+            "surface:4": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:4",
+                surface_ref="surface:4",
+                surface_type="terminal",
+                title="doc-bot",
+                dead=False,
+            ),
+            "surface:5": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:5",
+                surface_ref="surface:5",
+                surface_type="terminal",
+                title="rea-bot",
+                dead=False,
+            ),
+            "surface:6": fake_snapshot(
+                workspace_ref="workspace:100",
+                pane_ref="pane:6",
+                surface_ref="surface:6",
+                surface_type="browser",
+                title="cmux-browser",
+                dead=True,
+            ),
+        },
+    )
+
+    runtime = module.inspect_live_runtime(str(assignment_file))
+    assert runtime["runtime_mode"] == "five_plus_one"
+    assert runtime["selected_workspace_matches_assignment"] is True
+    assert runtime["active_runtime_healthy"] is True
+    assert runtime["board_surface_guard"]["healthy"] is True
+    assert runtime["five_plus_one_shape_guard"]["healthy"] is True
+    assert runtime["five_plus_one_shape_guard"]["present_worker_count"] == 5
+
+
+def test_inspect_live_runtime_pm_only_rejects_residual_board(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "pm-bot-watch.json"
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "workspace_name": "workbot",
+                "workspace_ref": "workspace:200",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:200")
+    monkeypatch.setattr(
+        module,
+        "list_workspaces",
+        lambda: [{"ref": "workspace:200", "name": "workbot", "selected": True}],
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="pm1",
+                workspace_ref="workspace:200",
+                pane_ref="pane:10",
+                surface_ref="surface:10",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_tree",
+        lambda _: {
+            "surface:10": fake_snapshot(
+                workspace_ref="workspace:200",
+                pane_ref="pane:10",
+                surface_ref="surface:10",
+                surface_type="terminal",
+                title="pm-bot",
+                dead=False,
+            ),
+            "surface:11": fake_snapshot(
+                workspace_ref="workspace:200",
+                pane_ref="pane:11",
+                surface_ref="surface:11",
+                surface_type="browser",
+                title="cmux-browser",
+                dead=True,
+            ),
+        },
+    )
+
+    runtime = module.inspect_live_runtime(str(assignment_file))
+    assert runtime["runtime_mode"] == "pm_only"
+    assert runtime["board_surface_guard"]["healthy"] is False
+    assert "pm_only_unexpected_cmux-browser_surface" in runtime["board_surface_guard"]["error"]
 
 
 def test_active_runtime_rows_allow_browser_board_slot() -> None:

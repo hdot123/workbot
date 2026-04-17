@@ -47,6 +47,9 @@
 - selected workspace mismatch 失败
 - single-workspace guard 失败
 - `five_plus_one` board guard 失败会阻断整体健康
+- `inspect_live_runtime` 真实计算路径被覆盖（非仅 print_status 聚合桩替换）：
+  - `five_plus_one` 形状守卫与 board guard 的真实分支
+  - `pm_only` 残留 board 的拒绝分支
 
 ### 3) 运行手册同步
 
