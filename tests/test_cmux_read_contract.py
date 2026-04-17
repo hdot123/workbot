@@ -34,6 +34,38 @@ def test_watcher_log_is_forensic_only() -> None:
     assert classified.rule.normal_path_allowed is False
 
 
+def test_control_state_artifact_is_secondary_but_normal_path_readable() -> None:
+    classified = classify_runtime_artifact(
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json"
+    )
+    assert classified.rule.name == "control_state"
+    assert classified.rule.normal_path_allowed is True
+
+
+def test_hook_state_is_demoted_from_normal_path() -> None:
+    classified = classify_runtime_artifact(
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/hook-state.json"
+    )
+    assert classified.rule.name == "side_state_shadow"
+    assert classified.rule.normal_path_allowed is False
+
+
+def test_pm_bot_watch_is_demoted_from_normal_path() -> None:
+    classified = classify_runtime_artifact(
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-watch.json"
+    )
+    assert classified.rule.name == "side_state_shadow"
+    assert classified.rule.normal_path_allowed is False
+
+
+def test_overview_file_requires_explicit_escalation() -> None:
+    classified = classify_runtime_artifact(
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/runtime-overview.json"
+    )
+    assert classified.rule.name == "overview_sidecar"
+    assert classified.rule.normal_path_allowed is False
+
+
 def test_choose_commander_default_sources_prefers_summary_only() -> None:
     ranked = choose_commander_default_sources(
         [
@@ -44,6 +76,20 @@ def test_choose_commander_default_sources_prefers_summary_only() -> None:
     )
     assert [item.path for item in ranked] == [
         "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json"
+    ]
+
+
+def test_choose_commander_default_sources_prefers_summary_then_control_state() -> None:
+    ranked = choose_commander_default_sources(
+        [
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/hook-state.json",
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json",
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json",
+        ]
+    )
+    assert [item.path for item in ranked] == [
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json",
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json",
     ]
 
 

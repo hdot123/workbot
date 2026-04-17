@@ -42,6 +42,27 @@ DETAIL_SIDECAR_RULE = ReadRule(
     escalation_required=True,
     reason="detail JSON sidecar for explicit follow-up reads only",
 )
+CONTROL_STATE_RULE = ReadRule(
+    name="control_state",
+    priority=80,
+    normal_path_allowed=True,
+    escalation_required=False,
+    reason="runtime control-state artifact that can be read when no summary exists",
+)
+SIDE_STATE_RULE = ReadRule(
+    name="side_state_shadow",
+    priority=20,
+    normal_path_allowed=False,
+    escalation_required=True,
+    reason="side-state artifact that must not outrank summary or control-state truth",
+)
+OVERVIEW_RULE = ReadRule(
+    name="overview_sidecar",
+    priority=15,
+    normal_path_allowed=False,
+    escalation_required=True,
+    reason="overview artifact can drift from runtime truth; use only by explicit escalation",
+)
 FORENSIC_RULE = ReadRule(
     name="forensic_only",
     priority=0,
@@ -67,6 +88,12 @@ def classify_runtime_artifact(path: str | Path) -> ClassifiedArtifact:
         return ClassifiedArtifact(path=rendered, rule=SUMMARY_RULE)
     if "control-packet" in name and name.endswith(".json"):
         return ClassifiedArtifact(path=rendered, rule=CONTROL_PACKET_RULE)
+    if name == "cmux-assignment.json" or name == "current-runtime.json" or name.startswith("runtime-launch-manifest-"):
+        return ClassifiedArtifact(path=rendered, rule=CONTROL_STATE_RULE)
+    if name == "hook-state.json" or name == "pm-bot-watch.json":
+        return ClassifiedArtifact(path=rendered, rule=SIDE_STATE_RULE)
+    if "overview" in name:
+        return ClassifiedArtifact(path=rendered, rule=OVERVIEW_RULE)
     if name.endswith(".log") or "transcript" in name or "screen" in name or "tail" in name:
         return ClassifiedArtifact(path=rendered, rule=FORENSIC_RULE)
     if name.endswith(".json") and ("latest" in name or "report" in name or "detail" in name):
