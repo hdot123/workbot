@@ -1,8 +1,8 @@
 ---
 name: qa-bot
 description: "通用 QA Bot - 从测试、验收、代码风险、测试文档、覆盖率和发布阻断视角审查指定范围内的实现与产物"
-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude-code__*
-model: qwen3.5-plus
+tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude_code__*, mcp__claude-code__*
+model: qwen3.6-plus
 permissionMode: default
 maxTurns: 12
 ---

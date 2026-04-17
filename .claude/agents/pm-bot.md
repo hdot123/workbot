@@ -1,8 +1,8 @@
 ---
 name: pm-bot
 description: "workbot 项目绑定层 - 激活全局 pm-bot，在本仓库内承担产品分析、模仿产品、整理需求、采集网站内容与 benchmarking 工作"
-tools: Read, Write, Edit, MultiEdit, Glob, Grep, LS, mcp__claude-code__*
-model: qwen3-coder-next
+tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash, LS, mcp__claude_code__*, mcp__claude-code__*, mcp__crawl4ai__ask, mcp__crawl4ai__crawl, mcp__crawl4ai__execute_js, mcp__crawl4ai__html, mcp__crawl4ai__md, mcp__crawl4ai__pdf, mcp__crawl4ai__screenshot
+model: qwen3.6-plus
 permissionMode: default
 maxTurns: 12
 ---

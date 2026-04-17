@@ -1,8 +1,8 @@
 ---
 name: dev-bot
 description: "通用 Dev Bot - 从实现落地、代码改动、最小修复、边界处理、验证结果和交付约束视角执行指定开发任务"
-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude-code__*
-model: qwen3.5-plus
+tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude_code__*, mcp__claude-code__*
+model: qwen3.6-plus
 permissionMode: default
 maxTurns: 12
 ---

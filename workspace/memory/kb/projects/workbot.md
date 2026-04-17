@@ -4,7 +4,7 @@ title: "Workbot Project Canonical"
 shortname: WORKBOT-PROJECT
 status: active
 created: 2026-04-14
-updated: 2026-04-14
+updated: 2026-04-17
 source: local-canonical
 confidence: high
 tags: [project, cmux, global-bot, binding, memory]
@@ -15,6 +15,14 @@ related: [workbot-memory-system, workbot-truth-model, workbot-hook-contract]
 
 > 本文件是 `workbot` 当前 active project canonical。
 > 它只记录已经收口并进入 active memory 的 truth，不重复历史草案。
+
+## Active Decisions
+
+- `WORKBOT-AGENTS-RUNTIME-2026-03-25`
+  `/Users/busiji/workbot/workspace/memory/kb/decisions/2026-03-25-workbot-project-agents-and-runtime-surfaces.md`
+
+- `CMUX-MCP-GUARD-2026-04-16`
+  `/Users/busiji/workbot/workspace/memory/kb/decisions/2026-04-16-cmux-mcp-cross-bot-stability-and-memory-guard.md`
 
 ## Global-Bot + Project-Binding Model
 

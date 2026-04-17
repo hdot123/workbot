@@ -1,8 +1,8 @@
 ---
 name: rea-bot
 description: "审查型 Coding Agent - 从 Review / Examine / Audit 视角，对指定范围内的代码、测试、状态与文档做只读审查和一致性核对"
-tools: Read, Bash, Glob, Grep, LS, mcp__claude-code__*
-model: qwen3.5-plus
+tools: Read, Bash, Glob, Grep, LS, mcp__claude_code__*, mcp__claude-code__*
+model: qwen3.6-plus
 permissionMode: default
 maxTurns: 12
 ---

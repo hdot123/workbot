@@ -4,13 +4,11 @@
 
 This file defines the shared agent layout for the entire `workbot` repository.
 
-## Shared Agents Directory
+## Retired Shared Agents Directory
 
-Optional shared helper definitions live in:
+`/Users/busiji/workbot/agents/` is retired historical residue and is no longer retained as part of the current repository truth.
 
-`/Users/busiji/workbot/agents/`
-
-This directory is not a shared review-role layer.
+The current repository truth does not preserve a project-local shared agents directory.
 
 ## Global Claude Agents Directory
 
@@ -56,20 +54,22 @@ This directory is the direct project discovery source used by Claude Code for `w
 
 ## Usage Convention
 
-- Shared review identities must not be added under `/Users/busiji/workbot/agents/`.
-- If a shared helper file is kept under `/Users/busiji/workbot/agents/`, it must be non-review and explicitly scoped.
+- No current repository truth may rely on `/Users/busiji/workbot/agents/`; that directory is retired residue and not part of the active repository layout.
 - Globally defined bot bodies belong under `/Users/busiji/.claude/agents/`.
-- `/Users/busiji/workbot/.claude/agents/` is the project binding / activation layer for bots enabled in `workbot`; it must not be described as the ontology source for those bots.
+- `/Users/busiji/workbot/.claude/agents/` is the only project binding / activation layer for bots enabled in `workbot`; it must not be described as the ontology source for those bots.
 - Claude Code project-level bindings that need project-specific narrowing or activation should be defined directly under `/Users/busiji/workbot/.claude/agents/`.
-- `/Users/busiji/workbot/.codex/agents/` is an adapter layer only and must not be treated as the source of truth for formal identities.
+- `/Users/busiji/workbot/.codex/agents/` has been removed and must not be reintroduced as a parallel adapter-layer identity source.
 - Retired `tmux` runtime materials are historical residue only and must not be treated as current runtime or identity truth.
-- Keep exactly one source of truth per role. Do not keep duplicate definitions of the same role in both directories.
-- Do not use `/Users/busiji/workbot/.claude/agents/` as a symlinked wrapper for `/Users/busiji/workbot/agents/`.
+- Keep exactly one source of truth per role. Do not keep duplicate definitions of the same role across repository paths.
+- Do not use `/Users/busiji/workbot/.claude/agents/` as a wrapper or mirror for any retired project-local agents directory.
 
 ## Project Notes
 
 - The shared review-role library has been removed because it did not match the actual execution model.
 - Claude Code should discover `workbot` bindings through `/Users/busiji/workbot/.claude/agents/` at the repository root.
+- `/Users/busiji/workbot/.claude/agents/` is the sole project-local binding layer retained by the repository.
+- `/Users/busiji/workbot/agents/` is no longer retained as a current repository directory; any old references to it are historical residue only.
+- `/Users/busiji/workbot/.codex/agents/` has been deleted and is not part of the active repository identity chain.
 - `pm-bot`、`dev-bot`、`qa-bot`、`doc-bot` and `rea-bot` are globally defined bot bodies that `workbot` currently binds into its formal runtime bot set.
 - `workbot/.claude/agents/*.md` files are project binding / activation files for those global bots; they do not make the bot ontology local to `workbot`.
 - `pm-bot` is bound into `workbot` as the product-analysis / imitation-product / requirement-organization / website-content-collection / benchmarking / imitation-analysis bot. It is not the external `main-thread`, not the `cmux-browser` board pane, and not a pure runtime-control alias.
@@ -79,7 +79,6 @@ This directory is the direct project discovery source used by Claude Code for `w
 - The current `workbot` `cmux` topology is `5+1`: five runtime panes bound to the global bot bodies `pm-bot`、`dev-bot`、`qa-bot`、`doc-bot`、`rea-bot`, plus one `cmux-browser` board pane.
 - The `cmux-browser` board pane is a runtime board surface, not a formal bot identity.
 - Runtime `pane` / `surface` titles are lookup aids and visible labels; they are not repository identity truth.
-- `/Users/busiji/workbot/.codex/agents/` may wrap active identities for tooling, but it must not introduce standalone formal roles.
 
 ## Daily Runtime Convention
 

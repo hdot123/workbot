@@ -1,8 +1,8 @@
 ---
 name: doc-bot
 description: "通用 Doc Bot - 从文档同步、术语一致性、结构一致性、版本对齐和最小修订视角维护指定范围内的文档产物"
-tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude-code__*
-model: qwen3.5-plus
+tools: Read, Write, Edit, MultiEdit, Bash, Glob, Grep, LS, mcp__claude_code__*, mcp__claude-code__*
+model: qwen3.6-plus
 permissionMode: default
 maxTurns: 12
 ---

@@ -382,12 +382,13 @@ claude --agent <lane_identity>
 ### 仓库级原则
 
 - `AGENTS.md` 负责声明当前仓库正式身份范围。
-- `/Users/busiji/workbot/.claude/agents/` 是当前 `workbot` 项目本地 agent 文件层；它和项目内部 formal role 集合不是同一层。
+- `/Users/busiji/workbot/.claude/agents/` 是当前 `workbot` 唯一保留的项目本地 binding / activation agent 文件层；它和项目内部 formal role 集合不是同一层。
 - `cmux` 是当前唯一正式 runtime carrier。
 - 项目内部正式拓扑是 `5+1`：`pm-bot / dev-bot / qa-bot / doc-bot / rea-bot + cmux-browser`。
 - `cmux-browser` 是 board pane，不是正式 bot 身份。
 - 外部 `main-thread` 是运行时调度身份，不在项目 `cmux` workspace 内，也不需要项目本地 agent 文件。
-- `/Users/busiji/workbot/agents/` 和 `/Users/busiji/workbot/.codex/agents/` 不是当前 `cmux` 身份锁定链的一部分。
+- `/Users/busiji/workbot/agents/` 已退出当前仓库布局，不是当前 `cmux` 身份锁定链的一部分。
+- `/Users/busiji/workbot/.codex/agents/` 已删除，不是当前 `cmux` 身份锁定链的一部分，也不是并行身份层。
 
 ### runtime 级原则
 
