@@ -71,7 +71,15 @@ python3 /Users/busiji/.agents/skills/cmux/scripts/cmux_runtime_ctl.py status \
 - `cmux_ping_ok=true`
 - assignment `ready=true` 且 `dispatch_ready=true`
 - `runtime.single_workspace_healthy=true`
-- `watcher.alive=true`
+- `runtime.selected_workspace_matches_assignment=true`
+- `runtime.active_runtime_healthy=true`
+- `runtime.board_surface_guard.healthy=true`
+  - `5+1` 模式要求且仅允许一个 `cmux-browser` 且 `surface_type=browser`
+  - `pm-only` 模式下该 guard 标记为 `required=false`，且检测到残留 board 会返回不健康
+- `runtime.five_plus_one_shape_guard.healthy=true`（`5+1` 模式下要求五个 worker 标题齐全）
+- watcher 守卫按模式生效：
+  - `pm-only`：`watcher.alive=true` 是硬门禁
+  - `5+1`：watcher 结果仅记录，不阻断 `healthy`
 
 ### A6. 结束与清理
 
