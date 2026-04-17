@@ -13,6 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from workspace.tools.cmux_control_packet import (
+    SCHEMA_VERSION as CONTROL_PACKET_SCHEMA_VERSION,
+    ControlPacketError,
+    extract_latest_control_packet,
+)
 from workspace.tools.cmux_summary_artifact import build_summary_artifact, write_summary_artifact
 
 
@@ -39,69 +44,16 @@ def read_screen(workspace_ref: str, surface_ref: str, lines: int = 260) -> str:
     )
 
 
-def _extract_first_json_object(text: str) -> str | None:
-    start = text.find("{")
-    if start < 0:
-        return None
-    depth = 0
-    in_string = False
-    escaped = False
-    for pos in range(start, len(text)):
-        ch = text[pos]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : pos + 1]
-    return None
-
-
-def parse_marker_json(screen: str, marker: str) -> dict[str, object] | None:
-    search_from = len(screen)
-    while True:
-        idx = screen.rfind(marker, 0, search_from)
-        if idx < 0:
-            return None
-        payload = screen[idx + len(marker) :]
-        json_candidate = _extract_first_json_object(payload)
-        if json_candidate:
-            try:
-                parsed = json.loads(json_candidate)
-            except json.JSONDecodeError:
-                parsed = None
-            if isinstance(parsed, dict):
-                return parsed
-        search_from = idx
-
-
-def parse_ok(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return int(value) == 1
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "ok", "pass", "passed"}
-    return False
-
-
 def wait_result(workspace_ref: str, surface_ref: str, marker: str, timeout_s: float) -> tuple[dict[str, object] | None, str]:
     deadline = time.monotonic() + timeout_s
     latest = ""
     while time.monotonic() < deadline:
         latest = read_screen(workspace_ref, surface_ref)
-        parsed = parse_marker_json(latest, marker)
-        if parsed is not None:
+        try:
+            parsed = extract_latest_control_packet(latest)
+        except ControlPacketError:
+            parsed = None
+        if parsed is not None and str(parsed.get("marker") or "").strip() == marker:
             return parsed, latest
         time.sleep(0.4)
     return None, latest
@@ -168,6 +120,39 @@ def build_cross_verify_summary(report: dict[str, object], report_path: Path | No
     )
 
 
+def build_check_packet_prompt(
+    *, tool_instruction: str, marker: str, bot: str, check: str, summary: str, extra: dict[str, object] | None = None
+) -> str:
+    packet = {
+        "schema_version": CONTROL_PACKET_SCHEMA_VERSION,
+        "state": "completed",
+        "result": "pass",
+        "marker": marker,
+        "summary": summary,
+        "artifact_path": None,
+        "bot": bot,
+        "check": check,
+    }
+    if extra:
+        packet.update(extra)
+    return (
+        f"{tool_instruction}"
+        f"完成后只输出一行，不要解释：{marker}"
+        f"{json.dumps(packet, ensure_ascii=False, separators=(',', ':'))}"
+    )
+
+
+def packet_indicates_success(packet: dict[str, object], *, expected_status_code: int | None = None) -> bool:
+    state = str(packet.get("state") or "").strip()
+    result = str(packet.get("result") or "").strip()
+    if state != "completed" or result != "pass":
+        return False
+    if expected_status_code is None:
+        return True
+    status_code = str(packet.get("status_code") or packet.get("code") or "").strip()
+    return status_code == str(expected_status_code)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Cross-verify cmux bot MCP health after runtime changes.")
     parser.add_argument("--workspace", required=True, help="cmux workspace ref, e.g. workspace:47")
@@ -197,18 +182,26 @@ def main() -> int:
         "checks": {},
     }
 
-    # 1) All bots: claude_code read check.
     for bot in ("dev-bot", "qa-bot", "doc-bot", "rea-bot", "pm-bot"):
         surface = surface_map[bot]
         target = project_dir / ".claude" / "agents" / f"{bot}.md"
         marker_num += 1
         marker = f"XC{run_id}{marker_num}:"
-        prompt = (
-            f"请只调用一次 mcp__claude_code__Read 读取 {target}。"
-            f"完成后只输出一行，不要解释：{marker}"
-            '{"bot":"%s","check":"read","ok":1}'
-        ) % bot
-        parsed, screen, attempts = run_check(args.workspace, surface, marker, prompt, args.timeout_seconds, max(1, args.retries))
+        prompt = build_check_packet_prompt(
+            tool_instruction=f"请只调用一次 mcp__claude_code__Read 读取 {target}。",
+            marker=marker,
+            bot=bot,
+            check="read",
+            summary=f"{bot} completed the claude_code read check.",
+        )
+        parsed, screen, attempts = run_check(
+            args.workspace,
+            surface,
+            marker,
+            prompt,
+            args.timeout_seconds,
+            max(1, args.retries),
+        )
         key = f"{bot}:claude_read"
         if parsed is None:
             report["checks"][key] = {
@@ -219,26 +212,36 @@ def main() -> int:
                 "screen_tail": screen.splitlines()[-20:],
             }
             continue
-        ok = parse_ok(parsed.get("ok"))
         report["checks"][key] = {
-            "status": "passed" if ok else "failed",
+            "status": "passed" if packet_indicates_success(parsed) else "failed",
             "attempts": attempts,
             "marker": marker,
-            "result": parsed,
+            "packet": parsed,
         }
 
-    # 2) pm-bot: crawl4ai md check.
     pm_surface = surface_map["pm-bot"]
     marker_num += 1
     marker = f"XC{run_id}{marker_num}:"
     crawl_timeout = max(args.timeout_seconds * 2, 90.0)
-    prompt = (
-        "请只调用一次 mcp__crawl4ai__md，参数 "
-        '{"params":"{\\"url\\":\\"https://docs.crawl4ai.com/core/quickstart/\\"}"}。'
-        f"完成后只输出一行，不要解释：{marker}"
-        '{"bot":"pm-bot","check":"crawl","ok":1,"code":200}'
+    prompt = build_check_packet_prompt(
+        tool_instruction=(
+            "请只调用一次 mcp__crawl4ai__md，参数 "
+            '{"params":"{\\\\\\"url\\\\\\":\\\\\\"https://docs.crawl4ai.com/core/quickstart/\\\\\\"}"}。'
+        ),
+        marker=marker,
+        bot="pm-bot",
+        check="crawl",
+        summary="pm-bot completed the crawl4ai quickstart fetch.",
+        extra={"status_code": 200},
     )
-    parsed, screen, attempts = run_check(args.workspace, pm_surface, marker, prompt, crawl_timeout, max(1, args.retries))
+    parsed, screen, attempts = run_check(
+        args.workspace,
+        pm_surface,
+        marker,
+        prompt,
+        crawl_timeout,
+        max(1, args.retries),
+    )
     key = "pm-bot:crawl4ai_md"
     if parsed is None:
         report["checks"][key] = {
@@ -249,13 +252,11 @@ def main() -> int:
             "screen_tail": screen.splitlines()[-20:],
         }
     else:
-        code = str(parsed.get("code") or "").strip()
-        ok = parse_ok(parsed.get("ok")) and code == "200"
         report["checks"][key] = {
-            "status": "passed" if ok else "failed",
+            "status": "passed" if packet_indicates_success(parsed, expected_status_code=200) else "failed",
             "attempts": attempts,
             "marker": marker,
-            "result": parsed,
+            "packet": parsed,
         }
 
     failed = [k for k, v in (report.get("checks") or {}).items() if isinstance(v, dict) and v.get("status") != "passed"]
