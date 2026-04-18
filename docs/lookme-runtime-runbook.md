@@ -1,5 +1,12 @@
 # Lookme Runtime Runbook
 
+> Legacy Notice (P12-rest, 2026-04-18):
+> 本文档保留为历史 `lookme/tmux` 运行记录，不再是当前正式执行入口。
+> 当前正式入口与真相文档请使用：
+> - `/Users/busiji/workbot/docs/cmux-runtime-handbook.md`
+> - `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md`
+> - `/Users/busiji/workbot/AGENTS.md`
+
 ## 目的
 
 这份文档定义一套固定流程：
@@ -14,7 +21,7 @@
 
 Obsidian 导航入口：[[会话运行文档导航]]
 
-这份文档只管当前仓库这条链路：
+这份文档只保留历史链路说明（非当前正式执行链）：
 
 - tmux 正式运行面：`formal-session`
 - 任务分配文件：

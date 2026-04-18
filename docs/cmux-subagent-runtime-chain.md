@@ -377,6 +377,29 @@ claude --agent <lane_identity>
 
 当前某些显式四-bot 启动命令可以作为临时实现路径使用，但它们不能反向改写项目 truth，也不能替代 `5+1` 的正式拓扑声明。
 
+## A1-A9 语义到 `cmux 5+1` 实现映射（P12-rest）
+
+> 本节用于把 commander 语义层的 `A1-A9` 明确映射到当前仓库可验证的 `cmux` 实现链，避免把历史 `lookme/tmux` 术语直接当作当前运行真相。
+
+| 会话阶段 | 语义（commander） | 当前 `cmux 5+1` 实现链 | 主脚本 / 产物 |
+| --- | --- | --- | --- |
+| `A1` | 建立本轮会话拓扑与 lane 角色 | 以 `bootstrap` 建立单 workspace，并物化 `pm/dev/qa/doc/rea + cmux-browser` | `bootstrap_claude_runtime.py` |
+| `A2` | assignment 落盘并过启动门禁 | 生成/同步 `cmux-assignment.json`，active assignment 必须 `dispatch_ready=true` 才允许启动 | `generate_cmux_assignments.py`；`workspace/artifacts/cmux-runtime/cmux-assignment.json` |
+| `A3` | 启动并派发到各 lane | 每个 active lane 通过 `claude --agent <lane_identity>` 启动，且 `lane_identity` 与 `bot_name` 基线一致 | `bootstrap_claude_runtime.py`；`runtime-launch-manifest-*.json` |
+| `A4` | 运行态 hook 合同生效 | Hook 统一走 `cmux_claude_hook_bridge.py`；缺 `workspace/surface/state_file` 必须 `missing_hook_context` fail-close（退出码 `2`） | `cmux_claude_hook_bridge.py`；`cmux_hook_state.py`；`.claude/settings.local.json` 四事件 |
+| `A5` | 监控与解卡 | watcher 轮询 + hook 状态桥接；维持单 workspace guard；写出 consumer sidecar | `watch_cmux_assignments.py`；`cmux-consumer-state-latest.json` |
+| `A6` | 收口判定 | 完成判定以 control packet 状态为主（`completed/pass`）；非取证模式下缺 packet 不可判完成 | `watch_cmux_assignments.py`；`cmux_finish_cycle.py` |
+| `A7` | 本地治理回写 | finish-cycle 把结果回写 task-list 与 `ce-sync-plan`；normal path 采用结构化来源（control packet / consumer-state） | `cmux_finish_cycle.py`；`*-task-list.md`；`ce-sync-plan.md` |
+| `A8` | CE 生命周期同步 | 正式生命周期评论仍由 commander 复核执行；自动收尾默认仅做本地回写 | commander 流程；`cmux_finish_cycle.py --post-gitlab`（可选） |
+| `A9` | 下一轮或 idle 出口 | 无下一轮时将 active assignment 置 `IDLE`，并保留 receipt 防重复收口 | `cmux_finish_cycle.py`；`cmux-finish-receipts.jsonl` |
+
+## P12-rest 漂移口径澄清
+
+- `A1-A9` 的语义层仍有效，但 `cmux` 实现链的 assignment 真源路径是 `workspace/artifacts/cmux-runtime/cmux-assignment.json`；历史 `lookme-assignment.json` 仅可作为旧术语，不是当前 runtime 真源路径。
+- `A7` normal path 证据来源已迁移为结构化来源优先，不再依赖 pane transcript/evidence line；`forensic` 只作为显式兜底路径。
+- `cmux-browser` 是 board pane，不是正式 bot 身份，也不是外部 `main-thread` 的替身。
+- `empty` 仍可能作为脚本内部 placeholder token 出现，但对外可见运行真相仍是 `cmux-browser`，不得反写为项目身份真源。
+
 ## 当前必须遵守的原则
 
 ### 仓库级原则

@@ -1,5 +1,11 @@
 # Lookme Anchored Task Flow
 
+> Legacy Notice (P12-rest, 2026-04-18):
+> 本文档保留为历史 `lookme/tmux` 锚点流程参考，不再是当前正式 runtime 操作入口。
+> 当前正式执行链请以 `/Users/busiji/workbot/docs/cmux-runtime-handbook.md` 与
+> `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md` 为准。
+> 下文中的 `formal-session/4-pane/lookme` 仅作历史样例，禁止作为当前正式执行指令。
+
 ## 用法
 
 以后你可以直接发这一句：

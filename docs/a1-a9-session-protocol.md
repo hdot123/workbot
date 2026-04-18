@@ -1,6 +1,6 @@
 # A1-A9 Session Protocol
 ## Purpose
-这份文档是 `formal-session` 的正式执行规范。
+这份文档是当前 `cmux 5+1` 会话生命周期规范（commander 语义层）。
 唯一总定义：
 - `A1-A9` 是会话级生命周期
 - `A6-A9` 是当前会话内的收口与分支判断
@@ -8,12 +8,13 @@
 
 ## Scope
 适用：
-- `formal-session`
+- `cmux` 项目 workspace（`5+1`）
 - `dev-bot`
 - `rea-bot`
 - `qa-bot`
 - `doc-bot`
-- `lookme`
+- `pm-bot`
+- watcher / finish-cycle 链路
 - commander
 不适用：
 - 临时探索 pane
@@ -57,7 +58,7 @@
 
 必须更新：
 
-- [lookme-assignment.json](/Users/busiji/workbot/workspace/artifacts/tmux-skills/lookme/lookme-assignment.json)
+- [cmux-assignment.json](/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json)
 
 必须满足：
 
@@ -82,8 +83,8 @@
 
 只有以下条件全部满足，才允许说“会话已启动”：
 
-- `lookme` 已启动
-- `lookme_ctl.py status` 返回 `0`
+- watcher 已启动且可读
+- `cmux_runtime_ctl.py status` 返回健康状态
 - `assignment.ready == true`
 - `active_assignment_count >= 1`
 - active pane 已收到当前任务
@@ -145,7 +146,7 @@
 规则：
 
 - 正式 CE 评论由 commander 写
-- `lookme` 默认只做本地回写
+- `cmux` 自动收尾默认只做本地回写
 - 自动收尾默认不替 commander 写正式 CE 生命周期评论
 
 必须判断：
@@ -172,7 +173,7 @@ CE API 硬门槛：
   - 生成下一会话 assignment
   - 当前会话回到 `A1`
 - `A9-2 不存在下一会话真实任务`：
-  - 停掉 `lookme`
+  - 停掉 watcher 常驻链路
   - 把 assignment 清回 idle
   - 不再保持假运行态
 
@@ -183,11 +184,11 @@ CE API 硬门槛：
 - 没读 brief 就进入 `A1`
 - 先发 pane，再补 assignment
 - 派发后没确认消息真的提交
-- 没有 active assignment 却启动 `lookme`
+- 没有 active assignment 却宣告监控链路已正式运行
 - `A7` 没做就直接进入 `A8/A9`
 - 自动收尾替 commander 写正式 CE 生命周期评论
 - CE 写入后未拿到真实 `note_id` 却宣告“已同步”
-- 不存在下一会话真实任务，却不停止 `lookme`
+- 不存在下一会话真实任务，却不收回到 idle 运行态
 
 ## Summary
 必须记住的 4 条：

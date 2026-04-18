@@ -1,5 +1,10 @@
 # Lookme Runtime Cheatsheet
 
+> Legacy Notice (P12-rest, 2026-04-18):
+> 本文档是历史 `lookme/tmux` 速查表，不再代表当前正式运行口径。
+> 当前正式执行入口请改用 `/Users/busiji/workbot/docs/cmux-runtime-handbook.md`。
+> 下文所有 `4-pane/formal-session/lookme` 命令仅用于历史追溯，不用于当前正式运行。
+
 ## 1. 你发什么
 
 ```text

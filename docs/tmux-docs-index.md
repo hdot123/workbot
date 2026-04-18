@@ -1,19 +1,23 @@
-# tmux 文档索引与口径说明
+# tmux 文档索引（Legacy）
 
 **更新时间**: 2026-03-31  
 **适用范围**: `/Users/busiji/workbot/skills/tmux-skills/` 当前代码实现
 
 ---
 
-## 1. 当前口径入口
+## 1. 历史口径入口（非当前正式执行口径）
 
-当前代码实现的正式口径，以以下文档为准：
+以下文档仅用于追溯历史 `tmux` 实现，不再作为 `workbot` 当前正式运行口径：
 
 1. `/Users/busiji/workbot/skills/tmux-skills/SKILL.md`
 2. `/Users/busiji/workbot/docs/tmux-skills-design.md`
 3. `/Users/busiji/workbot/docs/tmux-skills-duty-boundary.md`
 
-如果这些文档与历史阶段文档存在冲突，以当前口径入口为准。
+`workbot` 当前正式执行口径请改用：
+
+1. `/Users/busiji/workbot/AGENTS.md`
+2. `/Users/busiji/workbot/docs/cmux-runtime-handbook.md`
+3. `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md`
 
 ---
 
