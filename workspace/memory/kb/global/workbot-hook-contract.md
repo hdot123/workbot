@@ -4,7 +4,7 @@ title: "Workbot Hook Gateway Contract"
 shortname: WB-HOOK
 status: active
 created: 2026-04-11
-updated: 2026-04-11
+updated: 2026-04-18
 source: local-canonical
 confidence: high
 tags: [hook, gateway, codex, claude, memory]
@@ -131,4 +131,4 @@ related: [workbot-memory-system, workbot-memory-routing]
 - `Codex` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
 - `Claude` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
 - gateway 会先产出 context package 与事件证据，再转发到底层 `cmux` hook
-- 验收报告已生成到 `/Users/busiji/workbot/workspace/artifacts/memory-hook/validation/latest.json`
+- 验收报告产物归档在 `/Users/busiji/workbot/workspace/artifacts/memory-hook/`（`contexts/`、`shared/`、`events.jsonl` 结构）

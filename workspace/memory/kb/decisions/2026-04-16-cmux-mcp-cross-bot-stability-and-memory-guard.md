@@ -4,7 +4,7 @@ title: "CMUX MCP Cross-Bot Stability and Memory Guard"
 shortname: CMUX-MCP-GUARD-2026-04-16
 status: active
 created: 2026-04-16
-updated: 2026-04-16
+updated: 2026-04-18
 source: local-verified
 confidence: high
 tags: [decision, cmux, mcp, crawl4ai, bootstrap, guardrail, cross-verify]
@@ -18,7 +18,7 @@ related: [workbot-project-canonical, workbot-truth-model, workbot-hook-contract]
 `workbot` 的 cmux 运行时必须采用以下固定策略，防止“配置存在但工具不可调用”再次出现：
 
 1. MCP 配置合并必须包含 `~/.claude.json` 的项目作用域块：
-   `projects[/Users/busiji/workbot].mcpServers`。
+   `projects["/Users/busiji/workbot"].mcpServers`。
 2. 只要允许外部 MCP 工具，启动必须注入 `--mcp-config` 且启用 `--strict-mcp-config`。
 3. `idle-default` 不允许退化为全 bot 通用 `Read`；必须按 bot 下发默认工具映射。
 4. agent `tools` 声明统一保留双前缀：

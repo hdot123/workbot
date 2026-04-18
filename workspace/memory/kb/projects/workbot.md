@@ -4,7 +4,7 @@ title: "Workbot Project Canonical"
 shortname: WORKBOT-PROJECT
 status: active
 created: 2026-04-14
-updated: 2026-04-17
+updated: 2026-04-18
 source: local-canonical
 confidence: high
 tags: [project, cmux, global-bot, binding, memory]
@@ -26,8 +26,8 @@ related: [workbot-memory-system, workbot-truth-model, workbot-hook-contract]
 
 ## Global-Bot + Project-Binding Model
 
-- 所有 bot 本体都是全局 bot body，统一定义在 `/Users/busiji/.claude/agents/*.md`。
-- `workbot` 通过 `/Users/busiji/workbot/.claude/agents/*.md` 绑定并启用当前正式 bot 集合。
+- 所有 bot 本体都是全局 bot body，统一定义在 `/Users/busiji/.claude/agents/` 目录。
+- `workbot` 通过 `/Users/busiji/workbot/.claude/agents/` 目录中的 binding 文件绑定并启用当前正式 bot 集合。
 - 当前 `workbot` 绑定并启用的 bot 是：
   - `pm-bot`
   - `dev-bot`

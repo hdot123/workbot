@@ -4,7 +4,7 @@ title: "Workbot Project Agents and Runtime Surfaces"
 shortname: WORKBOT-AGENTS-RUNTIME-2026-03-25
 status: active
 created: 2026-03-25
-updated: 2026-04-17
+updated: 2026-04-18
 source: local-canonical
 confidence: high
 tags: [decision, workbot, cmux, agents, runtime, commander]
@@ -17,8 +17,8 @@ related: [workbot-project-canonical, workbot-truth-model, workbot-hook-contract]
 
 `workbot` 的仓库级身份真相与仓库面向运行时定位固定如下：
 
-1. 全局 bot body 只定义在 `~/.claude/agents/*.md`。
-2. `workbot` 的项目 binding / activation 层只定义在 `/Users/busiji/workbot/.claude/agents/*.md`。
+1. 全局 bot body 只定义在 `/Users/busiji/.claude/agents/` 目录。
+2. `workbot` 的项目 binding / activation 层只定义在 `/Users/busiji/workbot/.claude/agents/` 目录。
 3. `/Users/busiji/workbot/agents/` 是 retired historical residue，不再属于当前仓库真相。
 4. `/Users/busiji/workbot/.codex/agents/` 已删除，不是当前 formal identity chain。
 5. `cmux` 是当前唯一正式 runtime carrier。
