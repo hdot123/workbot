@@ -72,8 +72,9 @@ pytest -q \
 
 当前结果：
 
-- `test_cmux_packet_consumers.py + test_youzy_data_replica_hook_p11.py`: `17 passed`
-- `test_cmux_control_packet.py + test_cmux_summary_artifact.py`: `10 passed`
+- `python3 -m pytest -q tests/test_cmux_packet_consumers.py` → `14 passed in 0.06s`
+- `python3 -m pytest -q tests/test_youzy_data_replica_hook_p11.py` → `3 passed in 1.56s`
+- 合计：`17 passed`
 
 ## 子代理交叉验证
 

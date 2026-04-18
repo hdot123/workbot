@@ -69,6 +69,10 @@
 - `pytest -q /Users/busiji/workbot/tests/test_cmux_runtime_ctl_p8_health_paths.py`
 - `pytest -q /Users/busiji/workbot/tests/test_cmux_runtime_ctl_p8_health_paths.py /Users/busiji/workbot/tests/test_memory_hook_gateway_p7_mainline.py /Users/busiji/workbot/tests/test_cmux_hook_bridge.py /Users/busiji/workbot/tests/test_cmux_hook_materialization.py /Users/busiji/workbot/tests/test_memory_hook_gateway_m6_batch3_provider_switch.py`
 
+当前复核结果（2026-04-18，实现子代理实跑）：
+
+- `python3 -m pytest -q tests/test_cmux_runtime_ctl_p8_health_paths.py` → `10 passed in 0.04s`
+
 ## 交叉验证
 
 > 本阶段要求：必须使用子代理完成并通过交叉验证后才能推进。
