@@ -51,6 +51,9 @@ CURRENT_TASK_FILES = (
     REPO_ROOT / "workspace" / "tools" / "cmux_phase_readiness.py",
     REPO_ROOT / "workspace" / "tools" / "validate_memory_system.py",
 )
+RUNTIME_ARTIFACT_DIR = REPO_ROOT / "workspace" / "artifacts" / "cmux-runtime"
+DEFAULT_RUNTIME_BOT_NAMES = ("pm-bot", "dev-bot", "qa-bot", "doc-bot", "rea-bot")
+BOARD_SLOT_IDENTITIES = {"empty", "cmux-browser"}
 DELIVERY_DOCS = (
     REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p10-core-delivery-2026-04-17.md",
     REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p12-core-delivery-2026-04-17.md",
@@ -172,9 +175,139 @@ def collect_scope_git_status(paths: tuple[Path, ...]) -> dict[str, Any]:
     }
 
 
+def _load_json_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, f"missing file: {path}"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"invalid json: {path} -> {exc}"
+    if not isinstance(payload, dict):
+        return None, f"payload must be object: {path}"
+    return payload, None
+
+
+def expected_runtime_bot_names(runtime_dir: Path) -> tuple[str, ...]:
+    assignment_candidates = (
+        runtime_dir / "cmux-assignment.json",
+        runtime_dir / "pm-bot-watch.json",
+    )
+    discovered: list[str] = []
+    for assignment_path in assignment_candidates:
+        payload, error = _load_json_file(assignment_path)
+        if payload is None or error is not None:
+            continue
+        raw_items = payload.get("assignments")
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            status = str(raw_item.get("status") or "").strip().upper()
+            if status not in {"ACTIVE", "RUNNING", "PENDING"}:
+                continue
+            bot_name = str(raw_item.get("bot_name") or raw_item.get("logical_target") or "").strip()
+            if not bot_name:
+                continue
+            if bot_name in BOARD_SLOT_IDENTITIES:
+                continue
+            if bot_name not in discovered:
+                discovered.append(bot_name)
+    if discovered:
+        ordered = [bot for bot in DEFAULT_RUNTIME_BOT_NAMES if bot in discovered]
+        extras = [bot for bot in discovered if bot not in ordered]
+        return tuple(ordered + extras)
+    return DEFAULT_RUNTIME_BOT_NAMES
+
+
+def collect_runtime_launch_manifest_problems(
+    runtime_dir: Path,
+    bot_names: tuple[str, ...],
+) -> dict[str, list[str]]:
+    problems: dict[str, list[str]] = {}
+    for bot_name in bot_names:
+        path = runtime_dir / f"runtime-launch-manifest-{bot_name}.json"
+        payload, error = _load_json_file(path)
+        if payload is None:
+            problems[str(path)] = [error or f"missing manifest: {path}"]
+            continue
+
+        issues: list[str] = []
+        if str(payload.get("bot_name") or "").strip() != bot_name:
+            issues.append("bot_name mismatch")
+        if not str(payload.get("workspace_ref") or "").strip():
+            issues.append("workspace_ref missing")
+        if not str(payload.get("surface_ref") or "").strip():
+            issues.append("surface_ref missing")
+        if not str(payload.get("permission_mode") or "").strip():
+            issues.append("permission_mode missing")
+        allowed_tools = payload.get("allowed_tools")
+        if not isinstance(allowed_tools, list) or not allowed_tools:
+            issues.append("allowed_tools missing_or_empty")
+        runtime_settings_path = str(payload.get("runtime_settings_path") or "").strip()
+        if not runtime_settings_path:
+            issues.append("runtime_settings_path missing")
+        elif not Path(runtime_settings_path).exists():
+            issues.append(f"runtime_settings_path_missing: {runtime_settings_path}")
+        if not str(payload.get("launch_command") or "").strip():
+            issues.append("launch_command missing")
+        if issues:
+            problems[str(path)] = issues
+    return problems
+
+
+def collect_startup_smoke_report_problems(
+    runtime_dir: Path,
+    bot_names: tuple[str, ...],
+) -> dict[str, list[str]]:
+    problems: dict[str, list[str]] = {}
+    for bot_name in bot_names:
+        smoke_path = runtime_dir / f"{bot_name}-smoke-report.json"
+        smoke_payload, smoke_error = _load_json_file(smoke_path)
+        if smoke_payload is None:
+            problems[str(smoke_path)] = [smoke_error or f"missing smoke report: {smoke_path}"]
+            continue
+
+        manifest_path = runtime_dir / f"runtime-launch-manifest-{bot_name}.json"
+        manifest_payload, _ = _load_json_file(manifest_path)
+        external_tokens: list[str] = []
+        if isinstance(manifest_payload, dict):
+            raw_tokens = manifest_payload.get("external_mcp_tokens")
+            if isinstance(raw_tokens, list):
+                external_tokens = [str(token).strip().lower() for token in raw_tokens if str(token).strip()]
+        requires_crawl_smoke = "crawl4ai" in external_tokens
+
+        issues: list[str] = []
+        if str(smoke_payload.get("bot_name") or "").strip() != bot_name:
+            issues.append("bot_name mismatch")
+        status = str(smoke_payload.get("status") or "").strip().lower()
+        if requires_crawl_smoke:
+            if status != "passed":
+                issues.append(f"status must be passed when crawl4ai is enabled (actual={status or 'missing'})")
+            result = smoke_payload.get("result")
+            if not isinstance(result, dict):
+                issues.append("result missing when crawl4ai is enabled")
+            else:
+                success = bool(result.get("success"))
+                status_code = str(result.get("status_code") or "").strip()
+                if not success:
+                    issues.append("result.success is false when crawl4ai is enabled")
+                if status_code and status_code != "200":
+                    issues.append(f"unexpected status_code for crawl4ai smoke: {status_code}")
+        else:
+            if status not in {"passed", "skipped"}:
+                issues.append(f"status must be passed/skipped (actual={status or 'missing'})")
+        if issues:
+            problems[str(smoke_path)] = issues
+    return problems
+
+
 def build_readiness_receipt() -> dict[str, Any]:
     memory = validate_memory_system()
     doc_problems = collect_delivery_doc_anchor_problems(DELIVERY_DOCS)
+    runtime_bot_names = expected_runtime_bot_names(RUNTIME_ARTIFACT_DIR)
+    manifest_problems = collect_runtime_launch_manifest_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
+    smoke_report_problems = collect_startup_smoke_report_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
 
     project_cmd = run_command(
         [
@@ -207,6 +340,8 @@ def build_readiness_receipt() -> dict[str, Any]:
         and not memory["missing_paths"]
         and not memory["validation_errors"]
         and not doc_problems
+        and not manifest_problems
+        and not smoke_report_problems
     )
     entry_ready = implemented and not project_problems
     delivered = (
@@ -225,6 +360,12 @@ def build_readiness_receipt() -> dict[str, Any]:
         "ready": ready,
         "memory_validation": memory,
         "delivery_doc_anchor_problems": doc_problems,
+        "runtime_artifact_validation": {
+            "runtime_dir": str(RUNTIME_ARTIFACT_DIR),
+            "expected_bot_names": list(runtime_bot_names),
+            "runtime_launch_manifest_problems": manifest_problems,
+            "startup_smoke_report_problems": smoke_report_problems,
+        },
         "project_status": {
             "required_done_titles": list(REQUIRED_DONE_TITLES),
             "current_task_title": CURRENT_TASK_TITLE,

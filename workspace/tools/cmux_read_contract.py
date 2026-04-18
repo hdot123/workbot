@@ -49,6 +49,13 @@ CONTROL_STATE_RULE = ReadRule(
     escalation_required=False,
     reason="runtime control-state artifact that can be read when no summary exists",
 )
+STARTUP_SMOKE_RULE = ReadRule(
+    name="startup_smoke",
+    priority=85,
+    normal_path_allowed=True,
+    escalation_required=False,
+    reason="startup smoke result artifact used as formal bootstrap acceptance signal",
+)
 SIDE_STATE_RULE = ReadRule(
     name="side_state_shadow",
     priority=20,
@@ -90,6 +97,8 @@ def classify_runtime_artifact(path: str | Path) -> ClassifiedArtifact:
         return ClassifiedArtifact(path=rendered, rule=CONTROL_PACKET_RULE)
     if name == "cmux-assignment.json" or name == "current-runtime.json" or name.startswith("runtime-launch-manifest-"):
         return ClassifiedArtifact(path=rendered, rule=CONTROL_STATE_RULE)
+    if name.endswith("-smoke-report.json"):
+        return ClassifiedArtifact(path=rendered, rule=STARTUP_SMOKE_RULE)
     if name == "hook-state.json" or name == "pm-bot-watch.json":
         return ClassifiedArtifact(path=rendered, rule=SIDE_STATE_RULE)
     if "overview" in name:

@@ -42,7 +42,8 @@ python3 /Users/busiji/.agents/skills/cmux/scripts/bootstrap_claude_runtime.py \
 - 由 `generate_cmux_assignments.py` 生成并回填 `cmux-assignment.json`。
 - active assignment 必须过 `dispatch_ready` gate。
 - idle assignment 必须显式包含默认值，禁止空值漂移：
-`tool_profile_id=idle-default`、`allowed_tools=["Read"]`、`permission_mode="default"`。
+`tool_profile_id=idle-default`、`allowed_tools` 使用 bot 级 idle baseline（`pm/dev/qa/doc/rea` 各自合同）、
+`permission_mode="default"`。
 
 ### A3. Hook 链路
 

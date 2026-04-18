@@ -42,6 +42,14 @@ def test_control_state_artifact_is_secondary_but_normal_path_readable() -> None:
     assert classified.rule.normal_path_allowed is True
 
 
+def test_startup_smoke_report_is_normal_path_readable() -> None:
+    classified = classify_runtime_artifact(
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-smoke-report.json"
+    )
+    assert classified.rule.name == "startup_smoke"
+    assert classified.rule.normal_path_allowed is True
+
+
 def test_hook_state_is_demoted_from_normal_path() -> None:
     classified = classify_runtime_artifact(
         "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/hook-state.json"
@@ -89,6 +97,22 @@ def test_choose_commander_default_sources_prefers_summary_then_control_state() -
     )
     assert [item.path for item in ranked] == [
         "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json",
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json",
+    ]
+
+
+def test_choose_commander_default_sources_prefers_summary_then_smoke_then_control_state() -> None:
+    ranked = choose_commander_default_sources(
+        [
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/hook-state.json",
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json",
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-smoke-report.json",
+            "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json",
+        ]
+    )
+    assert [item.path for item in ranked] == [
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cross-verify-summary-latest.json",
+        "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-smoke-report.json",
         "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/cmux-assignment.json",
     ]
 
