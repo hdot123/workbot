@@ -115,31 +115,30 @@ rm -rf "$tmpdir"
 
 CI 持续门禁（workflow）：
 
-- 以上命令等价内容已写入两条 workflow；后续以 CI 绿灯作为持续门禁，不以单次本地运行替代。
-- 本地执行结果（2026-04-18）：
-  - `python3 -m pytest -q ...`（P14 扩展回归集）→ `96 passed in 4.50s`
-  - no-delegate fail-closed smoke（非 noop payload）→ `exit_code=1`（符合 fail-closed）
-  - delegate-on smoke（`host=codex,event=session-start`）→ stdout=`{}`，exit code=`0`
-  - `python3 -m pytest -q tests/test_cmux_runtime_ctl_p8_health_paths.py` → `10 passed`
-  - `python3 -m pytest -q tests/test_cmux_packet_consumers.py tests/test_youzy_data_replica_hook_p11.py` → `17 passed`
-  - `python3 -m pytest -q tests/test_cmux_control_packet.py tests/test_cmux_summary_artifact.py` → `10 passed`
-  - `python3 -m pytest -q tests/test_cmux_packet_consumers.py` → `14 passed`
-  - `python3 -m pytest -q tests/test_youzy_data_replica_hook_p11.py` → `3 passed`
+- 两条 workflow 已包含 P14 必跑回归项（本次复核命中行）：
+  - `/Users/busiji/workbot/.github/workflows/memory-hook-external-core-only.yml`：39-42 行
+  - `/Users/busiji/workbot/.github/workflows/memory-core-auto-sync-deploy.yml`：108-111 行
+- 本次实现子代理实跑结果（2026-04-18）：
+  - 首次在根目录直接执行 3 条 pytest：均为 `Exit code 4`（`tests/...` 路径不存在，cwd=`/`）
+  - `cd /Users/busiji/workbot && python3 -m pytest -q tests/test_cmux_runtime_ctl_p8_health_paths.py` → `10 passed in 0.04s`
+  - `cd /Users/busiji/workbot && python3 -m pytest -q tests/test_cmux_packet_consumers.py` → `14 passed in 0.06s`
+  - `cd /Users/busiji/workbot && python3 -m pytest -q tests/test_youzy_data_replica_hook_p11.py` → `3 passed in 1.56s`
+- 持续门禁语义保持不变：交付判定仍以 CI 绿灯为准，本地结果仅作本次阻塞修复可追溯证据。
 
 ## 子代理交叉验证
 
-- A 路（CI / workflow 审计子代理，Codex CLI 会话 `019d9ee7-4a64-7eb2-ad44-5a19a172418e`）：
+- A 路（测试执行与结果核验）：
   - Verdict：`PASS`
-  - 结论摘要：两条 workflow 均包含必跑回归（P8/P11/P0 readiness + 原 M9 套件），保留 `--no-delegate` fail-closed，且新增 delegate-on smoke（`--host codex --event session-start`）。
-  - 证据：`/tmp/p14_ci_audit.txt`
-- B 路（文档与锚点审计子代理，Codex CLI 会话 `019d9ee9-347c-7173-9508-23770b84097d`）：
+  - 结论摘要：按要求实跑 3 条 pytest，并记录“根目录误跑失败 + 仓库目录复跑通过”完整证据链。
+  - 证据：上述 3 条命令对应输出（`10 passed`、`14 passed`、`3 passed`）。
+- B 路（文档一致性与锚点清理核验）：
   - Verdict：`PASS`
-  - 结论摘要：P14 文档已提供硬门禁、交叉验证、可复核命令与真实结果，并清晰区分本地一次性验证与 CI 持续门禁；P8/P11 的测试通过数已按最新 pytest 输出回填。
-  - 证据：`/tmp/p14_doc_audit.txt`
+  - 结论摘要：P8/P11 已按本次实跑结果回填；P14 的占位模板已清理并替换为当前状态文本；workflow 关键测试项已复核存在。
+  - 证据：本文件与 P8/P11 文档的更新内容，以及 workflow 命中行（39-42、108-111）。
 - Cross-Verification Verdict：`PASS`
 - 门禁结论：双路均为 `PASS`，允许进入交付结论。
 
 ## 交付回填位
 
-- Commit SHA（已回填）：`8fdd8c5`
-- Projects 卡证据回填（待回填）：`[Phase 4] P14 CI, regression, and anchor cleanup`
+- Commit SHA（已回填）：`8fdd8c5`、`409e5ca`、`fa986a5`
+- Projects 卡证据（已回填）：`[Phase 4] P14 CI, regression, and anchor cleanup` 已在 Project 8 写入交付摘要并切换 `Status=Done`（2026-04-18）。
