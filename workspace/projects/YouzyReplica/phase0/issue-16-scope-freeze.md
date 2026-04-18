@@ -13,7 +13,7 @@
 
 **Primary deliverable**: `website replica first, data second`
 
-The Youzy 1:1 Replica project delivers a pixel-parity clone of `https://youzy.cn` as its first-class artifact. All queryable data (universities, majors, scores, careers, etc.) is a **derived output** obtained by running queries against the localized replica site and its API replay layer. Data is a by-product, not the primary deliverable.
+The Youzy 1:1 Replica project delivers a pixel-parity clone of `https://www.youzy.cn/` as its first-class artifact. All queryable data (universities, majors, scores, careers, etc.) is a **derived output** obtained by running queries against the localized replica site and its API replay layer. Data is a by-product, not the primary deliverable.
 
 **Design principles**:
 
