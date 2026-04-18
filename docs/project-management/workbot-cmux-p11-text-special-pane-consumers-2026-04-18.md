@@ -72,7 +72,7 @@ pytest -q \
 
 当前结果：
 
-- `test_cmux_packet_consumers.py + test_youzy_data_replica_hook_p11.py`: `9 passed`
+- `test_cmux_packet_consumers.py + test_youzy_data_replica_hook_p11.py`: `17 passed`
 - `test_cmux_control_packet.py + test_cmux_summary_artifact.py`: `10 passed`
 
 ## 子代理交叉验证
@@ -90,7 +90,7 @@ pytest -q \
   - 证据：`validate_control_artifact_with_consumer_state(...)` 对 artifact 路径执行规范化比对（`resolve(strict=False)`）。
   - 证据：`tests/test_youzy_data_replica_hook_p11.py` 明确阻断旧的默认 pane-text 消费路径。
 - 双路最小验证命令结果：
-  - `pytest -q /Users/busiji/workbot/tests/test_cmux_packet_consumers.py` → `8 passed`
+  - `pytest -q /Users/busiji/workbot/tests/test_cmux_packet_consumers.py` → `14 passed`
   - `pytest -q /Users/busiji/workbot/tests/test_youzy_data_replica_hook_p11.py` → `3 passed`
 
 结论：**交叉验证通过**。满足“必须使用子代理 + 交叉验证 PASS 才能推进下一步”的阶段门禁。

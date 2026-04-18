@@ -22,7 +22,7 @@ LATEST_RECEIPT = ARTIFACT_DIR / "phase2-preflight-latest.json"
 PROJECT_OWNER = "hdot123"
 PROJECT_NUMBER = 8
 PROJECT_URL = "https://github.com/users/hdot123/projects/8"
-CURRENT_TASK_TITLE = "[Phase 2] P0-preflight Readiness gate and blocker repair"
+CURRENT_TASK_TITLE = "[Phase 4] P14 CI, regression, and anchor cleanup"
 REQUIRED_DONE_TITLES = (
     "[Phase 0] P10-core Dispatch gate contract",
     "[Phase 0] P12-core Commander semantics core",
@@ -31,38 +31,29 @@ REQUIRED_DONE_TITLES = (
     "[Phase 1] P6 Migrate direct cmux consumers",
     "[Phase 1] P9 Main-thread token contract",
     "[Phase 1] P13 Artifact hygiene and read priority",
+    "[Phase 2] P0-preflight Readiness gate and blocker repair",
+    "[Phase 2] P3 Memory-hook slimming",
+    "[Phase 2] P4 Hook-state materialization",
+    "[Phase 2] P7 Hook mainline and preflight gates",
+    "[Phase 2] P8 Health checks and special paths",
+    "[Phase 3] P5 Active truth convergence",
+    "[Phase 3] P10-rest Bootstrap and dispatch remainder",
+    "[Phase 3] P11-rest Governance writeback migration",
+    "[Phase 3] P11-text Special pane-text consumers",
+    "[Phase 3] P12-rest Commander docs and truth mapping",
 )
 CURRENT_TASK_FILES = (
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p0-preflight-readiness-gate-and-blocker-repair-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p10-core-delivery-2026-04-17.md",
-    REPO_ROOT / "tests" / "test_cmux_phase_readiness.py",
-    REPO_ROOT / "workspace" / "INDEX.md",
-    REPO_ROOT / "workspace" / "memory" / "docs" / "INDEX.md",
-    REPO_ROOT / "workspace" / "memory" / "docs" / "记忆系统全景文档.md",
-    REPO_ROOT / "workspace" / "memory" / "inbox.md",
-    REPO_ROOT / "workspace" / "memory" / "kb" / "global" / "INDEX.md",
-    REPO_ROOT / "workspace" / "memory" / "kb" / "global" / "workbot-memory-routing.md",
-    REPO_ROOT / "workspace" / "memory" / "kb" / "global" / "workbot-memory-system.md",
-    REPO_ROOT / "workspace" / "memory" / "kb" / "global" / "workbot-project-map-governance.md",
-    REPO_ROOT / "workspace" / "memory" / "kb" / "projects" / "workbot.md",
-    REPO_ROOT / "workspace" / "project-map" / "INDEX.md",
-    REPO_ROOT / "workspace" / "project-map" / "ingestion-registry-map.md",
-    REPO_ROOT / "workspace" / "project-map" / "legal-core-map.md",
+    REPO_ROOT / ".github" / "workflows" / "memory-hook-external-core-only.yml",
+    REPO_ROOT / ".github" / "workflows" / "memory-core-auto-sync-deploy.yml",
+    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p14-ci-regression-anchor-cleanup-2026-04-18.md",
+    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p8-health-checks-and-special-paths-2026-04-18.md",
+    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p11-text-special-pane-consumers-2026-04-18.md",
     REPO_ROOT / "workspace" / "tools" / "cmux_phase_readiness.py",
-    REPO_ROOT / "workspace" / "tools" / "validate_memory_system.py",
 )
 RUNTIME_ARTIFACT_DIR = REPO_ROOT / "workspace" / "artifacts" / "cmux-runtime"
 DEFAULT_RUNTIME_BOT_NAMES = ("pm-bot", "dev-bot", "qa-bot", "doc-bot", "rea-bot")
 BOARD_SLOT_IDENTITIES = {"empty", "cmux-browser"}
-DELIVERY_DOCS = (
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p10-core-delivery-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p12-core-delivery-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p1-control-packet-schema-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p2-summary-sidecar-split-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p6-consumer-migration-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p9-main-thread-token-contract-2026-04-17.md",
-    REPO_ROOT / "docs" / "project-management" / "workbot-cmux-p13-artifact-read-priority-2026-04-17.md",
-)
+DELIVERY_DOCS = tuple(sorted((REPO_ROOT / "docs" / "project-management").glob("workbot-cmux-*.md")))
 
 
 @dataclass(frozen=True)
