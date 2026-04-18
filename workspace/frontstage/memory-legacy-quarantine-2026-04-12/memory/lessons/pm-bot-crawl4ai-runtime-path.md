@@ -2,9 +2,9 @@
 type: [KB:LESSON]
 title: "Lesson: pm-bot 的 Crawl4AI 调用必须在启动链内收敛"
 created: 2026-04-07
-updated: 2026-04-07
-last_verified: 2026-04-07
-status: active
+updated: 2026-04-18
+last_verified: 2026-04-18
+status: superseded
 tags: [cmux, pm-bot, crawl4ai, mcp]
 confidence: high
 source: Manual
@@ -13,6 +13,15 @@ related: [mcp-config, runbook]
 ---
 
 # Lesson: pm-bot 的 Crawl4AI 调用必须在启动链内收敛
+
+## Quarantine Status
+
+本文件位于 `workspace/frontstage/memory-legacy-quarantine-2026-04-12/`，仅保留历史实现记录，不构成当前 active lesson。
+
+- 当前状态：`superseded`（quarantine historical residue only）
+- active replacement lesson：
+  `/Users/busiji/workbot/workspace/memory/kb/lessons/pm-bot-global-binding-and-legacy-fence.md`
+- 若与当前仓库 truth 冲突，以 `AGENTS.md`、`cmux` canonical 和 active lesson 为准。
 
 ## 问题现象
 - `cmux` 交互态 `pm-bot` 会先尝试 `Bash(mcp__crawl4ai__md ...)`
@@ -45,4 +54,3 @@ related: [mcp-config, runbook]
 2. 看 `claude mcp get crawl4ai`
 3. 看 `/mcp` 是否 `connected`
 4. 只有在 `tool not found` 或 `/mcp` 明确 `failed/absent` 时，才判断 crawl4ai 不可用
-

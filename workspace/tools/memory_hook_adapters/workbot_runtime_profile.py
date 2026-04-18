@@ -164,7 +164,7 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
 
     project_lesson_refs = {
         "workbot": [
-            workspace_root / "memory" / "kb" / "lessons" / "pm-bot-crawl4ai-runtime-path.md",
+            workspace_root / "memory" / "kb" / "lessons" / "pm-bot-global-binding-and-legacy-fence.md",
         ],
         "AEdu": [],
         "platform-capabilities": [],
