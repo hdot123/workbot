@@ -15,6 +15,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from workspace.tools.validate_memory_system import validate_memory_system
+from workspace.tools.cmux_read_contract import (
+    classify_runtime_artifact,
+    choose_commander_default_sources,
+)
 
 
 ARTIFACT_DIR = REPO_ROOT / "workspace" / "artifacts" / "project-readiness"
@@ -293,12 +297,61 @@ def collect_startup_smoke_report_problems(
     return problems
 
 
+def collect_commander_read_contract_validation(runtime_dir: Path) -> dict[str, Any]:
+    runtime_files = sorted(path for path in runtime_dir.glob("*") if path.is_file())
+    rendered_paths = [str(path) for path in runtime_files]
+    classified = [classify_runtime_artifact(path) for path in rendered_paths]
+    default_sources = choose_commander_default_sources(rendered_paths)
+
+    summary_candidates = [item for item in classified if item.rule.name == "commander_summary"]
+    fallback_candidates = [item for item in classified if item.rule.name in {"startup_smoke", "control_state"}]
+    blocked_sources = [item for item in classified if not item.rule.normal_path_allowed]
+
+    problems: list[str] = []
+    if rendered_paths and not default_sources:
+        problems.append("no normal-path commander read sources discovered")
+    if summary_candidates and default_sources and default_sources[0].rule.name != "commander_summary":
+        problems.append("summary exists but first commander default source is not commander_summary")
+    if any(item.rule.name == "forensic_only" for item in default_sources):
+        problems.append("forensic/log artifacts leaked into normal-path commander sources")
+    if not summary_candidates and fallback_candidates:
+        fallback_selected = any(item.rule.name in {"startup_smoke", "control_state"} for item in default_sources)
+        if not fallback_selected:
+            problems.append("summary missing but fallback sources (startup_smoke/control_state) were not selected")
+
+    return {
+        "ok": not problems,
+        "runtime_dir": str(runtime_dir),
+        "available_paths": rendered_paths,
+        "default_sources": [
+            {
+                "path": item.path,
+                "rule": item.rule.name,
+                "priority": item.rule.priority,
+                "normal_path_allowed": item.rule.normal_path_allowed,
+            }
+            for item in default_sources
+        ],
+        "blocked_normal_path_sources": [
+            {
+                "path": item.path,
+                "rule": item.rule.name,
+                "priority": item.rule.priority,
+                "reason": item.rule.reason,
+            }
+            for item in blocked_sources
+        ],
+        "problems": problems,
+    }
+
+
 def build_readiness_receipt() -> dict[str, Any]:
     memory = validate_memory_system()
     doc_problems = collect_delivery_doc_anchor_problems(DELIVERY_DOCS)
     runtime_bot_names = expected_runtime_bot_names(RUNTIME_ARTIFACT_DIR)
     manifest_problems = collect_runtime_launch_manifest_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
     smoke_report_problems = collect_startup_smoke_report_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
+    read_contract_validation = collect_commander_read_contract_validation(RUNTIME_ARTIFACT_DIR)
 
     project_cmd = run_command(
         [
@@ -333,6 +386,7 @@ def build_readiness_receipt() -> dict[str, Any]:
         and not doc_problems
         and not manifest_problems
         and not smoke_report_problems
+        and read_contract_validation["ok"]
     )
     entry_ready = implemented and not project_problems
     delivered = (
@@ -356,6 +410,7 @@ def build_readiness_receipt() -> dict[str, Any]:
             "expected_bot_names": list(runtime_bot_names),
             "runtime_launch_manifest_problems": manifest_problems,
             "startup_smoke_report_problems": smoke_report_problems,
+            "commander_read_contract_validation": read_contract_validation,
         },
         "project_status": {
             "required_done_titles": list(REQUIRED_DONE_TITLES),

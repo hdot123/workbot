@@ -11,6 +11,7 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 from workspace.tools.cmux_phase_readiness import (
+    collect_commander_read_contract_validation,
     collect_runtime_launch_manifest_problems,
     collect_startup_smoke_report_problems,
     collect_delivery_doc_anchor_problems,
@@ -218,6 +219,39 @@ def test_collect_startup_smoke_report_problems_allows_skipped_without_crawl4ai()
         )
         problems = collect_startup_smoke_report_problems(runtime_dir, ("dev-bot",))
         assert problems == {}
+
+
+def test_collect_commander_read_contract_validation_prefers_summary_first() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runtime_dir = Path(tmpdir)
+        (runtime_dir / "cross-verify-summary-latest.json").write_text("{}", encoding="utf-8")
+        (runtime_dir / "pm-bot-smoke-report.json").write_text("{}", encoding="utf-8")
+        (runtime_dir / "cmux-assignment.json").write_text("{}", encoding="utf-8")
+        validation = collect_commander_read_contract_validation(runtime_dir)
+        assert validation["ok"] is True
+        assert validation["default_sources"][0]["rule"] == "commander_summary"
+
+
+def test_collect_commander_read_contract_validation_excludes_forensic_from_normal_path() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runtime_dir = Path(tmpdir)
+        (runtime_dir / "watch_cmux_assignments.log").write_text("tail", encoding="utf-8")
+        (runtime_dir / "pm-bot-smoke-report.json").write_text("{}", encoding="utf-8")
+        validation = collect_commander_read_contract_validation(runtime_dir)
+        assert validation["ok"] is True
+        assert all(item["rule"] != "forensic_only" for item in validation["default_sources"])
+        assert any(item["rule"] == "forensic_only" for item in validation["blocked_normal_path_sources"])
+
+
+def test_collect_commander_read_contract_validation_falls_back_to_smoke_or_control_state() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        runtime_dir = Path(tmpdir)
+        (runtime_dir / "pm-bot-smoke-report.json").write_text("{}", encoding="utf-8")
+        (runtime_dir / "cmux-assignment.json").write_text("{}", encoding="utf-8")
+        validation = collect_commander_read_contract_validation(runtime_dir)
+        selected_rules = {item["rule"] for item in validation["default_sources"]}
+        assert validation["ok"] is True
+        assert selected_rules & {"startup_smoke", "control_state"}
 
 
 if __name__ == "__main__":
