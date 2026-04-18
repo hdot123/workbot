@@ -141,5 +141,5 @@ CI 持续门禁（workflow）：
 
 ## 交付回填位
 
-- Commit SHA（待回填）：`<P14_COMMIT_SHA>`
+- Commit SHA（已回填）：`8fdd8c5`
 - Projects 卡证据回填（待回填）：`[Phase 4] P14 CI, regression, and anchor cleanup`
