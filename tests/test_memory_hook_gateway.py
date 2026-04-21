@@ -150,47 +150,6 @@ def test_build_context_package_safe_internal_cwd():
         _restore_env("WORKBOT_FORCE_HOOK", old_force)
         _restore_env("PWD", old_pwd)
 
-
-def test_build_context_package_marks_codex_without_cmux_binding_as_external_session():
-    old_workspace = _save_env("CMUX_WORKSPACE_ID")
-    old_surface = _save_env("CMUX_SURFACE_ID")
-    old_provider = _save_env("MEMORY_HOOK_CORE_PROVIDER")
-    os.environ.pop("CMUX_WORKSPACE_ID", None)
-    os.environ.pop("CMUX_SURFACE_ID", None)
-    os.environ["MEMORY_HOOK_CORE_PROVIDER"] = "legacy"
-    try:
-        pkg = build_context_package("codex", "prompt-submit", {"session_id": "sess-external"})
-        task_context = pkg["task_context"]
-        assert task_context["session_class"] == "external_session"
-        assert task_context["formal_worker_session"] is False
-        assert task_context["binding_complete"] is False
-        assert task_context["binding_basis"] == "external_main_thread"
-    finally:
-        _restore_env("CMUX_WORKSPACE_ID", old_workspace)
-        _restore_env("CMUX_SURFACE_ID", old_surface)
-        _restore_env("MEMORY_HOOK_CORE_PROVIDER", old_provider)
-
-
-def test_build_context_package_marks_complete_cmux_binding_as_formal_worker():
-    old_workspace = _save_env("CMUX_WORKSPACE_ID")
-    old_surface = _save_env("CMUX_SURFACE_ID")
-    old_provider = _save_env("MEMORY_HOOK_CORE_PROVIDER")
-    os.environ["CMUX_WORKSPACE_ID"] = "workspace:9"
-    os.environ["CMUX_SURFACE_ID"] = "surface:9"
-    os.environ["MEMORY_HOOK_CORE_PROVIDER"] = "legacy"
-    try:
-        pkg = build_context_package("claude", "session-start", {"session_id": "sess-worker"})
-        task_context = pkg["task_context"]
-        assert task_context["session_class"] == "formal_cmux_worker"
-        assert task_context["formal_worker_session"] is True
-        assert task_context["binding_complete"] is True
-        assert task_context["binding_basis"] == "cmux_workspace_surface"
-        assert task_context["binding_errors"] == []
-    finally:
-        _restore_env("CMUX_WORKSPACE_ID", old_workspace)
-        _restore_env("CMUX_SURFACE_ID", old_surface)
-        _restore_env("MEMORY_HOOK_CORE_PROVIDER", old_provider)
-
 # ---------------------------------------------------------------------------
 # CLI entry
 # ---------------------------------------------------------------------------

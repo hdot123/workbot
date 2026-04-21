@@ -8,13 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from workspace.tools.current_task_source import (
-    TASK_TYPE_CMUX,
-    TaskSourceContractError,
-    build_cmux_task_source_ref,
-    maybe_normalize_task_source_ref,
-)
-
 
 SCHEMA_VERSION = "wb-cmux-control-packet-v1"
 STATE_RESULT_MAP = {
@@ -49,13 +42,6 @@ PROSE_ONLY_COMPLETION_RE = re.compile(
     r"\b(done|completed|pass|passed|failed|failure)\b|完成|已完成|通过|失败",
     re.IGNORECASE,
 )
-TASK_SOURCE_LIVE_IDENTITY_FIELDS = (
-    "task_source_id",
-    "assignment_id",
-    "cycle_id",
-    "deliverable_path",
-    "evidence_path",
-)
 
 EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
     "running": {
@@ -67,13 +53,6 @@ EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
         "logical_target": "dev-bot",
         "summary": "dev-bot is applying the approved patch set.",
         "artifact_path": None,
-        "task_source_ref": build_cmux_task_source_ref(
-            assignment_id="dev-101",
-            cycle_id="cmux-cycle:dev-101:1",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/dev-101-deliverable.md",
-            evidence_path="/Users/busiji/workbot/workspace/artifacts/cmux-runtime/dev-101-running.json",
-            status="running",
-        ),
     },
     "waiting_input": {
         "schema_version": SCHEMA_VERSION,
@@ -84,13 +63,6 @@ EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
         "logical_target": "qa-bot",
         "summary": "qa-bot is waiting for the commander to approve the next prompt.",
         "artifact_path": None,
-        "task_source_ref": build_cmux_task_source_ref(
-            assignment_id="qa-101",
-            cycle_id="cmux-cycle:qa-101:1",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/qa-101-deliverable.md",
-            evidence_path="/Users/busiji/workbot/workspace/artifacts/cmux-runtime/qa-101-waiting.json",
-            status="needs_input",
-        ),
     },
     "blocked": {
         "schema_version": SCHEMA_VERSION,
@@ -104,13 +76,6 @@ EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
         "evidence_refs": [
             "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-blocked.json"
         ],
-        "task_source_ref": build_cmux_task_source_ref(
-            assignment_id="pm-101",
-            cycle_id="cmux-cycle:pm-101:1",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/pm-101-deliverable.md",
-            evidence_path="/Users/busiji/workbot/workspace/artifacts/cmux-runtime/pm-bot-blocked.json",
-            status="blocked",
-        ),
     },
     "completed": {
         "schema_version": SCHEMA_VERSION,
@@ -126,13 +91,6 @@ EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
         "evidence_refs": [
             "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/doc-bot-summary.json"
         ],
-        "task_source_ref": build_cmux_task_source_ref(
-            assignment_id="doc-101",
-            cycle_id="cmux-cycle:doc-101:1",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101-deliverable.md",
-            evidence_path="/Users/busiji/workbot/workspace/artifacts/cmux-runtime/doc-bot-summary.json",
-            status="completed",
-        ),
     },
     "failed": {
         "schema_version": SCHEMA_VERSION,
@@ -148,13 +106,6 @@ EXAMPLE_PACKETS: dict[str, dict[str, Any]] = {
         "evidence_refs": [
             "/Users/busiji/workbot/workspace/artifacts/cmux-runtime/rea-bot-failure.json"
         ],
-        "task_source_ref": build_cmux_task_source_ref(
-            assignment_id="rea-101",
-            cycle_id="cmux-cycle:rea-101:1",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/rea-101-deliverable.md",
-            evidence_path="/Users/busiji/workbot/workspace/artifacts/cmux-runtime/rea-bot-failure.json",
-            status="failed",
-        ),
     },
 }
 
@@ -252,20 +203,6 @@ def validate_control_packet(packet: dict[str, Any], *, expected_marker: str | No
         raise ControlPacketError("terminal packet summary must not be placeholder-only")
 
     artifact_path = _normalize_artifact_path(packet.get("artifact_path"))
-    try:
-        task_source_ref = maybe_normalize_task_source_ref(
-            packet.get("task_source_ref"),
-            expected_task_type=TASK_TYPE_CMUX,
-        )
-    except TaskSourceContractError as exc:
-        raise ControlPacketError(str(exc)) from exc
-    if task_source_ref is None:
-        raise ControlPacketError("task_source_ref is required for all control packets")
-    assignment_id = _normalize_text_field(packet, "assignment_id")
-    if assignment_id != task_source_ref["assignment_id"]:
-        raise ControlPacketError("assignment_id must match task_source_ref.assignment_id")
-    if artifact_path is not None and artifact_path != task_source_ref["evidence_path"]:
-        raise ControlPacketError("artifact_path must match task_source_ref.evidence_path")
 
     normalized = dict(packet)
     normalized["schema_version"] = schema_version
@@ -274,188 +211,7 @@ def validate_control_packet(packet: dict[str, Any], *, expected_marker: str | No
     normalized["marker"] = marker
     normalized["summary"] = summary
     normalized["artifact_path"] = artifact_path
-    normalized["assignment_id"] = assignment_id
-    normalized["task_source_ref"] = task_source_ref
     return normalized
-
-
-def _normalize_required_cmux_task_source_ref(
-    value: Any,
-    *,
-    invalid_message: str,
-    missing_message: str,
-) -> dict[str, str]:
-    try:
-        task_source_ref = maybe_normalize_task_source_ref(
-            value,
-            expected_task_type=TASK_TYPE_CMUX,
-        )
-    except TaskSourceContractError as exc:
-        raise ControlPacketError(f"{invalid_message}: {exc}") from exc
-    if task_source_ref is None:
-        raise ControlPacketError(missing_message)
-    return task_source_ref
-
-
-def _collect_task_source_mismatches(
-    *,
-    expected_task_source_ref: dict[str, str],
-    actual_task_source_ref: dict[str, str],
-) -> list[str]:
-    mismatches: list[str] = []
-    for field_name in TASK_SOURCE_LIVE_IDENTITY_FIELDS:
-        expected_value = expected_task_source_ref[field_name]
-        actual_value = actual_task_source_ref[field_name]
-        if actual_value != expected_value:
-            mismatches.append(
-                f"{field_name} expected={expected_value} actual={actual_value}"
-            )
-    return mismatches
-
-
-def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ControlPacketError(f"{label} unreadable: {path} ({exc})") from exc
-    except json.JSONDecodeError as exc:
-        raise ControlPacketError(
-            f"{label} invalid json: {path} ({exc.msg})"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ControlPacketError(f"{label} must be a JSON object: {path}")
-    return payload
-
-
-def _validate_linked_summary_artifact_for_current_assignment(
-    artifact_path: str | None,
-    *,
-    expected_assignment_id: str | None,
-    expected_task_source_ref: dict[str, str],
-) -> None:
-    if artifact_path is None:
-        return
-    summary_path = Path(artifact_path).expanduser().resolve()
-    if not summary_path.exists():
-        return
-
-    payload = _load_json_object(summary_path, label="linked summary artifact")
-    schema_version = str(payload.get("schema_version") or "").strip()
-    if schema_version == SCHEMA_VERSION:
-        try:
-            normalized_summary = _validate_control_packet_for_current_assignment(
-                payload,
-                expected_assignment_id=expected_assignment_id,
-                expected_task_source_ref=expected_task_source_ref,
-                validate_linked_artifact=False,
-            )
-        except ControlPacketError as exc:
-            raise ControlPacketError(f"linked summary artifact rejected: {exc}") from exc
-
-        normalized_artifact_path = str(Path(normalized_summary["artifact_path"]).expanduser().resolve())
-        if normalized_artifact_path != str(summary_path):
-            raise ControlPacketError(
-                "linked summary artifact self-path mismatch: "
-                f"expected {summary_path} actual {normalized_summary['artifact_path']}"
-            )
-        return
-
-    if not schema_version:
-        raise ControlPacketError(f"linked summary artifact missing schema_version: {summary_path}")
-
-    linked_assignment_id = _normalize_text_field(payload, "assignment_id")
-    linked_task_source_ref = _normalize_required_cmux_task_source_ref(
-        payload.get("task_source_ref"),
-        invalid_message="linked summary artifact invalid current task_source_ref",
-        missing_message="linked summary artifact missing current task_source_ref",
-    )
-    if expected_assignment_id and linked_assignment_id != expected_assignment_id:
-        raise ControlPacketError(
-            "linked summary artifact assignment mismatch: "
-            f"expected {expected_assignment_id} actual {linked_assignment_id}"
-        )
-
-    mismatches = _collect_task_source_mismatches(
-        expected_task_source_ref=expected_task_source_ref,
-        actual_task_source_ref=linked_task_source_ref,
-    )
-    if mismatches:
-        raise ControlPacketError(
-            "linked summary artifact task_source mismatch: " + "; ".join(mismatches)
-        )
-
-    top_level_cycle_id = str(payload.get("cycle_id") or "").strip()
-    if top_level_cycle_id and top_level_cycle_id != expected_task_source_ref["cycle_id"]:
-        raise ControlPacketError(
-            "linked summary artifact cycle_id mismatch: "
-            f"expected {expected_task_source_ref['cycle_id']} actual {top_level_cycle_id}"
-        )
-
-    normalized_evidence_path = str(Path(linked_task_source_ref["evidence_path"]).expanduser().resolve())
-    if normalized_evidence_path != str(summary_path):
-        raise ControlPacketError(
-            "linked summary artifact evidence_path mismatch: "
-            f"expected {summary_path} actual {linked_task_source_ref['evidence_path']}"
-        )
-
-
-def _validate_control_packet_for_current_assignment(
-    packet: dict[str, Any],
-    *,
-    expected_assignment_id: str | None = None,
-    expected_task_source_ref: dict[str, Any] | None = None,
-    validate_linked_artifact: bool,
-) -> dict[str, Any]:
-    normalized = validate_control_packet(packet)
-
-    expected_assignment = (expected_assignment_id or "").strip()
-    if expected_assignment and normalized["assignment_id"] != expected_assignment:
-        raise ControlPacketError(
-            "control packet assignment mismatch: "
-            f"expected current assignment {expected_assignment} "
-            f"actual {normalized['assignment_id']}"
-        )
-
-    if expected_task_source_ref is None:
-        return normalized
-    current_task_source_ref = _normalize_required_cmux_task_source_ref(
-        expected_task_source_ref,
-        invalid_message="invalid current task_source_ref",
-        missing_message="missing current task_source_ref",
-    )
-
-    packet_task_source_ref = normalized["task_source_ref"]
-    mismatches = _collect_task_source_mismatches(
-        expected_task_source_ref=current_task_source_ref,
-        actual_task_source_ref=packet_task_source_ref,
-    )
-    if mismatches:
-        raise ControlPacketError(
-            "control packet task_source mismatch: " + "; ".join(mismatches)
-        )
-
-    if validate_linked_artifact:
-        _validate_linked_summary_artifact_for_current_assignment(
-            normalized["artifact_path"],
-            expected_assignment_id=expected_assignment or current_task_source_ref["assignment_id"],
-            expected_task_source_ref=current_task_source_ref,
-        )
-
-    return normalized
-
-
-def validate_control_packet_for_current_assignment(
-    packet: dict[str, Any],
-    *,
-    expected_assignment_id: str | None = None,
-    expected_task_source_ref: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return _validate_control_packet_for_current_assignment(
-        packet,
-        expected_assignment_id=expected_assignment_id,
-        expected_task_source_ref=expected_task_source_ref,
-        validate_linked_artifact=True,
-    )
 
 
 def extract_latest_control_packet(screen_text: str) -> dict[str, Any]:

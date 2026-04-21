@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -19,9 +18,7 @@ from workspace.tools.cmux_control_packet import (  # noqa: E402
     SCHEMA_VERSION,
     extract_latest_control_packet,
     validate_control_packet,
-    validate_control_packet_for_current_assignment,
 )
-from workspace.tools.current_task_source import build_cmux_task_source_ref  # noqa: E402
 
 
 def render_packet(packet: dict[str, object]) -> str:
@@ -83,89 +80,6 @@ def test_rejects_placeholder_terminal_summary() -> None:
         assert "placeholder-only" in str(exc)
     else:
         raise AssertionError("expected placeholder summary to be rejected")
-
-
-def test_rejects_missing_task_source_ref() -> None:
-    packet = dict(EXAMPLE_PACKETS["completed"])
-    packet.pop("task_source_ref", None)
-    try:
-        validate_control_packet(packet)
-    except ControlPacketError as exc:
-        assert "task_source_ref is required" in str(exc)
-    else:
-        raise AssertionError("expected missing task_source_ref to be rejected")
-
-
-def test_accepts_current_assignment_packet_and_linked_summary_when_cycle_matches() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        runtime_dir = Path(temp_dir)
-        summary_path = runtime_dir / "pm-bot-summary.json"
-        current_task_source_ref = build_cmux_task_source_ref(
-            assignment_id="P14-PMBOT-R1-HOMEPAGE-INVENTORY-RT4",
-            cycle_id="workbot|2026-04-21T19:44:33+0800|P14-PMBOT-R1-HOMEPAGE-INVENTORY-RT4",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/YouzyReplica/phase0/project14-pm-r1-homepage-inventory.md",
-            evidence_path=str(summary_path),
-            status="active",
-        )
-        packet = dict(EXAMPLE_PACKETS["completed"])
-        packet["assignment_id"] = current_task_source_ref["assignment_id"]
-        packet["artifact_path"] = str(summary_path)
-        packet["task_source_ref"] = dict(current_task_source_ref)
-        summary_path.write_text(
-            json.dumps(packet, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        validated = validate_control_packet_for_current_assignment(
-            packet,
-            expected_assignment_id=current_task_source_ref["assignment_id"],
-            expected_task_source_ref=current_task_source_ref,
-        )
-
-    assert validated["task_source_ref"]["cycle_id"] == current_task_source_ref["cycle_id"]
-    assert validated["artifact_path"] == str(summary_path)
-
-
-def test_rejects_linked_summary_when_cycle_id_is_stale() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        runtime_dir = Path(temp_dir)
-        summary_path = runtime_dir / "pm-bot-summary.json"
-        current_task_source_ref = build_cmux_task_source_ref(
-            assignment_id="P14-PMBOT-R1-HOMEPAGE-INVENTORY-RT4",
-            cycle_id="workbot|2026-04-21T19:44:33+0800|P14-PMBOT-R1-HOMEPAGE-INVENTORY-RT4",
-            deliverable_path="/Users/busiji/workbot/workspace/projects/YouzyReplica/phase0/project14-pm-r1-homepage-inventory.md",
-            evidence_path=str(summary_path),
-            status="active",
-        )
-        packet = dict(EXAMPLE_PACKETS["completed"])
-        packet["assignment_id"] = current_task_source_ref["assignment_id"]
-        packet["artifact_path"] = str(summary_path)
-        packet["task_source_ref"] = dict(current_task_source_ref)
-
-        stale_summary = dict(packet)
-        stale_summary["task_source_ref"] = build_cmux_task_source_ref(
-            assignment_id=current_task_source_ref["assignment_id"],
-            cycle_id="workbot|2026-04-21T19:35:23+0800|P14-PMBOT-R1-HOMEPAGE-INVENTORY-RT4",
-            deliverable_path=current_task_source_ref["deliverable_path"],
-            evidence_path=str(summary_path),
-            status="active",
-        )
-        summary_path.write_text(
-            json.dumps(stale_summary, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        try:
-            validate_control_packet_for_current_assignment(
-                packet,
-                expected_assignment_id=current_task_source_ref["assignment_id"],
-                expected_task_source_ref=current_task_source_ref,
-            )
-        except ControlPacketError as exc:
-            assert "linked summary artifact rejected" in str(exc)
-            assert "cycle_id expected=" in str(exc)
-        else:
-            raise AssertionError("expected stale linked summary cycle_id to be rejected")
 
 
 if __name__ == "__main__":
