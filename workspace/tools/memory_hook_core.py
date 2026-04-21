@@ -10,6 +10,52 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Collection
 
+from workspace.tools.current_task_source import TaskSourceContractError, maybe_normalize_task_source_ref
+
+
+FORMAL_CMUX_WORKER_SESSION_CLASS = "formal_cmux_worker"
+EXTERNAL_SESSION_CLASS = "external_session"
+UNBOUND_SESSION_CLASS = "unknown"
+
+
+def classify_task_session(
+    *,
+    host: str,
+    workspace_id: str,
+    surface_id: str,
+) -> dict[str, Any]:
+    normalized_host = str(host or "").strip().lower()
+    has_workspace = bool(str(workspace_id or "").strip())
+    has_surface = bool(str(surface_id or "").strip())
+    if has_workspace and has_surface:
+        return {
+            "session_class": FORMAL_CMUX_WORKER_SESSION_CLASS,
+            "formal_worker_session": True,
+            "binding_complete": True,
+            "binding_basis": "cmux_workspace_surface",
+            "binding_errors": [],
+        }
+    if not has_workspace and not has_surface and normalized_host == "codex":
+        return {
+            "session_class": EXTERNAL_SESSION_CLASS,
+            "formal_worker_session": False,
+            "binding_complete": False,
+            "binding_basis": "external_main_thread",
+            "binding_errors": [],
+        }
+    binding_errors: list[str] = []
+    if has_workspace and not has_surface:
+        binding_errors.append("surface_id_missing")
+    if has_surface and not has_workspace:
+        binding_errors.append("workspace_id_missing")
+    return {
+        "session_class": UNBOUND_SESSION_CLASS,
+        "formal_worker_session": False,
+        "binding_complete": False,
+        "binding_basis": "incomplete_cmux_binding" if binding_errors else "unclassified",
+        "binding_errors": binding_errors,
+    }
+
 
 def registration_phase_from_policy_pack(
     policy_pack: dict[str, Any],
@@ -200,6 +246,17 @@ def build_context_package_core(
         str(project_map_governance),
         str(event_log),
     ]
+    session_binding = classify_task_session(
+        host=host,
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    )
+    task_source_ref: dict[str, str] | None = None
+    task_source_errors: list[str] = []
+    try:
+        task_source_ref = maybe_normalize_task_source_ref(payload.get("task_source_ref"), allow_archive_only=True)
+    except TaskSourceContractError as exc:
+        task_source_errors.append(str(exc))
 
     return {
         "schema_version": "wb-hook-v2",
@@ -259,10 +316,21 @@ def build_context_package_core(
         },
         "task_context": {
             "event": event,
-            "task_ref": str(payload.get("task_ref") or f"{project_scope}:{event}"),
+            "task_ref": str(
+                (task_source_ref or {}).get("task_source_id")
+                or payload.get("task_ref")
+                or f"{project_scope}:{event}"
+            ),
+            "task_source_ref": task_source_ref,
+            "task_source_errors": task_source_errors,
             "session_id": str(payload.get("session_id") or ""),
             "surface_id": surface_id,
             "workspace_id": workspace_id,
+            "session_class": session_binding["session_class"],
+            "formal_worker_session": session_binding["formal_worker_session"],
+            "binding_complete": session_binding["binding_complete"],
+            "binding_basis": session_binding["binding_basis"],
+            "binding_errors": session_binding["binding_errors"],
             "payload_keys": sorted(payload.keys()),
         },
         "allowed_reads": reads,
