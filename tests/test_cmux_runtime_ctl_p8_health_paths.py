@@ -11,6 +11,8 @@ import pytest
 CMUX_SCRIPT_DIR = Path.home() / ".agents" / "skills" / "cmux" / "scripts"
 CMUX_RUNTIME_CTL_PATH = CMUX_SCRIPT_DIR / "cmux_runtime_ctl.py"
 BOOTSTRAP_PATH = CMUX_SCRIPT_DIR / "bootstrap_claude_runtime.py"
+HEALTHY_NATIVE_SCREEN = "Claude Code v1.0.0\n\n❯ "
+TEMPORARY_IDENTITY_SCREEN = "Claude Code v1.0.0\n操作类型\n❯ "
 
 
 def load_cmux_runtime_ctl_module():
@@ -651,6 +653,7 @@ def test_inspect_live_runtime_reports_five_plus_one_shape(
 
     monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
     monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:100")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: HEALTHY_NATIVE_SCREEN)
     monkeypatch.setattr(
         module,
         "list_workspaces",
@@ -793,6 +796,7 @@ def test_inspect_live_runtime_pm_only_rejects_residual_board(
 
     monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
     monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:200")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: HEALTHY_NATIVE_SCREEN)
     monkeypatch.setattr(
         module,
         "list_workspaces",
@@ -868,6 +872,7 @@ def test_inspect_live_runtime_flags_launch_provenance_mismatch(
 
     monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
     monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:300")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: HEALTHY_NATIVE_SCREEN)
     monkeypatch.setattr(
         module,
         "list_workspaces",
@@ -1395,8 +1400,163 @@ def test_active_runtime_row_healthy_accepts_agent_in_command_line_when_cmd_is_tr
         "session_class": "formal_cmux_worker",
         "cmd": "bi",
         "cmdline": "/opt/homebrew/bin/claude --agent pm-bot --permission-mode default",
+        "native_session_healthy": True,
     }
     assert module.active_runtime_row_healthy(row) is True
+
+
+def test_active_runtime_row_healthy_rejects_native_session_drift() -> None:
+    module = load_cmux_runtime_ctl_module()
+    row = {
+        "surface_present": True,
+        "pane_matches": True,
+        "is_board_slot": False,
+        "surface_type": "terminal",
+        "dead": False,
+        "session_class": "formal_cmux_worker",
+        "cmd": "claude",
+        "cmdline": "/opt/homebrew/bin/claude --agent pm-bot --permission-mode default",
+        "native_session_healthy": False,
+    }
+    assert module.active_runtime_row_healthy(row) is False
+
+
+def test_inspect_live_runtime_flags_native_session_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "cmux-assignment.json"
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "workspace_name": "workbot",
+                "workspace_ref": "workspace:400",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    write_runtime_launch_manifest(
+        assignment_file.parent,
+        bot_name="pm-bot",
+        assignment_id="pm4",
+        workspace_ref="workspace:400",
+        surface_ref="surface:40",
+    )
+
+    monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:400")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: "shell only\n$ ")
+    monkeypatch.setattr(
+        module,
+        "list_workspaces",
+        lambda: [{"ref": "workspace:400", "name": "workbot", "selected": True}],
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="pm4",
+                workspace_ref="workspace:400",
+                pane_ref="pane:40",
+                surface_ref="surface:40",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_tree",
+        lambda _: {
+            "surface:40": fake_snapshot(
+                workspace_ref="workspace:400",
+                pane_ref="pane:40",
+                surface_ref="surface:40",
+                surface_type="terminal",
+                title="pm-bot",
+                dead=False,
+            )
+        },
+    )
+
+    runtime = module.inspect_live_runtime(str(assignment_file))
+
+    assert runtime["active_runtime_healthy"] is False
+    row = runtime["active_runtime"][0]
+    assert row["native_session_healthy"] is False
+    assert row["native_session_error"] == "native_agent_session_not_ready"
+
+
+def test_inspect_live_runtime_flags_temporary_identity_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "cmux-assignment.json"
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "workspace_name": "workbot",
+                "workspace_ref": "workspace:500",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    write_runtime_launch_manifest(
+        assignment_file.parent,
+        bot_name="pm-bot",
+        assignment_id="pm5",
+        workspace_ref="workspace:500",
+        surface_ref="surface:50",
+    )
+
+    monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:500")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: TEMPORARY_IDENTITY_SCREEN)
+    monkeypatch.setattr(
+        module,
+        "list_workspaces",
+        lambda: [{"ref": "workspace:500", "name": "workbot", "selected": True}],
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="pm5",
+                workspace_ref="workspace:500",
+                pane_ref="pane:50",
+                surface_ref="surface:50",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_tree",
+        lambda _: {
+            "surface:50": fake_snapshot(
+                workspace_ref="workspace:500",
+                pane_ref="pane:50",
+                surface_ref="surface:50",
+                surface_type="terminal",
+                title="pm-bot",
+                dead=False,
+            )
+        },
+    )
+
+    runtime = module.inspect_live_runtime(str(assignment_file))
+
+    assert runtime["active_runtime_healthy"] is False
+    row = runtime["active_runtime"][0]
+    assert row["native_session_healthy"] is False
+    assert row["native_session_error"] == "temporary_identity_flow_detected"
 
 
 def test_inspect_commander_handoff_guard_flags_surface_stop_without_consumer_state(
