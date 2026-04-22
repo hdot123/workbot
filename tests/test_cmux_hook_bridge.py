@@ -45,10 +45,16 @@ raise SystemExit(1)
     return script_path
 
 
-def _run_bridge(event_name: str, state_file: Path, env: dict[str, str]) -> None:
+def _run_bridge(
+    event_name: str,
+    state_file: Path,
+    env: dict[str, str],
+    *,
+    expected_returncode: int = 0,
+) -> subprocess.CompletedProcess[str]:
     payload = {
         "session_id": f"{event_name}-session",
-        "cwd": str(REPO_ROOT),
+        "cwd": env.get("CMUX_PROJECT_DIR", str(REPO_ROOT)),
     }
     proc = subprocess.run(
         [
@@ -68,7 +74,100 @@ def _run_bridge(event_name: str, state_file: Path, env: dict[str, str]) -> None:
         check=False,
         env=env,
     )
-    assert proc.returncode == 0, proc.stderr or proc.stdout or f"bridge failed for {event_name}"
+    assert proc.returncode == expected_returncode, (
+        proc.stderr or proc.stdout or f"bridge failed for {event_name}; rc={proc.returncode}"
+    )
+    return proc
+
+
+def _write_assignment_file(
+    assignment_file: Path,
+    *,
+    workspace_ref: str,
+    surface_ref: str,
+    status: str = "ACTIVE",
+    session_class: str = "formal_cmux_worker",
+) -> None:
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "assignments": [
+                    {
+                        "logical_target": "pm-bot",
+                        "bot_name": "pm-bot",
+                        "assignment_id": "pm#1",
+                        "workspace_ref": workspace_ref,
+                        "pane_ref": "pane:canon",
+                        "surface_ref": surface_ref,
+                        "title": "pm-bot",
+                        "goal": "test",
+                        "task_kind": "assignment",
+                        "audit_round_1_owner": "rea-bot",
+                        "audit_round_1_status": "pending",
+                        "audit_round_2_owner": "codex",
+                        "audit_round_2_status": "pending",
+                        "status": status,
+                        "session_class": session_class,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_runtime_launch_manifest(
+    runtime_dir: Path,
+    *,
+    bot_name: str = "pm-bot",
+    assignment_id: str = "pm#1",
+    workspace_ref: str,
+    surface_ref: str,
+    lane_identity: str | None = None,
+    logical_target: str | None = None,
+) -> None:
+    lane_identity = lane_identity or bot_name
+    logical_target = logical_target or bot_name
+    derived_identity = {
+        "assignment_id": assignment_id,
+        "lane_identity": lane_identity,
+        "logical_target": logical_target,
+        "bot_name": bot_name,
+    }
+    manifest = {
+        "bot_name": bot_name,
+        "assignment_id": assignment_id,
+        "lane_identity": lane_identity,
+        "lane_justification": "test launch",
+        "logical_target": logical_target,
+        "workspace_ref": workspace_ref,
+        "surface_ref": surface_ref,
+        "permission_mode": "default",
+        "allowed_tools": ["Read", "Bash"],
+        "forbidden_tools": [],
+        "runtime_settings_path": "",
+        "external_mcp_tokens": [],
+        "resolved_mcp_servers": [],
+        "mcp_config": {},
+        "derived_identity": derived_identity,
+        "identity_source": "assignment_top_level_at_bootstrap",
+        "launch_assignment_id": assignment_id,
+        "launch_lane_identity": lane_identity,
+        "launch_lane_justification": "test launch",
+        "launch_logical_target": logical_target,
+        "launch_workspace_ref": workspace_ref,
+        "launch_surface_ref": surface_ref,
+        "launch_permission_mode": "default",
+        "launch_derived_identity": derived_identity,
+        "launch_identity_source": "assignment_top_level_at_bootstrap",
+        "launch_recorded_at": "2026-04-21T10:00:00+0800",
+        "launch_command": f"claude --agent {bot_name}",
+    }
+    (runtime_dir / f"runtime-launch-manifest-{bot_name}.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _require_bridge_script() -> None:
@@ -84,9 +183,20 @@ def test_cmux_hook_bridge_records_all_required_event_counters() -> None:
         fake_bin.mkdir(parents=True)
         _write_fake_cmux(fake_bin)
         state_file = temp_dir / "hook-state.json"
+        _write_assignment_file(
+            temp_dir / "cmux-assignment.json",
+            workspace_ref="workspace:canon",
+            surface_ref="surface:canon",
+        )
+        _write_runtime_launch_manifest(
+            temp_dir,
+            workspace_ref="workspace:canon",
+            surface_ref="surface:canon",
+        )
 
         env = os.environ.copy()
         env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+        env["CMUX_PROJECT_DIR"] = str(temp_dir)
 
         _run_bridge("session-start", state_file, env)
         _run_bridge("prompt-submit", state_file, env)
@@ -101,9 +211,106 @@ def test_cmux_hook_bridge_records_all_required_event_counters() -> None:
         assert surface_state["prompt_submit_count"] == 1
         assert surface_state["stop_count"] == 1
         assert surface_state["notification_count"] == 1
+        assert surface_state["guard_violation_count"] == 0
+        assert surface_state["adhoc_prompt_count"] == 0
         assert surface_state["last_event"] == "notification"
         assert surface_state["last_session_id"] == "notification-session"
-        assert surface_state["last_cwd"] == str(REPO_ROOT)
+        assert surface_state["last_cwd"] == str(temp_dir)
+
+
+def test_cmux_hook_bridge_records_guard_violation_for_prompt_without_active_assignment() -> None:
+    _require_bridge_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        temp_dir = Path(tmp)
+        fake_bin = temp_dir / "bin"
+        fake_bin.mkdir(parents=True)
+        _write_fake_cmux(fake_bin)
+        state_file = temp_dir / "hook-state.json"
+
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+        env["CMUX_PROJECT_DIR"] = str(temp_dir)
+
+        proc = _run_bridge("prompt-submit", state_file, env, expected_returncode=3)
+        error_payload = json.loads(proc.stderr.strip())
+        assert error_payload["error"] == "prompt_without_active_assignment"
+
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        surface_state = payload["surfaces"]["surface:canon"]
+        assert surface_state["prompt_submit_count"] == 1
+        assert surface_state["guard_violation_count"] == 1
+        assert surface_state["adhoc_prompt_count"] == 1
+        assert surface_state["last_guard_violation"] == "prompt_without_active_assignment"
+
+
+def test_cmux_hook_bridge_records_guard_violation_for_non_formal_session_class() -> None:
+    _require_bridge_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        temp_dir = Path(tmp)
+        fake_bin = temp_dir / "bin"
+        fake_bin.mkdir(parents=True)
+        _write_fake_cmux(fake_bin)
+        state_file = temp_dir / "hook-state.json"
+        _write_assignment_file(
+            temp_dir / "cmux-assignment.json",
+            workspace_ref="workspace:canon",
+            surface_ref="surface:canon",
+            session_class="external_session",
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+        env["CMUX_PROJECT_DIR"] = str(temp_dir)
+
+        proc = _run_bridge("prompt-submit", state_file, env, expected_returncode=4)
+        error_payload = json.loads(proc.stderr.strip())
+        assert error_payload["error"] == "prompt_submit_non_formal_session_class"
+
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        surface_state = payload["surfaces"]["surface:canon"]
+        assert surface_state["prompt_submit_count"] == 1
+        assert surface_state["guard_violation_count"] == 1
+        assert surface_state["adhoc_prompt_count"] == 0
+        assert surface_state["last_guard_violation"] == "prompt_submit_non_formal_session_class"
+
+
+def test_cmux_hook_bridge_records_guard_violation_for_launch_provenance_mismatch() -> None:
+    _require_bridge_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        temp_dir = Path(tmp)
+        fake_bin = temp_dir / "bin"
+        fake_bin.mkdir(parents=True)
+        _write_fake_cmux(fake_bin)
+        state_file = temp_dir / "hook-state.json"
+        _write_assignment_file(
+            temp_dir / "cmux-assignment.json",
+            workspace_ref="workspace:canon",
+            surface_ref="surface:canon",
+        )
+        _write_runtime_launch_manifest(
+            temp_dir,
+            assignment_id="idle-pm-bot",
+            workspace_ref="workspace:canon",
+            surface_ref="surface:canon",
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
+        env["CMUX_PROJECT_DIR"] = str(temp_dir)
+
+        proc = _run_bridge("prompt-submit", state_file, env, expected_returncode=5)
+        error_payload = json.loads(proc.stderr.strip())
+        assert error_payload["error"] == "prompt_submit_launch_provenance_mismatch"
+        assert error_payload["manifest_exists"] is True
+        assert error_payload["mismatches"]["assignment_id"]["expected"] == "pm#1"
+        assert error_payload["mismatches"]["assignment_id"]["actual"] == "idle-pm-bot"
+
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+        surface_state = payload["surfaces"]["surface:canon"]
+        assert surface_state["prompt_submit_count"] == 1
+        assert surface_state["guard_violation_count"] == 1
+        assert surface_state["adhoc_prompt_count"] == 1
+        assert surface_state["last_guard_violation"] == "prompt_submit_launch_provenance_mismatch"
 
 
 def test_cmux_hook_bridge_fails_closed_when_required_context_missing() -> None:

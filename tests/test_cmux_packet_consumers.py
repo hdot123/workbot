@@ -21,6 +21,7 @@ if str(GLOBAL_CMUX_SCRIPTS) not in sys.path:
 import cmux_finish_cycle  # noqa: E402
 import watch_cmux_assignments  # noqa: E402
 from workspace.tools.cmux_control_packet import EXAMPLE_PACKETS  # noqa: E402
+from workspace.tools.current_task_source import build_cmux_task_source_ref  # noqa: E402
 
 
 def render_packet(packet: dict[str, object]) -> str:
@@ -72,6 +73,45 @@ def write_assignment_payload(path: Path, *, assignment_id: str = "doc-101", logi
     return payload
 
 
+def make_cmux_task_source_ref(
+    *,
+    assignment_id: str,
+    cycle_id: str,
+    deliverable_path: str,
+    evidence_path: str,
+) -> dict[str, str]:
+    return build_cmux_task_source_ref(
+        assignment_id=assignment_id,
+        cycle_id=cycle_id,
+        deliverable_path=deliverable_path,
+        evidence_path=evidence_path,
+        status="active",
+    )
+
+
+def write_current_summary_artifact(
+    path: Path,
+    *,
+    assignment_id: str,
+    task_id: str,
+    cycle_id: str,
+    task_source_ref: dict[str, str],
+    schema_version: str = "wb-pm-bot-summary-v1",
+    summary: str = "current summary artifact",
+) -> Path:
+    payload = {
+        "schema_version": schema_version,
+        "assignment_id": assignment_id,
+        "task_id": task_id,
+        "cycle_id": cycle_id,
+        "task_source_ref": dict(task_source_ref),
+        "result": "completed",
+        "summary": summary,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def build_main_args(
     *,
     assignment_file: Path,
@@ -99,6 +139,27 @@ def build_main_args(
         post_gitlab=False,
         clear_to_idle=True,
     )
+
+
+def collect_outcome_contract(
+    *,
+    assignment_id: str = "doc-101",
+    logical_target: str = "doc-bot",
+    deliverable_path: str = "/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+) -> dict[str, object]:
+    return {
+        "assignment_payload": {
+            "assignments": [
+                {
+                    "assignment_id": assignment_id,
+                    "logical_target": logical_target,
+                    "deliverable": deliverable_path,
+                }
+            ]
+        },
+        "assignment_file": Path("/tmp/cmux-assignment.json"),
+        "cycle_id": f"cmux-cycle:{assignment_id}:1",
+    }
 
 
 def test_watch_assignment_packet_helpers_prefer_control_packet() -> None:
@@ -137,6 +198,7 @@ def test_finish_cycle_collect_outcome_uses_control_packet_path() -> None:
         outcome = cmux_finish_cycle.collect_outcome(
             assignment,
             consumer_entry,
+            **collect_outcome_contract(assignment_id="doc-101"),
             allow_forensic_read_pane=False,
         )
     mocked_read_screen.assert_not_called()
@@ -148,7 +210,7 @@ def test_finish_cycle_collect_outcome_uses_control_packet_path() -> None:
     assert outcome["artifact_path"].endswith("doc-bot-summary.json")
 
 
-def test_finish_cycle_collect_outcome_uses_runtime_summary_when_packet_summary_missing() -> None:
+def test_finish_cycle_collect_outcome_rejects_empty_terminal_packet_summary_even_with_runtime_summary() -> None:
     assignment = SimpleNamespace(
         workspace_ref="workspace:1",
         pane_ref="pane:1",
@@ -168,16 +230,18 @@ def test_finish_cycle_collect_outcome_uses_runtime_summary_when_packet_summary_m
         "control_packet": packet,
     }
     with patch.object(cmux_finish_cycle, "read_screen") as mocked_read_screen:
-        outcome = cmux_finish_cycle.collect_outcome(
-            assignment,
-            consumer_entry,
-            allow_forensic_read_pane=False,
-        )
+        try:
+            cmux_finish_cycle.collect_outcome(
+                assignment,
+                consumer_entry,
+                **collect_outcome_contract(assignment_id="doc-102"),
+                allow_forensic_read_pane=False,
+            )
+        except RuntimeError as exc:
+            assert "summary must not be empty" in str(exc)
+        else:
+            raise AssertionError("expected empty terminal packet summary to be rejected")
     mocked_read_screen.assert_not_called()
-    assert outcome["task_id"] == "DOC-102"
-    assert outcome["summary"] == "runtime summary from consumer state"
-    assert outcome["summary_source"] == "consumer.runtime_summary"
-    assert outcome["source"] == "control_packet"
 
 
 def test_finish_cycle_collect_outcome_control_path_does_not_use_evidence_line_extraction() -> None:
@@ -191,8 +255,15 @@ def test_finish_cycle_collect_outcome_control_path_does_not_use_evidence_line_ex
         logical_target="doc-bot",
     )
     packet = dict(EXAMPLE_PACKETS["completed"])
-    packet["task_id"] = ""
-    packet["summary"] = ""
+    packet["assignment_id"] = "doc-999"
+    packet["task_id"] = "DOC-105"
+    packet["summary"] = "packet summary from control packet"
+    packet["task_source_ref"] = make_cmux_task_source_ref(
+        assignment_id="doc-999",
+        cycle_id="cmux-cycle:doc-999:1",
+        deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-999.md",
+        evidence_path=packet["artifact_path"],
+    )
     consumer_entry = {
         "assignment_id": "doc-999",
         "state_source": "control_packet",
@@ -207,11 +278,13 @@ def test_finish_cycle_collect_outcome_control_path_does_not_use_evidence_line_ex
         outcome = cmux_finish_cycle.collect_outcome(
             assignment,
             consumer_entry,
+            **collect_outcome_contract(assignment_id="doc-999"),
             allow_forensic_read_pane=False,
         )
     mocked_read_screen.assert_not_called()
     assert outcome["task_id"] == "DOC-105"
-    assert outcome["summary_source"] == "consumer.runtime_summary"
+    assert outcome["summary"] == "packet summary from control packet"
+    assert outcome["summary_source"] == "control_packet.summary"
     assert outcome["source"] == "control_packet"
 
 
@@ -230,6 +303,7 @@ def test_finish_cycle_collect_outcome_requires_packet_without_forensic() -> None
             cmux_finish_cycle.collect_outcome(
                 assignment,
                 consumer_entry=None,
+                **collect_outcome_contract(assignment_id="doc-101"),
                 allow_forensic_read_pane=False,
             )
         except RuntimeError as exc:
@@ -256,6 +330,7 @@ def test_finish_cycle_collect_outcome_blocks_prose_only_completion() -> None:
             cmux_finish_cycle.collect_outcome(
                 assignment,
                 consumer_entry=None,
+                **collect_outcome_contract(assignment_id="doc-101"),
                 allow_forensic_read_pane=True,
             )
         except RuntimeError as exc:
@@ -285,6 +360,7 @@ def test_finish_cycle_collect_outcome_forensic_tail_keeps_evidence_line_fallback
         outcome = cmux_finish_cycle.collect_outcome(
             assignment,
             consumer_entry=None,
+            **collect_outcome_contract(assignment_id="doc-101"),
             allow_forensic_read_pane=True,
         )
     assert outcome["source"] == "forensic_tail"
@@ -483,6 +559,523 @@ def test_watch_consumer_state_file_records_control_packet() -> None:
         assert entry["control_packet"]["task_id"] == "DOC-101"
 
 
+def test_watch_process_assignment_recovers_standalone_control_packet_artifact() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        cycle_id = "cmux-cycle:doc-101:1"
+        summary_path = runtime_dir / "doc-bot-summary.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-101",
+            cycle_id=cycle_id,
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+            evidence_path=str(summary_path),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-101",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="passed",
+            audit_round_2_owner="codex",
+            audit_round_2_status="passed",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+        state = watch_cmux_assignments.RuntimeState(assignment_id="doc-101")
+        state.task_dispatched = True
+        state.observed_running = True
+        state.observed_session_id = "s-1"
+        hook_state = {
+            "session_start_count": 0,
+            "prompt_submit_count": 1,
+            "stop_count": 0,
+            "notification_count": 0,
+            "last_session_id": "s-1",
+        }
+        artifact_path = runtime_dir / "doc-bot-control-packet.json"
+        packet = dict(EXAMPLE_PACKETS["completed"])
+        packet["assignment_id"] = "doc-101"
+        packet["task_id"] = "DOC-101"
+        packet["logical_target"] = "doc-bot"
+        packet["marker"] = "XCP14PMR1:"
+        packet["artifact_path"] = str(summary_path)
+        packet["task_source_ref"] = dict(current_task_source_ref)
+        write_current_summary_artifact(
+            summary_path,
+            assignment_id="doc-101",
+            task_id="DOC-101",
+            cycle_id=cycle_id,
+            task_source_ref=packet["task_source_ref"],
+        )
+        artifact_path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+
+        args = SimpleNamespace(
+            assignment_file=str(runtime_dir / "cmux-assignment.json"),
+            screen_lines=120,
+            tail_lines=20,
+            same_hash_threshold=2,
+            blocked_remind_polls=2,
+            completion_regex=None,
+            dispatch_initial_task=False,
+            auto_approve=False,
+            auto_continue=False,
+            action_cooldown=0.0,
+            approval_stuck_polls=3,
+            sop_followup_delay=0.0,
+            stable_screen_refresh_polls=3,
+            native_notify=False,
+            forensic_read_pane=False,
+        )
+        broken_screen_packet = (
+            'XCP14PMR1:{"schema_version":"wb-cmux-control-packet-v1",'
+            '"assignment_id":"doc-101","logical_target":"doc-bot",'
+            '"state":"completed","result":"pass","marker":"XCP14PMR1:",'
+            '"summary":"bad\nwrap","artifact_path":"/tmp/doc-bot-summary.json"}'
+        )
+        with patch.object(watch_cmux_assignments, "load_active_surface_hook_state", return_value=hook_state), patch.object(
+            watch_cmux_assignments, "surface_snapshot", return_value={"ok": True}
+        ), patch.object(
+            watch_cmux_assignments, "read_screen", return_value=broken_screen_packet
+        ), patch.object(
+            watch_cmux_assignments, "format_snapshot_meta", return_value="meta"
+        ), patch.object(
+            watch_cmux_assignments, "classify_assignment_state", return_value=("waiting_input", False)
+        ):
+            completed = watch_cmux_assignments.process_assignment(
+                assignment,
+                state,
+                args,
+                fallback_task_text=None,
+                hook_state_file=Path("/tmp/hook-state.json"),
+            )
+
+    assert completed is True
+    assert state.last_completed is True
+    assert state.last_state_source == "control_packet"
+    assert state.last_control_packet_error == ""
+    assert state.last_control_packet is not None
+    assert state.last_control_packet["assignment_id"] == "doc-101"
+
+
+def test_watch_process_assignment_accepts_current_live_control_packet_with_current_summary_artifact() -> None:
+    cycle_id = "workbot|2026-04-21T23:42:22+0800|doc-101"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        summary_path = runtime_dir / "doc-bot-summary.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-101",
+            cycle_id=cycle_id,
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+            evidence_path=str(summary_path),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-101",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="passed",
+            audit_round_2_owner="codex",
+            audit_round_2_status="passed",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+        state = watch_cmux_assignments.RuntimeState(assignment_id="doc-101")
+        state.task_dispatched = True
+        state.observed_running = True
+        state.observed_session_id = "s-1"
+        hook_state = {
+            "session_start_count": 0,
+            "prompt_submit_count": 1,
+            "stop_count": 0,
+            "notification_count": 0,
+            "last_session_id": "s-1",
+        }
+        packet = dict(EXAMPLE_PACKETS["completed"])
+        packet["assignment_id"] = "doc-101"
+        packet["task_id"] = "DOC-101"
+        packet["logical_target"] = "doc-bot"
+        packet["marker"] = "XCP14PMR1:"
+        packet["artifact_path"] = str(summary_path)
+        packet["task_source_ref"] = dict(current_task_source_ref)
+        write_current_summary_artifact(
+            summary_path,
+            assignment_id="doc-101",
+            task_id="DOC-101",
+            cycle_id=cycle_id,
+            task_source_ref=current_task_source_ref,
+        )
+        args = SimpleNamespace(
+            assignment_file=str(runtime_dir / "cmux-assignment.json"),
+            screen_lines=120,
+            tail_lines=20,
+            same_hash_threshold=2,
+            blocked_remind_polls=2,
+            completion_regex=None,
+            dispatch_initial_task=False,
+            auto_approve=False,
+            auto_continue=False,
+            action_cooldown=0.0,
+            approval_stuck_polls=3,
+            sop_followup_delay=0.0,
+            stable_screen_refresh_polls=3,
+            native_notify=False,
+            forensic_read_pane=False,
+        )
+        with patch.object(watch_cmux_assignments, "load_active_surface_hook_state", return_value=hook_state), patch.object(
+            watch_cmux_assignments, "surface_snapshot", return_value={"ok": True}
+        ), patch.object(
+            watch_cmux_assignments, "read_screen", return_value=render_packet(packet)
+        ), patch.object(
+            watch_cmux_assignments, "format_snapshot_meta", return_value="meta"
+        ), patch.object(
+            watch_cmux_assignments, "classify_assignment_state", return_value=("waiting_input", False)
+        ):
+            completed = watch_cmux_assignments.process_assignment(
+                assignment,
+                state,
+                args,
+                fallback_task_text=None,
+                hook_state_file=Path("/tmp/hook-state.json"),
+            )
+
+    assert completed is True
+    assert state.last_completed is True
+    assert state.last_state_source == "control_packet"
+    assert state.last_control_packet_error == ""
+    assert state.last_control_packet is not None
+    assert state.last_control_packet["marker"] == "XCP14PMR1:"
+
+
+def test_watch_recover_control_packet_ignores_archive_only_artifact_for_new_task_source() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        assignment_file = runtime_dir / "cmux-assignment.json"
+        current_packet_path = runtime_dir / "doc-bot-summary-rt4.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-rt4",
+            cycle_id="workbot|2026-04-21T19:44:33+0800|doc-rt4",
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+            evidence_path=str(current_packet_path),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-rt4",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="passed",
+            audit_round_2_owner="codex",
+            audit_round_2_status="passed",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+
+        stale_packet = dict(EXAMPLE_PACKETS["completed"])
+        stale_packet["assignment_id"] = "doc-rt3"
+        stale_packet["logical_target"] = "doc-bot"
+        stale_packet["artifact_path"] = str(runtime_dir / "doc-bot-summary-rt3.json")
+        stale_packet["task_source_ref"] = make_cmux_task_source_ref(
+            assignment_id="doc-rt3",
+            cycle_id="workbot|2026-04-21T17:30:40+0800|doc-rt3",
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+            evidence_path=stale_packet["artifact_path"],
+        )
+        (runtime_dir / "doc-bot-control-packet.json").write_text(
+            json.dumps(stale_packet, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        recovered, error = watch_cmux_assignments.try_recover_control_packet_from_artifact(
+            assignment,
+            str(assignment_file),
+        )
+
+    assert recovered is None
+    assert "archive-only control packet artifact" in error
+    assert "assignment mismatch" in error or "task_source mismatch" in error
+
+
+def test_watch_recover_control_packet_accepts_current_task_source_artifact() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        assignment_file = runtime_dir / "cmux-assignment.json"
+        current_packet_path = runtime_dir / "doc-bot-summary-rt4.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-rt4",
+            cycle_id="workbot|2026-04-21T19:44:33+0800|doc-rt4",
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+            evidence_path=str(current_packet_path),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-rt4",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="passed",
+            audit_round_2_owner="codex",
+            audit_round_2_status="passed",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+
+        current_packet = dict(EXAMPLE_PACKETS["completed"])
+        current_packet["assignment_id"] = "doc-rt4"
+        current_packet["task_id"] = "DOC-104"
+        current_packet["logical_target"] = "doc-bot"
+        current_packet["artifact_path"] = str(current_packet_path)
+        current_packet["task_source_ref"] = dict(current_task_source_ref)
+        (runtime_dir / "doc-bot-control-packet.json").write_text(
+            json.dumps(current_packet, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        recovered, error = watch_cmux_assignments.try_recover_control_packet_from_artifact(
+            assignment,
+            str(assignment_file),
+        )
+
+    assert error == ""
+    assert recovered is not None
+    assert recovered["assignment_id"] == "doc-rt4"
+    assert recovered["task_source_ref"]["task_source_id"] == current_task_source_ref["task_source_id"]
+
+
+def test_watch_resolve_control_packet_fail_closed_on_invalid_marker_payload_without_current_artifact() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-101",
+            cycle_id="workbot|2026-04-21T23:42:22+0800|doc-101",
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+            evidence_path=str(runtime_dir / "doc-bot-summary.json"),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-101",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="passed",
+            audit_round_2_owner="codex",
+            audit_round_2_status="passed",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+
+        packet, error = watch_cmux_assignments.resolve_control_packet(
+            'XCP14PMR1:{"schema_version":"wb-cmux-control-packet-v1","assignment_id":"doc-101",'
+            '"logical_target":"doc-bot","state":"completed","result":"pass","marker":"XCP14PMR1:",'
+            '"summary":"bad\nwrap","artifact_path":"/tmp/doc-bot-summary.json"}',
+            assignment,
+            str(runtime_dir / "cmux-assignment.json"),
+        )
+
+    assert packet is None
+    assert "invalid packet json after XCP14PMR1:" in error
+
+
+def test_dispatch_task_overrides_stale_task_source_ref_with_current_assignment() -> None:
+    current_task_source_ref = make_cmux_task_source_ref(
+        assignment_id="pm-rt4",
+        cycle_id="workbot|2026-04-21T19:44:33+0800|pm-rt4",
+        deliverable_path="/Users/busiji/workbot/workspace/projects/sample/pm-rt4.md",
+        evidence_path="/tmp/pm-bot-summary-rt4.json",
+    )
+    stale_task_source_ref = make_cmux_task_source_ref(
+        assignment_id="pm-rt4",
+        cycle_id="workbot|2026-04-21T19:35:23+0800|pm-rt4",
+        deliverable_path=current_task_source_ref["deliverable_path"],
+        evidence_path=current_task_source_ref["evidence_path"],
+    )
+    assignment = watch_cmux_assignments.WatchAssignment(
+        logical_target="pm-bot",
+        workspace_ref="workspace:1",
+        pane_ref="pane:1",
+        surface_ref="surface:1",
+        assignment_id="pm-rt4",
+        bot_name="pm-bot",
+        title="Homepage inventory",
+        goal="inventory homepage",
+        task_kind="assignment",
+        audit_round_1_owner="rea-bot",
+        audit_round_1_status="pending",
+        audit_round_2_owner="codex",
+        audit_round_2_status="pending",
+        status="ACTIVE",
+        allow_intervene=True,
+        identity_payload={"task_source_ref": current_task_source_ref},
+    )
+    prompt = (
+        f"Task source ref JSON: {json.dumps(stale_task_source_ref, ensure_ascii=False)}\n"
+        f"The control packet must use task_source_ref={json.dumps(stale_task_source_ref, ensure_ascii=False)}."
+    )
+
+    with patch.object(watch_cmux_assignments, "paste_text") as mocked_paste, patch.object(
+        watch_cmux_assignments, "send_key"
+    ) as mocked_send:
+        watch_cmux_assignments.dispatch_task(assignment, prompt)
+
+    mocked_send.assert_called_once_with("surface:1", "Enter")
+    dispatched_text = mocked_paste.call_args.args[2]
+    assert "Current active assignment task-source gate:" in dispatched_text
+    assert current_task_source_ref["cycle_id"] in dispatched_text
+    assert stale_task_source_ref["cycle_id"] not in dispatched_text
+
+
+def test_finish_cycle_blocks_archive_only_embedded_consumer_packet() -> None:
+    current_task_source_ref = make_cmux_task_source_ref(
+        assignment_id="doc-rt4",
+        cycle_id="workbot|2026-04-21T19:44:33+0800|doc-rt4",
+        deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+        evidence_path="/tmp/doc-bot-summary-rt4.json",
+    )
+    assignment = make_finish_cycle_assignment(assignment_id="doc-rt4")
+    assignment.identity_payload = {"task_source_ref": current_task_source_ref}
+
+    stale_packet = dict(EXAMPLE_PACKETS["completed"])
+    stale_packet["assignment_id"] = "doc-rt3"
+    stale_packet["logical_target"] = "doc-bot"
+    stale_packet["artifact_path"] = "/tmp/doc-bot-summary-rt3.json"
+    stale_packet["task_source_ref"] = make_cmux_task_source_ref(
+        assignment_id="doc-rt3",
+        cycle_id="workbot|2026-04-21T17:30:40+0800|doc-rt3",
+        deliverable_path=current_task_source_ref["deliverable_path"],
+        evidence_path=stale_packet["artifact_path"],
+    )
+
+    try:
+        cmux_finish_cycle.control_packet_from_consumer_entry(
+            assignment,
+            {
+                "assignment_id": "doc-rt4",
+                "state_source": "control_packet",
+                "control_packet": stale_packet,
+            },
+        )
+    except RuntimeError as exc:
+        assert "archive-only control packet" in str(exc)
+    else:
+        raise AssertionError("expected stale embedded control packet to be blocked")
+
+
+def test_finish_cycle_accepts_current_embedded_consumer_packet_with_current_summary_artifact() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        summary_path = runtime_dir / "doc-bot-summary.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-rt4",
+            cycle_id="workbot|2026-04-21T19:44:33+0800|doc-rt4",
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+            evidence_path=str(summary_path),
+        )
+        assignment = make_finish_cycle_assignment(assignment_id="doc-rt4")
+        assignment.identity_payload = {"task_source_ref": current_task_source_ref}
+
+        packet = dict(EXAMPLE_PACKETS["completed"])
+        packet["assignment_id"] = "doc-rt4"
+        packet["task_id"] = "DOC-104"
+        packet["logical_target"] = "doc-bot"
+        packet["marker"] = "XCP14PMR1:"
+        packet["artifact_path"] = str(summary_path)
+        packet["task_source_ref"] = dict(current_task_source_ref)
+        write_current_summary_artifact(
+            summary_path,
+            assignment_id="doc-rt4",
+            task_id="DOC-104",
+            cycle_id=current_task_source_ref["cycle_id"],
+            task_source_ref=current_task_source_ref,
+        )
+
+        accepted = cmux_finish_cycle.control_packet_from_consumer_entry(
+            assignment,
+            {
+                "assignment_id": "doc-rt4",
+                "state_source": "control_packet",
+                "control_packet": packet,
+            },
+        )
+
+    assert accepted is not None
+    assert accepted["assignment_id"] == "doc-rt4"
+    assert accepted["artifact_path"] == str(summary_path)
+
+
+def test_finish_cycle_collect_outcome_blocks_forensic_task_source_cycle_mismatch() -> None:
+    current_cycle_id = "workbot|2026-04-21T19:44:33+0800|doc-rt4"
+    current_task_source_ref = make_cmux_task_source_ref(
+        assignment_id="doc-rt4",
+        cycle_id=current_cycle_id,
+        deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-rt4.md",
+        evidence_path="/tmp/doc-bot-summary-rt4.json",
+    )
+    assignment = make_finish_cycle_assignment(assignment_id="doc-rt4")
+    assignment.identity_payload = {"task_source_ref": current_task_source_ref}
+
+    stale_packet = dict(EXAMPLE_PACKETS["completed"])
+    stale_packet["assignment_id"] = "doc-rt4"
+    stale_packet["logical_target"] = "doc-bot"
+    stale_packet["artifact_path"] = "/tmp/doc-bot-summary-rt4.json"
+    stale_packet["task_source_ref"] = make_cmux_task_source_ref(
+        assignment_id="doc-rt4",
+        cycle_id="workbot|2026-04-21T19:35:23+0800|doc-rt4",
+        deliverable_path=current_task_source_ref["deliverable_path"],
+        evidence_path=stale_packet["artifact_path"],
+    )
+
+    with patch.object(cmux_finish_cycle, "surface_snapshot", return_value={"ok": True}), patch.object(
+        cmux_finish_cycle,
+        "read_screen",
+        return_value=render_packet(stale_packet),
+    ), patch.object(cmux_finish_cycle, "format_snapshot_meta", return_value="meta"):
+        try:
+            cmux_finish_cycle.collect_outcome(
+                assignment,
+                consumer_entry=None,
+                assignment_payload={"assignments": []},
+                assignment_file=Path("/tmp/cmux-assignment.json"),
+                cycle_id=current_cycle_id,
+                allow_forensic_read_pane=True,
+            )
+        except RuntimeError as exc:
+            assert "archive-only control packet during forensic read" in str(exc)
+            assert "cycle_id expected=" in str(exc)
+        else:
+            raise AssertionError("expected forensic stale-cycle control packet to be blocked")
+
+
 def test_watch_process_assignment_blocks_non_packet_completion_without_forensic() -> None:
     assignment = watch_cmux_assignments.WatchAssignment(
         logical_target="doc-bot",
@@ -506,6 +1099,7 @@ def test_watch_process_assignment_blocks_non_packet_completion_without_forensic(
     state.observed_running = True
     state.observed_session_id = "s-1"
     args = SimpleNamespace(
+        assignment_file="/tmp/cmux-assignment.json",
         screen_lines=120,
         tail_lines=20,
         same_hash_threshold=2,
@@ -553,6 +1147,95 @@ def test_watch_process_assignment_blocks_non_packet_completion_without_forensic(
     assert state.last_state_source == "control_packet_missing"
 
 
+def test_watch_process_assignment_blocks_task_source_cycle_mismatch() -> None:
+    current_task_source_ref = make_cmux_task_source_ref(
+        assignment_id="doc-101",
+        cycle_id="workbot|2026-04-21T19:44:33+0800|doc-101",
+        deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+        evidence_path="/tmp/doc-bot-summary-rt4.json",
+    )
+    assignment = watch_cmux_assignments.WatchAssignment(
+        logical_target="doc-bot",
+        workspace_ref="workspace:1",
+        pane_ref="pane:1",
+        surface_ref="surface:1",
+        assignment_id="doc-101",
+        bot_name="doc-bot",
+        title="Doc delivery",
+        goal="sync docs",
+        task_kind="assignment",
+        audit_round_1_owner="rea-bot",
+        audit_round_1_status="passed",
+        audit_round_2_owner="codex",
+        audit_round_2_status="passed",
+        status="ACTIVE",
+        allow_intervene=False,
+        identity_payload={"task_source_ref": current_task_source_ref},
+    )
+    state = watch_cmux_assignments.RuntimeState(assignment_id="doc-101")
+    state.task_dispatched = True
+    state.observed_running = True
+    state.observed_session_id = "s-1"
+    args = SimpleNamespace(
+        assignment_file="/tmp/cmux-assignment.json",
+        screen_lines=120,
+        tail_lines=20,
+        same_hash_threshold=2,
+        blocked_remind_polls=2,
+        completion_regex=None,
+        dispatch_initial_task=False,
+        auto_approve=False,
+        auto_continue=False,
+        action_cooldown=0.0,
+        approval_stuck_polls=3,
+        sop_followup_delay=0.0,
+        stable_screen_refresh_polls=3,
+        native_notify=False,
+        forensic_read_pane=False,
+    )
+    hook_state = {
+        "session_start_count": 0,
+        "prompt_submit_count": 1,
+        "stop_count": 0,
+        "notification_count": 0,
+        "last_session_id": "s-1",
+    }
+    stale_packet = dict(EXAMPLE_PACKETS["completed"])
+    stale_packet["assignment_id"] = "doc-101"
+    stale_packet["logical_target"] = "doc-bot"
+    stale_packet["artifact_path"] = current_task_source_ref["evidence_path"]
+    stale_packet["task_source_ref"] = make_cmux_task_source_ref(
+        assignment_id="doc-101",
+        cycle_id="workbot|2026-04-21T19:35:23+0800|doc-101",
+        deliverable_path=current_task_source_ref["deliverable_path"],
+        evidence_path=current_task_source_ref["evidence_path"],
+    )
+    with patch.object(watch_cmux_assignments, "load_active_surface_hook_state", return_value=hook_state), patch.object(
+        watch_cmux_assignments, "surface_snapshot", return_value={"ok": True}
+    ), patch.object(
+        watch_cmux_assignments, "read_screen", return_value=render_packet(stale_packet)
+    ), patch.object(
+        watch_cmux_assignments, "format_snapshot_meta", return_value="meta"
+    ), patch.object(
+        watch_cmux_assignments, "classify_assignment_state", return_value=("waiting_input", False)
+    ):
+        completed = watch_cmux_assignments.process_assignment(
+            assignment,
+            state,
+            args,
+            fallback_task_text=None,
+            hook_state_file=Path("/tmp/hook-state.json"),
+        )
+
+    assert completed is False
+    assert state.last_completed is False
+    assert state.last_state == "task_blocked"
+    assert state.last_state_source == "control_packet_error"
+    assert state.last_control_packet is None
+    assert "task_source mismatch" in state.last_control_packet_error
+    assert "cycle_id expected=" in state.last_control_packet_error
+
+
 def test_watch_process_assignment_allows_forensic_tail_completion_when_enabled() -> None:
     assignment = watch_cmux_assignments.WatchAssignment(
         logical_target="doc-bot",
@@ -576,6 +1259,7 @@ def test_watch_process_assignment_allows_forensic_tail_completion_when_enabled()
     state.observed_running = True
     state.observed_session_id = "s-1"
     args = SimpleNamespace(
+        assignment_file="/tmp/cmux-assignment.json",
         screen_lines=120,
         tail_lines=20,
         same_hash_threshold=2,

@@ -85,3 +85,49 @@ def test_dispatch_blockers_flag_worker_role_drift() -> None:
     item["worker_role"] = "qa"
     blockers = module.dispatch_blockers(item)
     assert "worker_role.bot_name_mismatch" in blockers
+
+
+def test_ensure_identity_fields_enforces_p8_active_defaults() -> None:
+    module = load_generate_assignments_module()
+    item = module.base_assignment("pm-bot", workspace_root="/Users/busiji/workbot", project_scope="workbot")
+    item.update(
+        {
+            "status": "ACTIVE",
+            "assignment_id": "P10-PHASE0A-ISSUE16-PM",
+            "title": "Phase 0A scope freeze",
+            "goal": "freeze scope for issue #16",
+            "assignment_class": "project10-phase0a-scope-freeze",
+            "permission_mode": "default",
+            "lane_justification": "",
+            "target_object": "https://github.com/hdot123/workbot/issues/16",
+            "scope_boundary": "Phase 0A only",
+            "deliverable": "/Users/busiji/workbot/workspace/projects/YouzyReplica/phase0/issue-16-scope-freeze.md",
+            "verification_goal": "must satisfy issue #16 checklist",
+            "truth_basis_refs": ["/Users/busiji/workbot/AGENTS.md"],
+            "tool_profile_id": "pm-active",
+            "allowed_tools": ["Read", "Write", "Bash"],
+            "forbidden_tools": [],
+            "allowed_write_target": "",
+            "dispatch_owner": "codex",
+            "conflict_status": "",
+            "webpage_fact_required": True,
+            "approved_retrieval_path": "gh CLI / gh api / GraphQL only",
+            "workspace_ref": "workspace:3",
+            "pane_ref": "pane:8",
+            "surface_ref": "surface:8",
+        }
+    )
+    normalized = module.ensure_identity_fields(
+        item,
+        bot_name="pm-bot",
+        workspace_root="/Users/busiji/workbot",
+        project_scope="workbot",
+    )
+    assert normalized["assignment_class"] == "已批准执行方案"
+    assert normalized["lane_justification"]
+    assert normalized["allowed_write_target"] == "/Users/busiji/workbot"
+    assert normalized["conflict_status"] == "resolved"
+    assert normalized["webpage_fact_required"] is False
+    assert normalized["approved_retrieval_path"] == ""
+    blockers = module.dispatch_blockers(normalized)
+    assert blockers == []
