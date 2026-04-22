@@ -1490,6 +1490,95 @@ def test_inspect_live_runtime_flags_native_session_drift(
     assert row["native_session_error"] == "native_agent_session_not_ready"
 
 
+def test_inspect_live_runtime_classifies_completed_packet_as_awaiting_finish_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "cmux-assignment.json"
+    assignment_file.write_text(
+        json.dumps(
+            {
+                "workspace_name": "workbot",
+                "workspace_ref": "workspace:401",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "cmux-consumer-state-latest.json").write_text(
+        json.dumps(
+            {
+                "assignments": {
+                    "pm-bot": {
+                        "logical_target": "pm-bot",
+                        "assignment_id": "pm4",
+                        "state": "awaiting_finish_cycle",
+                        "control_packet": {
+                            "state": "completed",
+                            "result": "pass",
+                        },
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    write_runtime_launch_manifest(
+        assignment_file.parent,
+        bot_name="pm-bot",
+        assignment_id="pm4",
+        workspace_ref="workspace:401",
+        surface_ref="surface:41",
+    )
+
+    monkeypatch.setattr(module, "cmux", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(module, "current_workspace_ref", lambda: "workspace:401")
+    monkeypatch.setattr(module, "read_screen", lambda *args, **kwargs: "shell only\n$ ")
+    monkeypatch.setattr(
+        module,
+        "list_workspaces",
+        lambda: [{"ref": "workspace:401", "name": "workbot", "selected": True}],
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="pm4",
+                workspace_ref="workspace:401",
+                pane_ref="pane:41",
+                surface_ref="surface:41",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "parse_tree",
+        lambda _: {
+            "surface:41": fake_snapshot(
+                workspace_ref="workspace:401",
+                pane_ref="pane:41",
+                surface_ref="surface:41",
+                surface_type="terminal",
+                title="pm-bot",
+                dead=False,
+            )
+        },
+    )
+
+    runtime = module.inspect_live_runtime(str(assignment_file))
+
+    row = runtime["active_runtime"][0]
+    assert row["worker_lifecycle_state"] == "awaiting_finish_cycle"
+    assert row["consumer_state"] == "awaiting_finish_cycle"
+    assert row["native_session_healthy"] is True
+    assert row["native_session_error"] == ""
+
+
 def test_inspect_live_runtime_flags_temporary_identity_flow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1736,3 +1825,52 @@ def test_inspect_commander_handoff_guard_flags_completed_control_packet_without_
     assert guard["error"] == "commander_handoff_pending"
     assert guard["pending_actions"][0]["phase"] == "A7"
     assert guard["pending_actions"][0]["reason"] == "completed_control_packet_requires_finish_cycle"
+
+
+def test_inspect_commander_handoff_guard_flags_finish_cycle_blocked_stale_active_row(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = load_cmux_runtime_ctl_module()
+    assignment_file = tmp_path / "cmux-assignment.json"
+    assignment_file.write_text(json.dumps({"workspace_ref": "workspace:1"}, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "cmux-consumer-state-latest.json").write_text(
+        json.dumps(
+            {
+                "assignments": {
+                    "pm-bot": {
+                        "logical_target": "pm-bot",
+                        "assignment_id": "pm-101",
+                        "state": "finish_cycle_blocked",
+                        "finish_cycle_error": "task row not found",
+                        "control_packet": {
+                            "state": "completed",
+                            "result": "pass",
+                        },
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        module,
+        "load_assignment_file",
+        lambda _: [
+            fake_assignment(
+                logical_target="pm-bot",
+                bot_name="pm-bot",
+                assignment_id="pm-101",
+                workspace_ref="workspace:1",
+                pane_ref="pane:15",
+                surface_ref="surface:16",
+            )
+        ],
+    )
+    guard = module.inspect_commander_handoff_guard(str(assignment_file))
+    assert guard["healthy"] is False
+    assert guard["error"] == "commander_handoff_pending"
+    assert guard["pending_actions"][0]["phase"] == "A7"
+    assert guard["pending_actions"][0]["reason"] == "finish_cycle_blocked_requires_commander_review"
+    assert guard["pending_actions"][0]["state"] == "finish_cycle_blocked"

@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOBAL_CMUX_SCRIPTS = Path("/Users/busiji/.agents/skills/cmux/scripts")
@@ -168,7 +170,7 @@ def test_watch_assignment_packet_helpers_prefer_control_packet() -> None:
     assert error == ""
     assert parsed is not None
     state, blocking, completed = watch_cmux_assignments.classify_control_packet_state(parsed)
-    assert state == "running"
+    assert state == "awaiting_finish_cycle"
     assert blocking is False
     assert completed is True
 
@@ -462,6 +464,7 @@ def test_finish_cycle_main_writeback_updates_task_list_ce_log_and_receipt() -> N
         assert Path(receipt_payload["assignment_file"]).resolve() == assignment_file.resolve()
         assert receipt_payload["outcomes"][0]["task_id"] == "DOC-101"
         assert receipt_payload["outcomes"][0]["status"] == "doc_synced"
+        assert receipt_payload["outcomes"][0]["task_source_ref"]["status"] == "finished_local_writeback"
 
         finish_log_text = finish_log.read_text(encoding="utf-8")
         assert "finish_cycle_ok cycle_id=" in finish_log_text
@@ -470,6 +473,22 @@ def test_finish_cycle_main_writeback_updates_task_list_ce_log_and_receipt() -> N
         assert assignment_after["assignments"][0]["status"] == "IDLE"
         assert assignment_after["assignments"][0]["runtime_status"] == "idle"
         assert assignment_after["assignments"][0]["last_completion_status"] == "doc_synced"
+        assert assignment_after["current_task_sources"][0]["status"] == "finished_local_writeback"
+
+        consumer_after = json.loads(consumer_state_file.read_text(encoding="utf-8"))
+        entry = consumer_after["assignments"]["doc-bot"]
+        assert entry["state"] == "finished_local_writeback"
+        assert entry["state_source"] == "finish_cycle"
+        assert entry["completed"] is True
+        assert entry["locally_completed"] is True
+        assert entry["finish_cycle_status"] == "doc_synced"
+        assert entry["control_packet"]["task_id"] == "DOC-101"
+
+        overview_path = base / "project-task-overview.txt"
+        overview_text = overview_path.read_text(encoding="utf-8")
+        assert "status: finished_local_writeback" in overview_text
+        assert "DOC-101" in overview_text
+        assert "doc-bot" in overview_text
 
 
 def test_finish_cycle_main_receipt_idempotency_skip() -> None:
@@ -514,6 +533,89 @@ def test_finish_cycle_main_receipt_idempotency_skip() -> None:
         assert "finish_cycle_skip cycle_id=" in finish_log_text
         receipts_lines = [line for line in receipts_file.read_text(encoding="utf-8").splitlines() if line.strip()]
         assert len(receipts_lines) == 1
+
+
+def test_finish_cycle_main_rolls_back_when_receipt_write_fails() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        assignment_file = base / "cmux-assignment.json"
+        consumer_state_file = base / "cmux-consumer-state-latest.json"
+        finish_log = base / "cmux-finish.log"
+        receipts_file = base / "cmux-finish-receipts.jsonl"
+        task_list = base / "doc-task-list.md"
+        ce_sync_plan = base / "ce-sync-plan.md"
+        overview_path = base / "project-task-overview.txt"
+
+        write_assignment_payload(assignment_file)
+        task_list.write_text(
+            "| task_id | title | status | owner | write_scope | evidence | blocker | next_step |\n"
+            "|---|---|---|---|---|---|---|---|\n"
+            "| DOC-101 | Delivery | `todo` | `doc` | `docs/*` | - | - | old |\n",
+            encoding="utf-8",
+        )
+        ce_sync_plan.write_text("# CE Sync Plan\n", encoding="utf-8")
+        original_overview = "\n".join(
+            [
+                "# project-task-overview",
+                "",
+                "status: bootstrap-placeholder",
+                "note: hook should refresh this file automatically.",
+                "",
+            ]
+        )
+        overview_path.write_text(original_overview, encoding="utf-8")
+        packet = dict(EXAMPLE_PACKETS["completed"])
+        packet["task_id"] = "DOC-101"
+        packet["summary"] = "delivery summary from control packet"
+        consumer_state_payload = {
+            "schema_version": cmux_finish_cycle.CONSUMER_STATE_SCHEMA_VERSION,
+            "assignments": {
+                "doc-bot": {
+                    "assignment_id": "doc-101",
+                    "state_source": "control_packet",
+                    "control_packet": packet,
+                }
+            },
+        }
+        consumer_state_file.write_text(
+            json.dumps(consumer_state_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        original_assignment_text = assignment_file.read_text(encoding="utf-8")
+        original_consumer_text = consumer_state_file.read_text(encoding="utf-8")
+        original_task_list_text = task_list.read_text(encoding="utf-8")
+        original_ce_sync_text = ce_sync_plan.read_text(encoding="utf-8")
+
+        args = build_main_args(
+            assignment_file=assignment_file,
+            finish_log=finish_log,
+            receipts_file=receipts_file,
+            consumer_state_file=consumer_state_file,
+            doc_task_list=task_list,
+            ce_sync_plan=ce_sync_plan,
+        )
+
+        assignment = make_finish_cycle_assignment(assignment_id="doc-101")
+        original_write_text_atomic = cmux_finish_cycle.write_text_atomic
+
+        def flaky_write_text_atomic(path: Path, text: str) -> None:
+            if path.resolve() == receipts_file.resolve():
+                raise OSError("receipt write failed")
+            original_write_text_atomic(path, text)
+
+        with patch.object(cmux_finish_cycle, "parse_args", return_value=args), patch.object(
+            cmux_finish_cycle, "load_assignment_file", return_value=[assignment]
+        ), patch.object(cmux_finish_cycle, "write_text_atomic", side_effect=flaky_write_text_atomic):
+            with pytest.raises(OSError, match="receipt write failed"):
+                cmux_finish_cycle.main()
+
+        assert assignment_file.read_text(encoding="utf-8") == original_assignment_text
+        assert consumer_state_file.read_text(encoding="utf-8") == original_consumer_text
+        assert task_list.read_text(encoding="utf-8") == original_task_list_text
+        assert ce_sync_plan.read_text(encoding="utf-8") == original_ce_sync_text
+        assert overview_path.read_text(encoding="utf-8") == original_overview
+        assert not receipts_file.exists()
 
 
 def test_watch_consumer_state_file_records_control_packet() -> None:
@@ -754,10 +856,106 @@ def test_watch_process_assignment_accepts_current_live_control_packet_with_curre
 
     assert completed is True
     assert state.last_completed is True
+    assert state.last_state == "awaiting_finish_cycle"
     assert state.last_state_source == "control_packet"
     assert state.last_control_packet_error == ""
     assert state.last_control_packet is not None
     assert state.last_control_packet["marker"] == "XCP14PMR1:"
+
+
+def test_watch_process_assignment_completed_packet_bypasses_pending_audit_and_marks_awaiting_finish_cycle() -> None:
+    cycle_id = "workbot|2026-04-22T10:12:00+0800|doc-101"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_dir = Path(temp_dir)
+        summary_path = runtime_dir / "doc-bot-summary.json"
+        current_task_source_ref = make_cmux_task_source_ref(
+            assignment_id="doc-101",
+            cycle_id=cycle_id,
+            deliverable_path="/Users/busiji/workbot/workspace/projects/sample/doc-101.md",
+            evidence_path=str(summary_path),
+        )
+        assignment = watch_cmux_assignments.WatchAssignment(
+            logical_target="doc-bot",
+            workspace_ref="workspace:1",
+            pane_ref="pane:1",
+            surface_ref="surface:1",
+            assignment_id="doc-101",
+            bot_name="doc-bot",
+            title="Doc delivery",
+            goal="sync docs",
+            task_kind="assignment",
+            audit_round_1_owner="rea-bot",
+            audit_round_1_status="pending",
+            audit_round_2_owner="codex",
+            audit_round_2_status="pending",
+            status="ACTIVE",
+            allow_intervene=False,
+            identity_payload={"task_source_ref": current_task_source_ref},
+        )
+        state = watch_cmux_assignments.RuntimeState(assignment_id="doc-101")
+        state.task_dispatched = True
+        state.observed_running = True
+        state.observed_session_id = "s-1"
+        hook_state = {
+            "session_start_count": 0,
+            "prompt_submit_count": 1,
+            "stop_count": 0,
+            "notification_count": 0,
+            "last_session_id": "s-1",
+        }
+        packet = dict(EXAMPLE_PACKETS["completed"])
+        packet["assignment_id"] = "doc-101"
+        packet["task_id"] = "DOC-101"
+        packet["logical_target"] = "doc-bot"
+        packet["marker"] = "XCP14PMR1:"
+        packet["artifact_path"] = str(summary_path)
+        packet["task_source_ref"] = dict(current_task_source_ref)
+        write_current_summary_artifact(
+            summary_path,
+            assignment_id="doc-101",
+            task_id="DOC-101",
+            cycle_id=cycle_id,
+            task_source_ref=current_task_source_ref,
+        )
+        args = SimpleNamespace(
+            assignment_file=str(runtime_dir / "cmux-assignment.json"),
+            screen_lines=120,
+            tail_lines=20,
+            same_hash_threshold=2,
+            blocked_remind_polls=2,
+            completion_regex=None,
+            dispatch_initial_task=False,
+            auto_approve=False,
+            auto_continue=False,
+            action_cooldown=0.0,
+            approval_stuck_polls=3,
+            sop_followup_delay=0.0,
+            stable_screen_refresh_polls=3,
+            native_notify=False,
+            forensic_read_pane=False,
+        )
+        with patch.object(watch_cmux_assignments, "load_active_surface_hook_state", return_value=hook_state), patch.object(
+            watch_cmux_assignments, "surface_snapshot", return_value={"ok": True}
+        ), patch.object(
+            watch_cmux_assignments, "read_screen", return_value=render_packet(packet)
+        ), patch.object(
+            watch_cmux_assignments, "format_snapshot_meta", return_value="meta"
+        ), patch.object(
+            watch_cmux_assignments, "classify_assignment_state", return_value=("waiting_input", False)
+        ):
+            completed = watch_cmux_assignments.process_assignment(
+                assignment,
+                state,
+                args,
+                fallback_task_text=None,
+                hook_state_file=Path("/tmp/hook-state.json"),
+            )
+
+    assert completed is True
+    assert state.last_completed is True
+    assert state.last_state == "awaiting_finish_cycle"
+    assert state.last_state_source == "control_packet"
+    assert state.last_control_packet_error == ""
 
 
 def test_watch_recover_control_packet_ignores_archive_only_artifact_for_new_task_source() -> None:
