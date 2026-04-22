@@ -20,9 +20,9 @@ WORKSPACE_ROOT = SCRIPT_PATH.parents[1]
 REPO_ROOT = SCRIPT_PATH.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-ARTIFACT_ROOT = WORKSPACE_ROOT / "artifacts" / "memory-hook"
-CONTEXT_ROOT = ARTIFACT_ROOT / "contexts"
-EVENT_LOG = ARTIFACT_ROOT / "events.jsonl"
+HOOK_LOG_ROOT = WORKSPACE_ROOT / "log" / "memory-hook"
+CONTEXT_ROOT = HOOK_LOG_ROOT / "contexts"
+EVENT_LOG = HOOK_LOG_ROOT / "events.jsonl"
 ERROR_LOG = WORKSPACE_ROOT / "memory" / "system" / "errors.log"
 CLAUDE_HOOK_STATE_DIR = Path.home() / ".agents" / "skills" / "cmux" / "scripts"
 try:

@@ -1,0 +1,3 @@
+# Keep cmux runtime logs local-only.
+*
+!.gitignore

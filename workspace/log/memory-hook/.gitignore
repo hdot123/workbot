@@ -1,0 +1,3 @@
+# Keep memory hook logs local-only.
+*
+!.gitignore

@@ -1,0 +1,6 @@
+# Keep local task/runtime logs out of git while retaining the directory scaffold.
+*
+!.gitignore
+!cmux/
+!mainline/
+!memory-hook/

@@ -71,8 +71,8 @@ def _base_package() -> dict[str, object]:
                 "/Users/busiji/workbot/workspace/memory/kb/decisions/2026-03-25-workbot-project-agents-and-runtime-surfaces.md"
             ],
             "evidence_refs": [
-                "/Users/busiji/workbot/workspace/artifacts/memory-hook/contexts/latest-codex-prompt-submit.json",
-                "/Users/busiji/workbot/workspace/artifacts/memory-hook/events.jsonl",
+                "/Users/busiji/workbot/workspace/log/memory-hook/contexts/latest-codex-prompt-submit.json",
+                "/Users/busiji/workbot/workspace/log/memory-hook/events.jsonl",
             ],
         },
         "allowed_reads": [
@@ -83,8 +83,8 @@ def _base_package() -> dict[str, object]:
         ],
         "allowed_writes": {
             "artifacts": [
-                "/Users/busiji/workbot/workspace/artifacts/memory-hook/contexts",
-                "/Users/busiji/workbot/workspace/artifacts/memory-hook/shared",
+                "/Users/busiji/workbot/workspace/log/memory-hook/contexts",
+                "/Users/busiji/workbot/workspace/log/memory-hook/shared",
             ],
             "kb_policy": {
                 "mode": "append",
@@ -92,8 +92,8 @@ def _base_package() -> dict[str, object]:
             },
         },
         "evidence_refs": [
-            "/Users/busiji/workbot/workspace/artifacts/memory-hook/contexts/latest-codex-prompt-submit.json",
-            "/Users/busiji/workbot/workspace/artifacts/memory-hook/events.jsonl",
+            "/Users/busiji/workbot/workspace/log/memory-hook/contexts/latest-codex-prompt-submit.json",
+            "/Users/busiji/workbot/workspace/log/memory-hook/events.jsonl",
             "/Users/busiji/workbot/workspace/memory/kb/projects/workbot.md",
         ],
     }
@@ -112,8 +112,8 @@ def _load_jsonl(path: str | Path) -> list[dict[str, object]]:
 
 
 def test_write_compacts_heavy_payload_into_shared_artifact(tmp_path: Path) -> None:
-    context_root = tmp_path / "artifacts" / "memory-hook" / "contexts"
-    event_log = tmp_path / "artifacts" / "memory-hook" / "events.jsonl"
+    context_root = tmp_path / "log" / "memory-hook" / "contexts"
+    event_log = tmp_path / "log" / "memory-hook" / "events.jsonl"
     sink = ArtifactSinkImpl(context_root, event_log)
 
     package = _base_package()
@@ -157,8 +157,8 @@ def test_write_compacts_heavy_payload_into_shared_artifact(tmp_path: Path) -> No
 
 
 def test_write_reuses_existing_shared_artifact_when_heavy_payload_is_unchanged(tmp_path: Path) -> None:
-    context_root = tmp_path / "artifacts" / "memory-hook" / "contexts"
-    event_log = tmp_path / "artifacts" / "memory-hook" / "events.jsonl"
+    context_root = tmp_path / "log" / "memory-hook" / "contexts"
+    event_log = tmp_path / "log" / "memory-hook" / "events.jsonl"
     sink = ArtifactSinkImpl(context_root, event_log)
 
     first_package = _base_package()

@@ -154,3 +154,16 @@ node11-mihomo-config.yaml
 workspace/artifacts/tmux-*/
 workspace/artifacts/tmux-runtime/current-runtime.json
 workspace/artifacts/tmux-skills/*.jsonl
+
+# Local task logs stay out of repository truth.
+workspace/log/*
+!workspace/log/.gitignore
+!workspace/log/cmux/
+!workspace/log/mainline/
+!workspace/log/memory-hook/
+workspace/log/cmux/*
+!workspace/log/cmux/.gitignore
+workspace/log/mainline/*
+!workspace/log/mainline/.gitignore
+workspace/log/memory-hook/*
+!workspace/log/memory-hook/.gitignore

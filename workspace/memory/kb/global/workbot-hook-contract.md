@@ -131,4 +131,4 @@ related: [workbot-memory-system, workbot-memory-routing]
 - `Codex` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
 - `Claude` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
 - gateway 会先产出 context package 与事件证据，再转发到底层 `cmux` hook
-- 验收报告产物归档在 `/Users/busiji/workbot/workspace/artifacts/memory-hook/`（`contexts/`、`shared/`、`events.jsonl` 结构）
+- 验收报告产物归档在 `/Users/busiji/workbot/workspace/log/memory-hook/`（`contexts/`、`shared/`、`events.jsonl` 结构）

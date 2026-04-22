@@ -1,0 +1,3 @@
+# Keep mainline task logs local-only.
+*
+!.gitignore
