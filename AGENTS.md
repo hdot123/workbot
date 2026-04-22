@@ -93,7 +93,22 @@ This directory is the direct project discovery source used by Claude Code for `w
 
 ## Phase Git Convention
 
-- At the end of every phase task (`M*`, `P*`, `H*`), the executing agent must perform repository git delivery automatically.
-- Required delivery sequence: scoped `git add` -> commit with phase identifier in message -> push to `origin/main` -> write commit SHA into the corresponding Projects card evidence.
-- Do not leave completed phase work only in local working tree.
-- This repository forbids Codex-created local feature branches; phase delivery must remain on the official branch flow.
+- Local git task isolation must follow `/Users/busiji/workbot/workspace/memory/kb/decisions/2026-04-20-workbot-branch1-branch2-task-isolation.md`.
+- `branch-1` is the only local stable branch allowed to accumulate accepted task results. Treat it as the durable local truth branch for this repository and keep it aligned with `origin/main`.
+- Before any new task starts, the local git workspace must first be normalized onto `branch-1`.
+- Every new task must create a fresh temporary task branch referred to as `branch-2`, created from the current tip of `branch-1`, and the entire task must execute on that `branch-2`.
+- `branch-2` is one-task isolation only. Do not reuse the same `branch-2` for a second task, a second attempt, or a cleanup round after rejection.
+- `branch-2` is disposable task isolation only. It must not become the long-lived working branch for the repository.
+- Development, bug fixing, refactoring, testing, code review, and any other task that may touch repository code must all run on `branch-2`, not directly on `branch-1`.
+- `cmux` tasks must still follow the formal runtime protocol: `main-thread` dispatch -> bot execute -> `finish-cycle` local writeback -> `main-thread` acceptance and closure. This formal runtime chain does not replace the requirement that the task's repository code work surface must be the task-local `branch-2`.
+- If a task fails, is stopped, is rejected, or leaves an unclear residue state, do not merge it into `branch-1`; discard, delete, or recreate `branch-2` for the next attempt.
+- If a task succeeds, passes tests, and passes `main-thread` acceptance, merge `branch-2` back into `branch-1`, then retire or delete `branch-2`.
+- Do not leave accepted work only on `branch-2`; the durable local truth must always roll back up into `branch-1`.
+- Before merging any `branch-2` back into `branch-1`, the executing agent must verify and be able to report:
+  - which repository files were changed
+  - whether any repo-external files were touched
+  - whether any run artifacts or temporary evidence leaked into repository code paths
+  - whether any failed or stopped task residue remains unresolved
+- Run artifacts, audit evidence, and temporary validation output must stay under the designated run/evidence directories such as `workspace/memory/tmp/...`; they must not be merged into repository code truth unless the task explicitly requires repository-tracked documentation.
+- At the end of every phase task (`M*`, `P*`, `H*`) that is accepted, the executing agent must perform repository git delivery from `branch-1`.
+- Required accepted-phase delivery sequence: scoped `git add` on `branch-2` -> commit on `branch-2` -> merge into `branch-1` -> push `branch-1` to `origin/main` -> write commit SHA into the corresponding Projects card evidence.
