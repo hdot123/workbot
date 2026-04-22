@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
@@ -16,8 +17,15 @@ if str(REPO_ROOT) not in sys.path:
 
 from workspace.tools.validate_memory_system import validate_memory_system
 from workspace.tools.cmux_read_contract import (
+    REQUIRED_VERIFICATION_PACKET_SLOTS,
     classify_runtime_artifact,
     choose_commander_default_sources,
+    consumer_state_covers_control_packet,
+    render_verification_packet_sources,
+)
+from workspace.tools.current_task_source import (
+    TaskSourceContractError,
+    maybe_normalize_task_source_ref,
 )
 
 
@@ -65,6 +73,16 @@ class CommandResult:
     code: int
     stdout: str
     stderr: str
+
+
+def resolve_task_scope_files(task_files: tuple[str | Path, ...] | None = None) -> tuple[Path, ...]:
+    if task_files is None:
+        return CURRENT_TASK_FILES
+    normalized: list[Path] = []
+    for raw_path in task_files:
+        path = raw_path if isinstance(raw_path, Path) else Path(raw_path)
+        normalized.append(path if path.is_absolute() else REPO_ROOT / path)
+    return tuple(normalized)
 
 
 def run_command(args: list[str]) -> CommandResult:
@@ -148,26 +166,27 @@ def collect_project_status_problems(status_map: dict[str, str], required_titles:
     return problems
 
 
-def collect_git_status() -> dict[str, Any]:
-    result = run_command(["git", "-C", str(REPO_ROOT), "status", "--short", "--branch"])
+def _collect_git_status(*, include_branch: bool = False, paths: tuple[Path, ...] = ()) -> dict[str, Any]:
+    args = ["git", "-C", str(REPO_ROOT), "status", "--short"]
+    if include_branch:
+        args.append("--branch")
+    if paths:
+        args.extend(["--", *[str(path) for path in paths]])
+    result = run_command(args)
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     return {
         "ok": result.code == 0,
         "lines": lines,
         "stderr": result.stderr.strip(),
     }
+
+
+def collect_git_status() -> dict[str, Any]:
+    return _collect_git_status(include_branch=True)
 
 
 def collect_scope_git_status(paths: tuple[Path, ...]) -> dict[str, Any]:
-    result = run_command(
-        ["git", "-C", str(REPO_ROOT), "status", "--short", "--", *[str(path) for path in paths]]
-    )
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    return {
-        "ok": result.code == 0,
-        "lines": lines,
-        "stderr": result.stderr.strip(),
-    }
+    return _collect_git_status(paths=paths)
 
 
 def _load_json_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -181,6 +200,140 @@ def _load_json_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
         return None, f"payload must be object: {path}"
     return payload, None
 
+
+def _load_jsonl_objects(path: Path) -> tuple[list[dict[str, Any]] | None, str | None]:
+    if not path.exists():
+        return [], None
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return None, f"invalid jsonl: {path} -> {exc}"
+    items: list[dict[str, Any]] = []
+    for index, raw_line in enumerate(raw_lines, start=1):
+        rendered = raw_line.strip()
+        if not rendered:
+            continue
+        try:
+            payload = json.loads(rendered)
+        except json.JSONDecodeError as exc:
+            return None, f"invalid jsonl: {path}:{index} -> {exc}"
+        if not isinstance(payload, dict):
+            return None, f"jsonl payload must be object: {path}:{index}"
+        items.append(payload)
+    return items, None
+
+
+def _ordered_bot_names(bot_names: list[str] | set[str]) -> list[str]:
+    ordered = [bot_name for bot_name in DEFAULT_RUNTIME_BOT_NAMES if bot_name in bot_names]
+    extras = [bot_name for bot_name in bot_names if bot_name not in ordered]
+    return ordered + extras
+
+
+def _infer_runtime_bot_name(value: Any) -> str | None:
+    normalized = str(value or "").strip().upper().replace("_", "-")
+    if not normalized or normalized.startswith("IDLE-"):
+        return None
+    if "PMBOT" in normalized or normalized.startswith("PM-"):
+        return "pm-bot"
+    if "DEVBOT" in normalized or normalized.startswith("DEV-"):
+        return "dev-bot"
+    if "QABOT" in normalized or normalized.startswith("QA-"):
+        return "qa-bot"
+    if "DOCBOT" in normalized or normalized.startswith("DOC-"):
+        return "doc-bot"
+    if "REABOT" in normalized or normalized.startswith("REA-"):
+        return "rea-bot"
+    return None
+
+
+def _derive_required_a7_targets(current_task_sources: Any) -> tuple[list[str], bool]:
+    if not isinstance(current_task_sources, list) or not current_task_sources:
+        return [], False
+    cycle_ids: set[str] = set()
+    for raw_source in current_task_sources:
+        try:
+            normalized = maybe_normalize_task_source_ref(raw_source, expected_task_type="cmux")
+        except TaskSourceContractError:
+            return [], False
+        if normalized is None:
+            return [], False
+        cycle_ids.add(normalized["cycle_id"])
+    if len(cycle_ids) != 1:
+        return [], False
+    scope_tokens = [token.strip() for token in next(iter(cycle_ids)).split("|")[-1].split(",")]
+    required = {
+        bot_name
+        for token in scope_tokens
+        if token
+        for bot_name in [_infer_runtime_bot_name(token)]
+        if bot_name is not None
+    }
+    if not required:
+        return [], False
+    return _ordered_bot_names(required), True
+
+
+def _collect_present_a7_targets(receipt_payload: dict[str, Any]) -> list[str]:
+    raw_outcomes = receipt_payload.get("outcomes")
+    if not isinstance(raw_outcomes, list):
+        return []
+    present: set[str] = set()
+    for raw_outcome in raw_outcomes:
+        if not isinstance(raw_outcome, dict):
+            continue
+        bot_name = _infer_runtime_bot_name(raw_outcome.get("logical_target"))
+        if bot_name is None:
+            task_source_ref = raw_outcome.get("task_source_ref")
+            if isinstance(task_source_ref, dict):
+                bot_name = _infer_runtime_bot_name(task_source_ref.get("assignment_id"))
+        if bot_name is None:
+            bot_name = _infer_runtime_bot_name(raw_outcome.get("assignment_id") or raw_outcome.get("task_id"))
+        if bot_name is not None:
+            present.add(bot_name)
+    return _ordered_bot_names(present)
+
+
+def collect_a7_writeback_targets(
+    receipt_payloads: list[dict[str, Any]],
+    *,
+    current_task_sources: Any = None,
+) -> dict[str, Any]:
+    default_result = {
+        "required_targets": [],
+        "present_targets": [],
+        "missing_targets": [],
+        "evaluated_cycle_id": "",
+        "complete": True,
+        "scope_confirmed": True,
+        "scope_issue": "",
+    }
+    if not receipt_payloads:
+        return default_result
+
+    required_targets, scope_confirmed = _derive_required_a7_targets(current_task_sources)
+    if not scope_confirmed:
+        return {
+            **default_result,
+            "complete": False,
+            "scope_confirmed": False,
+            "scope_issue": (
+                "A7 dispatch scope is unconfirmed; required writeback targets could not be derived "
+                "from current task source bindings"
+            ),
+        }
+
+    latest_receipt = receipt_payloads[-1]
+    present_targets = _collect_present_a7_targets(latest_receipt)
+    missing_targets = [target for target in required_targets if target not in present_targets]
+    return {
+        "required_targets": required_targets,
+        "present_targets": present_targets,
+        "missing_targets": missing_targets,
+        "evaluated_cycle_id": str(latest_receipt.get("cycle_id") or ""),
+        "complete": not missing_targets,
+        "scope_confirmed": True,
+        "scope_issue": "",
+    }
 
 def expected_runtime_bot_names(runtime_dir: Path) -> tuple[str, ...]:
     assignment_candidates = (
@@ -302,6 +455,22 @@ def collect_commander_read_contract_validation(runtime_dir: Path) -> dict[str, A
     rendered_paths = [str(path) for path in runtime_files]
     classified = [classify_runtime_artifact(path) for path in rendered_paths]
     default_sources = choose_commander_default_sources(rendered_paths)
+    assignment_path = runtime_dir / "cmux-assignment.json"
+    assignment_payload, _ = _load_json_file(assignment_path)
+    current_task_sources = assignment_payload.get("current_task_sources") if isinstance(assignment_payload, dict) else None
+    consumer_state_path = runtime_dir / "cmux-consumer-state-latest.json"
+    consumer_state_payload, _ = _load_json_file(consumer_state_path)
+    receipts_path = runtime_dir / "cmux-finish-receipts.jsonl"
+    receipt_payloads, receipt_error = _load_jsonl_objects(receipts_path)
+    a7_writeback = collect_a7_writeback_targets(
+        receipt_payloads or [],
+        current_task_sources=current_task_sources,
+    )
+    verification_packet_sources = render_verification_packet_sources(rendered_paths)
+    verification_slots = [item["slot"] for item in verification_packet_sources]
+    verification_missing_slots = [
+        slot for slot in REQUIRED_VERIFICATION_PACKET_SLOTS if slot not in verification_slots
+    ]
 
     summary_candidates = [item for item in classified if item.rule.name == "commander_summary"]
     fallback_candidates = [item for item in classified if item.rule.name in {"startup_smoke", "control_state"}]
@@ -318,6 +487,15 @@ def collect_commander_read_contract_validation(runtime_dir: Path) -> dict[str, A
         fallback_selected = any(item.rule.name in {"startup_smoke", "control_state"} for item in default_sources)
         if not fallback_selected:
             problems.append("summary missing but fallback sources (startup_smoke/control_state) were not selected")
+    if receipt_error:
+        problems.append(receipt_error)
+    elif receipt_payloads and not a7_writeback["scope_confirmed"]:
+        problems.append(a7_writeback["scope_issue"])
+    elif receipt_payloads and not a7_writeback["complete"]:
+        problems.append(
+            "A7 local writeback is partial; missing mandatory targets: "
+            + ", ".join(str(item) for item in a7_writeback["missing_targets"])
+        )
 
     return {
         "ok": not problems,
@@ -341,17 +519,34 @@ def collect_commander_read_contract_validation(runtime_dir: Path) -> dict[str, A
             }
             for item in blocked_sources
         ],
+        "verification_packet": {
+            "required_slots": list(REQUIRED_VERIFICATION_PACKET_SLOTS),
+            "available_slots": verification_slots,
+            "missing_slots": verification_missing_slots,
+            "read_order": verification_packet_sources,
+            "a7_required_writeback_targets": a7_writeback["required_targets"],
+            "a7_present_writeback_targets": a7_writeback["present_targets"],
+            "a7_missing_writeback_targets": a7_writeback["missing_targets"],
+            "a7_evaluated_cycle_id": a7_writeback["evaluated_cycle_id"],
+            "a7_writeback_complete": a7_writeback["complete"],
+            "a7_scope_confirmed": a7_writeback["scope_confirmed"],
+            "a7_scope_issue": a7_writeback["scope_issue"],
+            "consumer_state_embeds_control_packet_auxiliary": bool(
+                consumer_state_path.exists() and consumer_state_covers_control_packet(consumer_state_payload)
+            ),
+        },
         "problems": problems,
     }
 
 
-def build_readiness_receipt() -> dict[str, Any]:
+def build_readiness_receipt(*, task_files: tuple[str | Path, ...] | None = None) -> dict[str, Any]:
     memory = validate_memory_system()
     doc_problems = collect_delivery_doc_anchor_problems(DELIVERY_DOCS)
     runtime_bot_names = expected_runtime_bot_names(RUNTIME_ARTIFACT_DIR)
     manifest_problems = collect_runtime_launch_manifest_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
     smoke_report_problems = collect_startup_smoke_report_problems(RUNTIME_ARTIFACT_DIR, runtime_bot_names)
     read_contract_validation = collect_commander_read_contract_validation(RUNTIME_ARTIFACT_DIR)
+    resolved_task_files = resolve_task_scope_files(task_files)
 
     project_cmd = run_command(
         [
@@ -377,7 +572,7 @@ def build_readiness_receipt() -> dict[str, Any]:
 
     git_status = collect_git_status()
     current_task_status = project_status_map.get(CURRENT_TASK_TITLE, "")
-    current_task_git_status = collect_scope_git_status(CURRENT_TASK_FILES)
+    current_task_git_status = collect_scope_git_status(resolved_task_files)
 
     implemented = (
         memory["status"] == "ok"
@@ -431,8 +626,22 @@ def write_receipt(receipt: dict[str, Any]) -> Path:
     return LATEST_RECEIPT
 
 
-def main() -> int:
-    receipt = build_readiness_receipt()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build the cmux phase readiness receipt.")
+    parser.add_argument(
+        "--task-file",
+        dest="task_files",
+        action="append",
+        default=None,
+        help="Explicit current-task scope file. Repeat this flag to pass multiple files.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    task_files = tuple(args.task_files) if args.task_files else None
+    receipt = build_readiness_receipt(task_files=task_files)
     output_path = write_receipt(receipt)
     payload = dict(receipt)
     payload["receipt_path"] = str(output_path)
