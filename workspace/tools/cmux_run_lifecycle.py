@@ -20,6 +20,7 @@ from workspace.tools.current_task_source import (
     ARCHIVE_ONLY_STATUS,
     build_main_thread_task_source_ref,
     maybe_normalize_task_source_ref,
+    validate_main_thread_run_dir_boundary,
 )
 
 LOCAL_TZ = timezone(timedelta(hours=8))
@@ -167,19 +168,28 @@ def resolve_main_thread_task_source_ref(
     run_id: str,
     run_dir: Path,
     task_source_ref: dict[str, object] | None,
+    repo_root: Path,
 ) -> dict[str, str]:
     if task_source_ref is not None:
         normalized = maybe_normalize_task_source_ref(task_source_ref, expected_task_type="main_thread")
         if normalized is None:  # pragma: no cover - defensive
             raise RuntimeError("task_source_ref normalization returned None")
-        return normalized
-    return build_main_thread_task_source_ref(
-        request_id=run_id,
-        deliverable_path=str(run_dir),
-        evidence_path=str(run_dir),
-        status="initialized",
-        acceptance_owner="main-thread",
-    )
+    else:
+        normalized = build_main_thread_task_source_ref(
+            request_id=run_id,
+            deliverable_path=str(run_dir),
+            evidence_path=str(run_dir),
+            status="initialized",
+            acceptance_owner="main-thread",
+        )
+    try:
+        return validate_main_thread_run_dir_boundary(
+            normalized,
+            run_dir=run_dir,
+            repo_root=repo_root,
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def initialize_run(
@@ -203,6 +213,7 @@ def initialize_run(
         run_id=run_id,
         run_dir=run_dir,
         task_source_ref=task_source_ref,
+        repo_root=repo_root,
     )
 
     created: list[Path] = []
@@ -376,6 +387,7 @@ def finalize_reject(
             run_id=run_id,
             run_dir=run_dir,
             task_source_ref=task_source_ref,
+            repo_root=repo_root,
         )
     archive_only_ref = dict(normalized_task_source_ref or {})
     archive_only_ref["status"] = ARCHIVE_ONLY_STATUS

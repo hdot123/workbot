@@ -21,7 +21,10 @@ from workspace.tools.cmux_control_packet import (  # noqa: E402
     validate_control_packet,
     validate_control_packet_for_current_assignment,
 )
-from workspace.tools.current_task_source import build_cmux_task_source_ref  # noqa: E402
+from workspace.tools.current_task_source import (  # noqa: E402
+    build_cmux_task_source_ref,
+    build_main_thread_task_source_ref,
+)
 
 
 def render_packet(packet: dict[str, object]) -> str:
@@ -94,6 +97,23 @@ def test_rejects_missing_task_source_ref() -> None:
         assert "task_source_ref is required" in str(exc)
     else:
         raise AssertionError("expected missing task_source_ref to be rejected")
+
+
+def test_rejects_main_thread_task_source_ref_in_control_packet() -> None:
+    packet = dict(EXAMPLE_PACKETS["completed"])
+    packet["task_source_ref"] = build_main_thread_task_source_ref(
+        request_id="run-001",
+        deliverable_path="/Users/busiji/workbot/workspace/memory/tmp/run-001",
+        evidence_path="/Users/busiji/workbot/workspace/memory/tmp/run-001",
+        status="initialized",
+        acceptance_owner="main-thread",
+    )
+    try:
+        validate_control_packet(packet)
+    except ControlPacketError as exc:
+        assert "task_type mismatch: expected cmux actual main_thread" in str(exc)
+    else:
+        raise AssertionError("expected main_thread task_source_ref to be rejected")
 
 
 def test_accepts_current_assignment_packet_and_linked_summary_when_cycle_matches() -> None:

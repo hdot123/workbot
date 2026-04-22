@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from workspace.tools.cmux_run_lifecycle import finalize_reject, initialize_run  # noqa: E402
+from workspace.tools.current_task_source import build_main_thread_task_source_ref  # noqa: E402
 
 
 def init_git_repo(path: Path) -> None:
@@ -72,6 +73,50 @@ def test_cli_init_smoke_supports_direct_script_execution() -> None:
         baseline_text = (run_dir / "protected-files-baseline.txt").read_text(encoding="utf-8")
         assert "ProtectedFile::" not in baseline_text
         assert str(REPO_ROOT / "AGENTS.md") not in baseline_text
+
+
+def test_initialize_run_rejects_main_thread_run_dir_under_repo_truth_path() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root = Path(tmpdir)
+        init_git_repo(repo_root)
+        run_dir = repo_root / "workspace/projects/run-invalid"
+
+        try:
+            initialize_run(run_dir=run_dir, run_id="run-invalid", repo_root=repo_root)
+        except RuntimeError as exc:
+            assert "main_thread run_dir must stay under designated run/evidence roots" in str(exc)
+            assert str(run_dir) in str(exc)
+        else:
+            raise AssertionError("expected repo truth run_dir to be rejected")
+
+
+def test_initialize_run_rejects_provided_main_thread_task_source_ref_outside_run_dir() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root = Path(tmpdir)
+        init_git_repo(repo_root)
+        run_dir = repo_root / "workspace/memory/tmp/run-guarded"
+        pinned_elsewhere = repo_root / "workspace/memory/tmp/run-other"
+        task_source_ref = build_main_thread_task_source_ref(
+            request_id="run-guarded",
+            deliverable_path=str(pinned_elsewhere),
+            evidence_path=str(pinned_elsewhere),
+            status="initialized",
+            acceptance_owner="main-thread",
+        )
+
+        try:
+            initialize_run(
+                run_dir=run_dir,
+                run_id="run-guarded",
+                task_source_ref=task_source_ref,
+                repo_root=repo_root,
+            )
+        except RuntimeError as exc:
+            assert "main_thread deliverable_path must stay pinned to run_dir" in str(exc)
+            assert f"expected={run_dir.resolve()}" in str(exc)
+            assert f"actual={pinned_elsewhere.resolve()}" in str(exc)
+        else:
+            raise AssertionError("expected mismatched main_thread task_source_ref to be rejected")
 
 
 def test_initialize_run_materializes_full_s01_file_set() -> None:

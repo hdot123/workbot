@@ -11,6 +11,7 @@ TASK_TYPE_MAIN_THREAD = "main_thread"
 TASK_TYPES = {TASK_TYPE_CMUX, TASK_TYPE_MAIN_THREAD}
 
 ARCHIVE_ONLY_STATUS = "archive_only"
+MAIN_THREAD_ALLOWED_REPO_PREFIXES = ("workspace/memory/tmp", "workspace/artifacts")
 
 
 class TaskSourceContractError(ValueError):
@@ -211,6 +212,46 @@ def normalize_task_source_ref(
     if normalized["task_source_id"] != task_source_id_for_main_thread(request_id):
         raise TaskSourceContractError(
             "main_thread task_source_id must be derived from request_id"
+        )
+    return normalized
+
+
+def validate_main_thread_run_dir_boundary(
+    payload: dict[str, Any] | dict[str, str],
+    *,
+    run_dir: str | Path,
+    repo_root: str | Path | None = None,
+) -> dict[str, str]:
+    normalized = normalize_task_source_ref(dict(payload), expected_task_type=TASK_TYPE_MAIN_THREAD)
+    normalized_run_dir = str(Path(run_dir).expanduser().resolve())
+    for field_name in (
+        "deliverable_path",
+        "evidence_path",
+        "current_output_path",
+        "current_evidence_path",
+    ):
+        actual_path = str(Path(normalized[field_name]).expanduser().resolve())
+        if actual_path != normalized_run_dir:
+            raise TaskSourceContractError(
+                f"main_thread {field_name} must stay pinned to run_dir "
+                f"expected={normalized_run_dir} actual={actual_path}"
+            )
+    if repo_root is None:
+        return normalized
+    normalized_repo_root = Path(repo_root).expanduser().resolve()
+    run_dir_path = Path(normalized_run_dir)
+    try:
+        relative_run_dir = run_dir_path.relative_to(normalized_repo_root).as_posix()
+    except ValueError:
+        return normalized
+    if not any(
+        relative_run_dir == prefix or relative_run_dir.startswith(f"{prefix}/")
+        for prefix in MAIN_THREAD_ALLOWED_REPO_PREFIXES
+    ):
+        allowed = ", ".join(MAIN_THREAD_ALLOWED_REPO_PREFIXES)
+        raise TaskSourceContractError(
+            "main_thread run_dir must stay under designated run/evidence roots "
+            f"({allowed}); actual={run_dir_path}"
         )
     return normalized
 
