@@ -17,7 +17,9 @@
     - `canonicalize_cmux_refs` identify 成功/异常回退
     - `main(no_delegate=False)` 的 `claude` 主链路 smoke（真实 `cmux` 调用路径）
     - `main(no_delegate=False)` 的 `codex` 主链路 smoke
-    - 缺失 `state_file` / `surface` 的 fail-close
+    - `claude` 缺失 `state_file` 的 fail-close
+    - `codex` 缺失全部 formal cmux 标记时跳过 delegate
+    - `codex` 缺失 `surface` 但仍带 formal cmux 标记时 fail-close
 - 扩充 bridge 负向回归:
   - 文件: `/Users/busiji/workbot/tests/test_cmux_hook_bridge.py`
   - 覆盖:
@@ -32,7 +34,8 @@
 
 ## 结果
 
-- 缺少关键 hook 上下文时，gateway/bridge 主链路均明确 fail-close。
+- `claude` 与真正的 `cmux` formal runtime 缺少关键 hook 上下文时，gateway/bridge 主链路仍明确 fail-close。
+- `codex` 在非 cmux 本地会话里不再因为缺失 `CMUX_SURFACE_ID` 误判为 formal runtime 并退出。
 - `delegate-on` 覆盖不再只停留在 no-delegate 路径。
 - identify 归一化路径有回归锚点，避免 canonicalize 回归无告警。
 

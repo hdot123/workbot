@@ -237,7 +237,7 @@ def test_main_delegate_on_codex_runs_real_hook_path(
     assert any(call[:2] == ["codex-hook", "prompt-submit"] for call in calls)
 
 
-def test_main_delegate_on_codex_fails_closed_when_surface_missing(
+def test_main_delegate_on_codex_skips_delegate_when_surface_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -247,8 +247,13 @@ def test_main_delegate_on_codex_fails_closed_when_surface_missing(
         bin_dir,
         identify_stdout='{"caller":{"workspace_ref":"workspace:canon","surface_ref":"surface:canon"}}',
     )
+    log_path = tmp_path / "cmux-calls-codex-missing-surface.jsonl"
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("CMUX_TEST_LOG", str(log_path))
     monkeypatch.delenv("CMUX_SURFACE_ID", raising=False)
+    monkeypatch.delenv("CMUX_WORKSPACE_ID", raising=False)
+    monkeypatch.delenv("CMUX_HOOK_STATE_FILE", raising=False)
+    monkeypatch.delenv("CMUX_PROJECT_DIR", raising=False)
 
     monkeypatch.setattr(
         gateway,
@@ -263,6 +268,41 @@ def test_main_delegate_on_codex_fails_closed_when_surface_missing(
         lambda package: {"snapshot": str(tmp_path / "snapshot.json"), "latest": str(tmp_path / "latest.json")},
     )
     monkeypatch.setattr(gateway.sys, "stdin", io.StringIO(json.dumps({"session_id": "sess-4", "cwd": str(repo_root)})))
+
+    rc = gateway.main()
+    assert not log_path.exists()
+    assert rc == 0
+
+
+def test_main_delegate_on_codex_fails_closed_when_surface_missing_inside_formal_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin-formal"
+    bin_dir.mkdir(parents=True)
+    _write_fake_cmux(
+        bin_dir,
+        identify_stdout='{"caller":{"workspace_ref":"workspace:canon","surface_ref":"surface:canon"}}',
+    )
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+    monkeypatch.delenv("CMUX_SURFACE_ID", raising=False)
+    monkeypatch.setenv("CMUX_WORKSPACE_ID", "workspace:raw")
+    monkeypatch.delenv("CMUX_HOOK_STATE_FILE", raising=False)
+    monkeypatch.delenv("CMUX_PROJECT_DIR", raising=False)
+
+    monkeypatch.setattr(
+        gateway,
+        "parse_args",
+        lambda: SimpleNamespace(host="codex", event="prompt-submit", no_delegate=False),
+    )
+    monkeypatch.setattr(gateway, "should_noop_for_external_context", lambda payload: False)
+    monkeypatch.setattr(gateway, "build_context_package", lambda host, event, payload: _ok_package())
+    monkeypatch.setattr(
+        gateway,
+        "write_artifacts",
+        lambda package: {"snapshot": str(tmp_path / "snapshot.json"), "latest": str(tmp_path / "latest.json")},
+    )
+    monkeypatch.setattr(gateway.sys, "stdin", io.StringIO(json.dumps({"session_id": "sess-5", "cwd": str(repo_root)})))
 
     rc = gateway.main()
     assert rc == 1

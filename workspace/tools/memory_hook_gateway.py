@@ -303,6 +303,27 @@ def execute_delegate_via_facade(
 ) -> subprocess.CompletedProcess[str]:
     """IF-5: Execute delegate via Facade."""
     delegate = _get_host_delegate(host)
+    codex_formal_markers = (
+        os.environ.get("CMUX_WORKSPACE_ID"),
+        os.environ.get("CMUX_HOOK_STATE_FILE"),
+        os.environ.get("CMUX_PROJECT_DIR"),
+    )
+    # Codex can enter the gateway outside a formal cmux runtime. In that
+    # case we still build artifacts, but we must not fail-close on a missing
+    # CMUX surface id unless some other cmux runtime marker says this session
+    # is supposed to be formal.
+    if (
+        host == "codex"
+        and isinstance(delegate, CodexDelegate)
+        and not delegate.surface_id
+        and not any(codex_formal_markers)
+    ):
+        return subprocess.CompletedProcess(
+            args=["cmux", "codex-hook", event],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
     return delegate.execute(event, raw_payload, payload)
 
 
