@@ -31,7 +31,8 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
         "tests/**",
     ]
 
-    required_canonical = [
+    # Required filesystem inputs for gateway preflight/context assembly.
+    required_gateway_inputs = [
         workspace_root / "INDEX.md",
         workspace_root / "NOW.md",
         *project_map_files,
@@ -199,7 +200,7 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
         "REGISTRATION_GIT_SCOPE": registration_git_scope,
         "LEGAL_CORE_MARKERS": legal_core_markers,
         "REQUIRED_REGISTRY_SCOPES": required_registry_scopes,
-        "REQUIRED_CANONICAL": required_canonical,
+        "REQUIRED_GATEWAY_INPUTS": required_gateway_inputs,
         "PROJECT_CANONICAL": project_canonical,
         "PROJECT_RUNTIME_ROOT": project_runtime_root,
         "PROJECT_DOC_REFS": project_doc_refs,

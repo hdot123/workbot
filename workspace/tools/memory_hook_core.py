@@ -75,7 +75,7 @@ def build_context_package_core(
     project_scope: str,
     workspace_root: Path,
     repo_root: Path,
-    required_canonical: list[Path],
+    required_gateway_inputs: list[Path],
     project_canonical: dict[str, Path],
     project_runtime_root: dict[str, Path],
     global_canonical: list[Path],
@@ -111,7 +111,7 @@ def build_context_package_core(
     Gateway should only wire dependencies and environment values.
     """
 
-    missing_paths = [str(path) for path in required_canonical if not path.exists()]
+    missing_paths = [str(path) for path in required_gateway_inputs if not path.exists()]
     project_map_errors = validate_project_map_fn()
     contract_errors = validate_unique_legal_system_contract_fn()
 

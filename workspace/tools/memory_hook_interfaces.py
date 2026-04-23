@@ -140,8 +140,8 @@ class GatewayBusinessPolicy(ABC):
         pass
 
     @abstractmethod
-    def get_required_canonical(self) -> list[Path]:
-        """Return required canonical files."""
+    def get_required_gateway_inputs(self) -> list[Path]:
+        """Return required filesystem inputs for gateway assembly."""
         pass
 
     @abstractmethod

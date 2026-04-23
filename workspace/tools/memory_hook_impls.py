@@ -437,7 +437,7 @@ class GatewayBusinessPolicyConfig:
     formal_event_statuses: set[str]
     formal_field_keys: set[str]
     legacy_field_keys: set[str]
-    required_canonical: list[Path]
+    required_gateway_inputs: list[Path]
     workspace_index_path: Path
     docs_index_path: Path
     overview_doc_path: Path
@@ -692,8 +692,8 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
             merged[scope] = self._resolve_override_path(raw)
         return merged
 
-    def get_required_canonical(self) -> list[Path]:
-        return list(self._config.required_canonical)
+    def get_required_gateway_inputs(self) -> list[Path]:
+        return list(self._config.required_gateway_inputs)
 
     def get_global_canonical(self) -> list[Path]:
         return list(self._config.global_canonical)
