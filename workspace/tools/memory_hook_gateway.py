@@ -122,6 +122,7 @@ def _build_gateway_business_policy() -> GatewayBusinessPolicy:
         formal_field_keys=FORMAL_FIELD_KEYS,
         legacy_field_keys=LEGACY_FIELD_KEYS,
         required_gateway_inputs=REQUIRED_GATEWAY_INPUTS,
+        history_projects_index_path=HISTORY_PROJECTS_INDEX_PATH,
         workspace_index_path=WORKSPACE_ROOT / "INDEX.md",
         docs_index_path=WORKSPACE_ROOT / "memory" / "docs" / "INDEX.md",
         overview_doc_path=WORKSPACE_ROOT / "memory" / "docs" / "记忆系统全景文档.md",
@@ -502,6 +503,8 @@ def classify_truth_ref(path: Path) -> str:
         return "log"
     if path_is_under(path, WORKSPACE_ROOT / "memory" / "system"):
         return "system"
+    if path_is_under(path, REPO_ROOT / "history-projects"):
+        return "history-root"
     if path_is_under(path, REPO_ROOT / "app"):
         return "app"
     if path_is_under(path, REPO_ROOT / "agents"):

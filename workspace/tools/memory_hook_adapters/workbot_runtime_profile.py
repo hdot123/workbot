@@ -9,6 +9,8 @@ from typing import Any
 
 def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict[str, Any]:
     project_map_root = workspace_root / "project-map"
+    history_projects_root = repo_root / "history-projects"
+    history_projects_index = history_projects_root / "INDEX.md"
     truth_model = workspace_root / "memory" / "kb" / "global" / "workbot-truth-model.md"
     project_map_files = [
         project_map_root / "INDEX.md",
@@ -21,6 +23,7 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
     memory_system_path = workspace_root / "memory" / "kb" / "global" / "workbot-memory-system.md"
 
     required_registry_scopes = [
+        "history-projects/**",
         "workspace/project-map/**",
         "workspace/memory/kb/global/**",
         "workspace/memory/kb/projects/**",
@@ -35,6 +38,7 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
     required_gateway_inputs = [
         workspace_root / "INDEX.md",
         workspace_root / "NOW.md",
+        history_projects_index,
         *project_map_files,
         workspace_root / "memory" / "kb" / "INDEX.md",
         workspace_root / "memory" / "docs" / "INDEX.md",
@@ -87,6 +91,7 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
     }
 
     lower_evidence_roots = [
+        history_projects_root,
         workspace_root / "projects",
         workspace_root / "artifacts",
         workspace_root / "tools",
@@ -181,6 +186,8 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
 
     legal_core_markers = [
         "active-legal",
+        "唯一正式历史根",
+        "history-projects/",
         "project-map/INDEX.md",
         "workbot-truth-model.md",
         "workbot-memory-system.md",
@@ -188,6 +195,8 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
 
     return {
         "PROJECT_MAP_ROOT": project_map_root,
+        "HISTORY_PROJECTS_ROOT": history_projects_root,
+        "HISTORY_PROJECTS_INDEX_PATH": history_projects_index,
         "TRUTH_MODEL": truth_model,
         "PROJECT_MAP_FILES": project_map_files,
         "PROJECT_MAP_GOVERNANCE": project_map_governance,

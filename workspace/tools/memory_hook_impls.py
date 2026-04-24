@@ -438,6 +438,7 @@ class GatewayBusinessPolicyConfig:
     formal_field_keys: set[str]
     legacy_field_keys: set[str]
     required_gateway_inputs: list[Path]
+    history_projects_index_path: Path
     workspace_index_path: Path
     docs_index_path: Path
     overview_doc_path: Path
@@ -590,6 +591,8 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
             return "log"
         if self._path_is_under(path, cfg.workspace_root / "memory" / "system"):
             return "system"
+        if self._path_is_under(path, cfg.repo_root / "history-projects"):
+            return "history-root"
         if self._path_is_under(path, cfg.repo_root / "app"):
             return "app"
         if self._path_is_under(path, cfg.repo_root / "agents"):
@@ -746,6 +749,7 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
         docs_index = self._read_text_if_exists(cfg.docs_index_path)
         overview_doc = self._read_text_if_exists(cfg.overview_doc_path)
         global_index = self._read_text_if_exists(cfg.global_index_path)
+        history_index = self._read_text_if_exists(cfg.history_projects_index_path)
         core_text = self._read_text_if_exists(cfg.project_map_files[1])
         registry_text = self._read_text_if_exists(cfg.project_map_files[2])
         hook_contract = self._read_text_if_exists(cfg.hook_contract_path)
@@ -756,6 +760,8 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
             errors.append("workspace index does not declare active-legal map-only legality")
         if "目录登记和目录状态迁移必须与相关文件同次 `git commit` 才生效。" not in workspace_index:
             errors.append("workspace index does not declare the future registration git-commit rule")
+        if "唯一正式历史根" not in workspace_index or "history-projects/" not in workspace_index:
+            errors.append("workspace index does not declare history-projects as the sole formal history root")
         try:
             truth_model_ref = cfg.truth_model.resolve().relative_to(cfg.repo_root.resolve()).as_posix()
         except ValueError:
@@ -773,6 +779,8 @@ class GatewayBusinessPolicyImpl(GatewayBusinessPolicy):
         for marker in cfg.legal_core_markers:
             if marker not in core_text:
                 errors.append(f"legal-core-map is missing legal core marker: {marker}")
+        if "history-projects/" not in history_index or "唯一正式历史根" not in history_index:
+            errors.append("history-projects index does not declare the sole formal history root")
         for scope in cfg.required_registry_scopes:
             if scope not in registry_text:
                 errors.append(f"ingestion-registry-map is missing scope: {scope}")
