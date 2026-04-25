@@ -82,6 +82,15 @@ class CodexDelegate(HostDelegate):
             check=False,
         )
 
+    def noop_response(self) -> subprocess.CompletedProcess[str]:
+        """Return a no-op CompletedProcess with empty JSON output."""
+        return subprocess.CompletedProcess(
+            args=["noop"],
+            returncode=0,
+            stdout="{}\n",
+            stderr="",
+        )
+
 
 class ClaudeDelegate(HostDelegate):
     """Delegate for Claude host."""
@@ -100,7 +109,7 @@ class ClaudeDelegate(HostDelegate):
     ):
         self.workspace_id = workspace_id or os.environ.get("CMUX_WORKSPACE_ID")
         self.surface_id = surface_id or os.environ.get("CMUX_SURFACE_ID")
-        self._state_file = state_file or os.environ.get("CMUX_HOOK_STATE_FILE")
+        self._state_file = state_file
         self._repo_root = repo_root
         self._which = which_cmd or shutil.which
         self._runner = runner or subprocess.run
@@ -160,6 +169,15 @@ class ClaudeDelegate(HostDelegate):
             text=True,
             capture_output=True,
             check=False,
+        )
+
+    def noop_response(self) -> subprocess.CompletedProcess[str]:
+        """Return a no-op CompletedProcess with empty output."""
+        return subprocess.CompletedProcess(
+            args=["noop"],
+            returncode=0,
+            stdout="",
+            stderr="",
         )
 
 
@@ -1168,3 +1186,88 @@ class ErrorSinkImpl(ErrorSink):
         rendered = json.dumps(context, ensure_ascii=False, sort_keys=True)
         with self._error_log.open("a", encoding="utf-8") as handle:
             handle.write(f"[{self._now_iso()}] [{component}] [error] {message} | context={rendered}\n")
+
+# ---------------------------------------------------------------------------
+# Adapter-level helpers (M2 extraction)
+# ---------------------------------------------------------------------------
+
+_HOST_DELEGATE_MAP: dict[str, type[HostDelegate]] = {
+    "codex": CodexDelegate,
+    "claude": ClaudeDelegate,
+}
+
+
+def _get_host_delegate(host: str, **kwargs: Any) -> HostDelegate:
+    """Instantiate the delegate for the given host name."""
+    delegate_cls = _HOST_DELEGATE_MAP.get(host)
+    if delegate_cls is None:
+        raise ValueError(f"unknown host: {host}")
+    return delegate_cls(**kwargs)
+
+
+def _delegate_noop_response(host: str) -> subprocess.CompletedProcess[str]:
+    """Delegate a no-op response to the appropriate host delegate."""
+    delegate = _get_host_delegate(host)
+    return delegate.noop_response()
+
+
+def main(host: str | None = None) -> subprocess.CompletedProcess[str]:
+    """Entry point for adapter hook.
+
+    When proc.stdout is empty, falls back to delegate.noop_response().
+    """
+    host = host or os.environ.get("CMUX_HOST", "codex")
+    delegate = _get_host_delegate(host)
+    proc = delegate.execute("noop", "{}", {})
+    if not proc.stdout:
+        return delegate.noop_response()
+    return proc
+
+
+def build_workbot_runtime_profile() -> dict[str, Any]:
+    """Build the runtime profile dict for the workbot adapter.
+
+    Returns a dict containing CLAUDE_HOOK_STATE_FILE and ARTIFACT_COMPACTION keys.
+    """
+    state_file = os.environ.get("CMUX_HOOK_STATE_FILE")
+    return {
+        "CLAUDE_HOOK_STATE_FILE": state_file,
+        "ARTIFACT_COMPACTION": {
+            "include_system_context": True,
+            "include_project_context": True,
+            "include_allowed_reads": True,
+            "include_allowed_writes": True,
+            "include_evidence_refs": True,
+            "include_warnings": True,
+        },
+    }
+
+
+def _apply_artifact_compaction(
+    package: dict[str, Any],
+    *,
+    include_system_context: bool = True,
+    include_project_context: bool = True,
+    include_allowed_reads: bool = True,
+    include_allowed_writes: bool = True,
+    include_evidence_refs: bool = True,
+    include_warnings: bool = True,
+) -> dict[str, Any]:
+    """Apply artifact compaction policy to a package dict.
+
+    Removes sections whose corresponding include_* flag is False.
+    """
+    result = dict(package)
+    if not include_system_context:
+        result.pop("system_context", None)
+    if not include_project_context:
+        result.pop("project_context", None)
+    if not include_allowed_reads:
+        result.pop("allowed_reads", None)
+    if not include_allowed_writes:
+        result.pop("allowed_writes", None)
+    if not include_evidence_refs:
+        result.pop("evidence_refs", None)
+    if not include_warnings:
+        result.pop("warnings", None)
+    return result

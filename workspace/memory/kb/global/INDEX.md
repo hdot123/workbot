@@ -9,7 +9,12 @@ Status: rule-only, records-cleared
 - `workbot-memory-system.md`
 - `workbot-memory-routing.md`
 - `workbot-policy-pack.md`
+- `workbot-script-ledger.md`
 
+
+## Policy Pack Files
+- `memory-hook-policy-pack.json` — canonical policy pack loaded by the gateway at runtime
+- `workbot-policy-pack.json` — legacy fallback policy pack (identical content, kept for migration compatibility)
 
 ## Non-Legal Material
 - 非 canonical 材料必须先进入 `project-map/ingestion-registry-map.md`。

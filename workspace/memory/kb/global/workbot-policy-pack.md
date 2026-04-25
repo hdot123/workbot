@@ -8,6 +8,12 @@
 状态：active
 Scope: adapter
 
+
+> **JSON 策略包文件关系**：
+> - `memory-hook-policy-pack.json` 是规范策略包（代码中引用为 `DEFAULT_POLICY_PACK_PATH`）
+> - `workbot-policy-pack.json` 是遗留回退文件（代码中引用为 `LEGACY_POLICY_PACK_PATH`）
+> - 两个文件当前内容相同，但在迁移链中角色不同
+
 ---
 
 ## 1. Policy Pack Schema
@@ -173,7 +179,6 @@ raise ValueError(
 - `workspace/tools/memory_hook_interfaces.py`
 - `workspace/tools/memory_hook_impls.py`
 - `workspace/tools/memory_hook_gateway.py`
-- `tests/test_memory_hook_gateway_m3_policy_pack.py`
 
 ### Conflict Status
 - `resolved`

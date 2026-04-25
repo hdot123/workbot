@@ -1,3 +1,16 @@
+---
+type: [KB:LESSON]
+title: "Tmux Retired, Cmux Only"
+shortname: TMUX-RETIRED-CMUX-ONLY
+status: active
+created: 2026-04-24
+updated: 2026-04-26
+source: runtime observation
+confidence: high
+tags: [tmux, cmux, runtime, retired]
+related: [cmux-project-venv-mandatory, cmux-single-foreground-guard]
+---
+
 # Lesson: tmux retired, cmux only
 
 Status: active

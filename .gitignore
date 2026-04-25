@@ -167,3 +167,6 @@ workspace/log/mainline/*
 !workspace/log/mainline/.gitignore
 workspace/log/memory-hook/*
 !workspace/log/memory-hook/.gitignore
+
+# Local comparison artifacts (upstream audit clone)
+workspace/memory/tmp/
