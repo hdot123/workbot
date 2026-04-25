@@ -1,6 +1,10 @@
 # Workbot Memory System Rules
 
 Status: rule-only, records-cleared
+Scope: adapter
+
+> 本文件是 workbot adapter 级别的记忆系统规则，不是模块默认记忆系统。
+> 其他 adapter 可以定义自己的记忆系统规则，不受本文件约束。
 
 ## Layer Priority
 1. Code and runtime facts
@@ -15,16 +19,13 @@ Status: rule-only, records-cleared
 ## Truth Basis
 
 ### Source Refs
-- `/Users/busiji/workbot/workspace/INDEX.md`
-- `/Users/busiji/workbot/workspace/memory/docs/记忆系统全景文档.md`
+- `workspace/INDEX.md`
 
 ### Authority Refs
-- `/Users/busiji/workbot/workspace/project-map/legal-core-map.md`
-- `/Users/busiji/workbot/workspace/memory/kb/global/workbot-truth-model.md`
+- `workspace/project-map/legal-core-map.md`
 
 ### Evidence Refs
-- `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
-- `/Users/busiji/workbot/workspace/tools/validate_memory_system.py`
+- `workspace/tools/memory_hook_gateway.py`
 
 ### Conflict Status
 - `resolved`

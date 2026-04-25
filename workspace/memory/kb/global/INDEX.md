@@ -8,13 +8,15 @@ Status: rule-only, records-cleared
 - `workbot-project-map-governance.md`
 - `workbot-memory-system.md`
 - `workbot-memory-routing.md`
+- `workbot-policy-pack.md`
 
-## Active Reference Files
-- `workbot-script-ledger.md`
 
 ## Non-Legal Material
-- Non-Legal Material belongs in `project-map/ingestion-registry-map.md` until it is explicitly absorbed.
-- `ingestion-registry-map.md` is the registry for non-local-canonical and compatibility-only materials.
+- 非 canonical 材料必须先进入 `project-map/ingestion-registry-map.md`。
+- 仅完成登记不授予合法性，必须由 `active-legal` 地图显式吸收后才可进入正式上下文。
 
-## Canonical Registration
-- `workbot-truth-model.md` remains a registered global canonical.
+## Canonical Marker
+- `workbot-truth-model.md`
+
+## Relocated to Adapter Assets
+- `workbot-cli-tools.md` -> `workspace/tools/memory_hook_adapters/docs/workbot-cli-tools.md` (M2: runtime tool reference, not global rule)

@@ -52,20 +52,20 @@ related: [workbot-project-canonical, workbot-truth-model, workbot-hook-contract]
 ## Truth Basis
 
 ### Source Refs
-- `/Users/busiji/workbot/AGENTS.md`
-- `/Users/busiji/workbot/.claude/agents/pm-bot.md`
-- `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md`
-- `/Users/busiji/workbot/docs/cmux-subagent-runtime-truth-table.md`
+- `AGENTS.md`
+- `.claude/agents/pm-bot.md`
+- `docs/cmux-subagent-runtime-chain.md`
+- `docs/cmux-subagent-runtime-truth-table.md`
 
 ### Authority Refs
-- `/Users/busiji/workbot/workspace/memory/kb/projects/workbot.md`
-- `/Users/busiji/workbot/workspace/memory/kb/global/workbot-truth-model.md`
+- `workspace/memory/kb/projects/workbot.md`
+- `workspace/memory/kb/global/workbot-truth-model.md`
 
 ### Evidence Refs
-- `/Users/busiji/workbot/docs/cmux-subagent-runtime-chain.md`
-- `/Users/busiji/workbot/docs/cmux-subagent-runtime-truth-table.md`
-- `/Users/busiji/workbot/docs/cmux-subagent-minimal-operating-guideline.md`
-- `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
+- `docs/cmux-subagent-runtime-chain.md`
+- `docs/cmux-subagent-runtime-truth-table.md`
+- `docs/cmux-subagent-minimal-operating-guideline.md`
+- `workspace/tools/memory_hook_gateway.py`
 
 ### Conflict Status
 - `resolved`
