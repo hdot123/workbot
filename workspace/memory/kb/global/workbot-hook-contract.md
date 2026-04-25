@@ -1,20 +1,22 @@
 ---
 type: [KB:GLOBAL]
-title: "Workbot Hook Gateway Contract"
+title: "Workbot Hook Gateway Adapter Contract"
 shortname: WB-HOOK
 status: active
+scope: adapter
 created: 2026-04-11
-updated: 2026-04-18
+updated: 2026-04-26
 source: local-canonical
 confidence: high
-tags: [hook, gateway, codex, claude, memory]
+tags: [hook, gateway, adapter, codex, claude, memory]
 related: [workbot-memory-system, workbot-memory-routing]
 ---
 
-# Workbot Hook Gateway Contract
+# Workbot Hook Gateway Adapter Contract
 
-> 本文件定义 `Codex` 与 `Claude` 进入总记忆系统时必须共享的 hook 合同。
-> 它定义统一入口、统一上下文裁决和统一写入分流。
+> 本文件定义 `Codex` 与 `Claude` 通过 workbot adapter 进入总记忆系统时的 hook 合同。
+> 它是 adapter 级别的合同，不是模块全局默认合同。
+> 其他 adapter 可以定义自己的合同，不受本文件约束。
 > 截至 2026-04-11，两个宿主的正式 hook 入口都已切到仓内 gateway。
 
 ## 1. 目标
@@ -105,21 +107,23 @@ related: [workbot-memory-system, workbot-memory-routing]
 - 同一任务输入下，两边拿到的是同结构上下文包。
 - gateway 失效时，宿主 fail-fast 或明确降级，不允许静默绕过。
 - gateway 只认 `active-legal` 地图条目为合法目录来源，不认“仅登记未吸收”的对象。
+- gateway 只承认 `project-map/` 中被明确标为 `active-legal` 的条目或目录是合法上下文来源。
 - gateway 只允许 truth basis 完整且冲突已裁决的对象进入正式真相上下文。
+- 未完成提交的登记不得生效。
 
 ## 6.1 Truth Basis
 
 ### Source Refs
-- `/Users/busiji/workbot/workspace/INDEX.md`
-- `/Users/busiji/workbot/workspace/memory/docs/INDEX.md`
+- `workspace/INDEX.md`
+- `workspace/memory/docs/INDEX.md`
 
 ### Authority Refs
-- `/Users/busiji/workbot/workspace/memory/kb/global/workbot-truth-model.md`
-- `/Users/busiji/workbot/workspace/memory/kb/global/workbot-memory-system.md`
+- `workspace/memory/kb/global/workbot-truth-model.md`
+- `workspace/memory/kb/global/workbot-memory-system.md`
 
 ### Evidence Refs
-- `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
-- `/Users/busiji/workbot/workspace/tools/validate_memory_system.py`
+- `workspace/tools/memory_hook_gateway.py`
+- `workspace/tools/validate_memory_system.py`
 
 ### Conflict Status
 - `resolved`
@@ -128,7 +132,7 @@ related: [workbot-memory-system, workbot-memory-routing]
 
 截至 2026-04-11：
 
-- `Codex` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
-- `Claude` 正式 hook 入口已切到 `/Users/busiji/workbot/workspace/tools/memory_hook_gateway.py`
+- `Codex` 正式 hook 入口已切到 `workspace/tools/memory_hook_gateway.py`
+- `Claude` 正式 hook 入口已切到 `workspace/tools/memory_hook_gateway.py`
 - gateway 会先产出 context package 与事件证据，再转发到底层 `cmux` hook
-- 验收报告产物归档在 `/Users/busiji/workbot/workspace/log/memory-hook/`（`contexts/`、`shared/`、`events.jsonl` 结构）
+- 验收报告已生成到 `workspace/artifacts/memory-hook/validation/latest.json`
