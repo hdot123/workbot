@@ -14,3 +14,36 @@ args = ["mcp", "serve"]
 [mcp_servers.notebooklm]
 command = "/opt/homebrew/bin/node"
 args = ["/opt/homebrew/bin/npx", "-y", "notebooklm-mcp-server"]
+
+[mcp_servers.web-reader]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "mcp-web-reader"]
+
+[mcp_servers.zread]
+type = "http"
+url = "https://open.bigmodel.cn/api/mcp/zread/mcp"
+
+[mcp_servers.web-search-prime]
+type = "http"
+url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+
+[mcp_servers.zai-mcp-server]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "@z_ai/mcp-server"]
+
+[mcp_servers.supabase]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "@supabase/mcp-server-supabase"]
+
+[mcp_servers.chrome-devtools]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "chrome-devtools-mcp"]
+
+[mcp_servers.local-ollama]
+command = "/opt/homebrew/bin/node"
+args = ["/opt/homebrew/bin/npx", "-y", "openai-mcp-server"]
+
+[mcp_servers.crawl4ai]
+command = "/Users/busiji/workbot/.venv/bin/python3"
+args = ["/Users/busiji/.agents/skills/cmux/scripts/crawl4ai_local_mcp.py"]
+
