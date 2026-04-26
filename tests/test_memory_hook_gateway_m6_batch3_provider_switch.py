@@ -24,7 +24,7 @@ class FakeBusinessPolicy:
     def project_map_refs(self):
         return []
 
-    def get_required_gateway_inputs(self):
+    def get_required_canonical(self):
         return []
 
     def get_project_canonical(self):

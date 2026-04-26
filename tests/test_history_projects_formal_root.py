@@ -14,7 +14,7 @@ from workspace.tools.memory_hook_gateway import (
     HISTORY_PROJECTS_INDEX_PATH,
     HISTORY_PROJECTS_ROOT,
     LOWER_EVIDENCE_ROOTS,
-    REQUIRED_GATEWAY_INPUTS,
+    REQUIRED_CANONICAL,
     REQUIRED_REGISTRY_SCOPES,
     classify_truth_ref,
     lower_evidence_ref,
@@ -24,7 +24,7 @@ from workspace.tools.memory_hook_gateway import (
 
 def test_history_projects_index_is_required_gateway_input():
     assert HISTORY_PROJECTS_INDEX_PATH == HISTORY_PROJECTS_ROOT / "INDEX.md"
-    assert HISTORY_PROJECTS_INDEX_PATH in REQUIRED_GATEWAY_INPUTS
+    assert HISTORY_PROJECTS_INDEX_PATH in REQUIRED_CANONICAL
 
 
 def test_history_projects_root_is_registered_and_classified_as_history():

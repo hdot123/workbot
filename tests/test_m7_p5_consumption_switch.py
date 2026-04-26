@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -18,10 +17,10 @@ if str(TOOLS_DIR) not in sys.path:
 def _fresh_gateway():
     """Force reload gateway to pick up env changes."""
     for mod in list(sys.modules):
-        if "memory_hook" in mod:
+        if "memory_hook" in mod or mod in ("workspace", "workspace.tools"):
             del sys.modules[mod]
+    import importlib
     import memory_hook_gateway
-    importlib = pytest.importorskip("importlib")
     importlib.reload(memory_hook_gateway)
     return memory_hook_gateway
 
@@ -68,16 +67,13 @@ class TestExternalCoreFromMemoryRepo:
 class TestLegacyFallbackStillWorks:
     """Verify legacy provider still works as rollback target."""
 
-    def test_legacy_provider_returns_package(self):
-        os.environ["MEMORY_HOOK_CORE_PROVIDER"] = "legacy"
-        try:
-            gw = _fresh_gateway()
-            result = gw.build_context_package("workbot", "test", {})
-            assert result.get("status") in ("ok", "degraded")
-            sc = result.get("system_context", {})
-            assert sc.get("core_provider") == "legacy"
-        finally:
-            os.environ.pop("MEMORY_HOOK_CORE_PROVIDER", None)
+    def test_legacy_provider_returns_package(self, monkeypatch):
+        monkeypatch.setenv("MEMORY_HOOK_CORE_PROVIDER", "legacy")
+        gw = _fresh_gateway()
+        result = gw.build_context_package("workbot", "test", {})
+        assert result.get("status") in ("ok", "degraded")
+        sc = result.get("system_context", {})
+        assert sc.get("core_provider") == "legacy"
 
 
 class TestRollbackDrill:
@@ -89,3 +85,27 @@ class TestRollbackDrill:
         assert result["status"] == "passed", f"rollback drill failed: {result}"
         assert result["external_probe_ok"] is True
         assert result["legacy_probe_ok"] is True
+
+
+class TestExternalCoreDegradedPaths:
+    """Verify degraded fallback when external-core paths are invalid."""
+
+    def test_external_core_degraded_when_path_missing(self, monkeypatch):
+        monkeypatch.setenv("MEMORY_HOOK_CORE_PROVIDER", "external-core")
+        monkeypatch.setenv(
+            "MEMORY_HOOK_EXTERNAL_CORE_PATH",
+            "/tmp/__nonexistent_memory_core_path_42__",
+        )
+        gw = _fresh_gateway()
+        result = gw.build_context_package("workbot", "test", {})
+        assert result["status"] == "degraded"
+        sc = result.get("system_context", {})
+        assert sc.get("core_provider") == "external-core"
+
+    def test_invalid_provider_triggers_degraded(self, monkeypatch):
+        monkeypatch.setenv("MEMORY_HOOK_CORE_PROVIDER", "bogus-provider")
+        gw = _fresh_gateway()
+        result = gw.build_context_package("workbot", "test", {})
+        assert result["status"] == "degraded"
+        sc = result.get("system_context", {})
+        assert sc.get("core_provider_manual_rollback_required") is True
