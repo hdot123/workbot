@@ -159,7 +159,7 @@ def _external_core_module_candidates() -> list[str]:
 
 def _load_external_core_builder() -> CoreBuilder:
     func_name = os.environ.get("MEMORY_HOOK_EXTERNAL_CORE_FUNC", "build_context_package_core")
-    external_path = os.environ.get("MEMORY_HOOK_EXTERNAL_CORE_PATH", "").strip()
+    external_path = os.environ.get("MEMORY_HOOK_EXTERNAL_CORE_PATH", "").strip() or globals().get("EXTERNAL_CORE_PATH", "")
     module_candidates = _external_core_module_candidates()
     errors: list[str] = []
     for module_name in module_candidates:
@@ -777,7 +777,7 @@ def build_context_package(host: str, event: str, payload: dict[str, Any]) -> dic
         project_scope=project_scope,
         workspace_root=WORKSPACE_ROOT,
         repo_root=REPO_ROOT,
-        required_gateway_inputs=business_policy.get_required_gateway_inputs(),
+        required_canonical=business_policy.get_required_gateway_inputs(),
         project_canonical=business_policy.get_project_canonical(),
         project_runtime_root=business_policy.get_project_runtime_root(),
         global_canonical=business_policy.get_global_canonical(),
