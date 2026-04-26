@@ -254,7 +254,8 @@ def build_workbot_runtime_profile(repo_root: Path, workspace_root: Path) -> dict
         ],
         "DEFAULT_CORE_PROVIDER": "external-core",
         "EXTERNAL_CORE_DEFAULT_MODULE": "memory_hook_core",
-        "EXTERNAL_CORE_RELEASE_REF": "hdot123/memory@v0.1.0",
+        "EXTERNAL_CORE_RELEASE_REF": "hdot123/memory@main",
+        "EXTERNAL_CORE_PATH": str(Path.home() / "memory" / "workspace" / "tools"),
         "POLICY_ALLOWED_SCOPES": {"workbot", "AEdu", "platform-capabilities"},
         "POLICY_SCOPE_INHERITS": {
             "AEdu": "workbot",
