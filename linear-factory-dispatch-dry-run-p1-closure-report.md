@@ -39,6 +39,7 @@
 
 | Item | Value |
 |------|-------|
+| Report file | linear-factory-dispatch-dry-run-p1-report.md |
 | Commit | `1b9c441` |
 | Pipeline | 107 (success) |
 | Files changed | dispatch_payload.py, executors.py, test_webhook_ingress.py |
@@ -125,7 +126,18 @@ Factory dispatch dry-run generated, No real Factory task was triggered, No GitHu
 
 ---
 
-## 9. Phase Gate
+## 9. SHA256 Integrity
+
+```
+5730ded361a2425ad5d878d93fd35a60ea4ccbe5d78a8c4765881369a6992030  linear-factory-dispatch-dry-run-p1-report.md
+773c21fde4aacc37e78e846a932aec0c76ee0fa4b05a2173e14451515cc31b89  linear-factory-dispatch-dry-run-p1b-e2e-report.md
+63a29a0569629de948948061a29b785989c28c187082de74cb5ce8f2e6b1ffee  linear-factory-dispatch-dry-run-p1c-http-e2e-report.md
+b26455f0c1480e92148b33ab476b97c2fcf87b058835a1b5e6f241e8c9418fe6  linear-factory-dispatch-dry-run-p1-closure-report.md
+```
+
+---
+
+## 10. Phase Gate
 
 **P1 PASS — Dry-run closure complete.**
 
