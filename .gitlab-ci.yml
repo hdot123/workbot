@@ -1,8 +1,10 @@
 # workbot GitLab CI — minimal dry-run pipeline
-# This file is a local draft. Do NOT push to GitHub or GitLab until onboarding is confirmed.
 #
 # Includes central CI standards from infra/gitlab-ci-standards v1.0.0
 # No git push, no production deploy, no Factory trigger, no Linear mutation.
+
+default:
+  tags: []
 
 include:
   - project: 'infra/gitlab-ci-standards'
@@ -22,7 +24,6 @@ include:
 
 webhook-ingress-pytest:
   stage: test
-  tags: [shell]
   script:
     - python3 -m pip install --quiet pytest pyyaml fastapi uvicorn httpx psycopg2-binary pytest-asyncio
     - python3 -m pytest tests/test_webhook_ingress.py tests/test_webhook_ingress_server.py -q
@@ -34,7 +35,6 @@ webhook-ingress-pytest:
 
 yaml-baseline-parse:
   stage: validate
-  tags: [shell]
   script:
     - echo "Validating webhook ingress YAML baseline..."
     - python3 -c "import yaml; yaml.safe_load(open('workspace/tools/webhook_ingress/routes.yaml')); print('routes.yaml: OK')"
@@ -42,7 +42,6 @@ yaml-baseline-parse:
 
 secret-scan-workbot:
   stage: security
-  tags: [shell]
   script:
     - echo "Scanning workbot codebase for secrets..."
     - |
@@ -81,7 +80,6 @@ secret-scan-workbot:
 
 github-push-gate-dry-run:
   stage: dry-run
-  tags: [shell]
   script:
     - echo "=== GitHub Push Gate Dry-Run ==="
     - echo "Verifying gate-check logic..."
