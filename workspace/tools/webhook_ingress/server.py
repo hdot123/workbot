@@ -159,14 +159,15 @@ def _build_ingress(config: ServerConfig) -> WebhookIngress:
     """Construct the WebhookIngress instance based on given config."""
     if not config.linear_secret:
         raise RuntimeError("LINEAR_WEBHOOK_SECRET is not set")
-    if config.ingress_mode in _REQUIRED_DATABASE_MODES and not config.database_url:
+    if config.ingress_mode in _REQUIRED_DATABASE_MODES and not config.database_url and not os.environ.get("WEBHOOK_SQLITE_PATH"):
         raise RuntimeError(f"WEBHOOK_DATABASE_URL is required for ingress mode {config.ingress_mode}")
 
     if config.database_url:
         from .postgres_storage import PostgresWebhookEventStore
         store = PostgresWebhookEventStore(config.database_url)
     else:
-        store = WebhookEventStore()
+        sqlite_path = os.environ.get("WEBHOOK_SQLITE_PATH")
+        store = WebhookEventStore(db_path=sqlite_path) if sqlite_path else WebhookEventStore()
 
     n8n_sender = None if config.ingress_mode == "shadow" else _make_n8n_sender(config.n8n_webhook_url)
     actions = []
