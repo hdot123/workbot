@@ -18,18 +18,29 @@ variables:
 json-valid:
   stage: lint
   script:
+    - echo "Validating JSON files with Python pathlib..."
     - |
-      PASS=0; FAIL=0
-      echo "Validating JSON files..."
-      for f in $(find . -name "*.json" -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "./.venv/*" 2>/dev/null); do
-        if python3 -c "import json; json.load(open('$f'))" 2>/dev/null; then
-          PASS=$((PASS+1))
-        else
-          echo "FAIL: $f"; FAIL=$((FAIL+1))
-        fi
-      done
-      echo "JSON: PASS=$PASS FAIL=$FAIL"
-      [ "$FAIL" -eq 0 ] || exit 1
+      python3 << 'PYEOF'
+      import json, pathlib, sys
+      repo = pathlib.Path('.')
+      skip_dirs = {'.git', 'node_modules', '.venv'}
+      pass_count = 0
+      fail_count = 0
+      failures = []
+      for p in sorted(repo.rglob('*.json')):
+          if skip_dirs & set(p.parts):
+              continue
+          try:
+              json.loads(p.read_text(encoding='utf-8'))
+              pass_count += 1
+          except Exception as e:
+              fail_count += 1
+              failures.append((str(p), str(e)))
+      print(f'JSON: PASS={pass_count} FAIL={fail_count}')
+      for path, err in failures:
+          print(f'FAIL: {path} — {err}')
+      sys.exit(1 if fail_count > 0 else 0)
+      PYEOF
   rules:
     - exists:
         - "**/*.json"
