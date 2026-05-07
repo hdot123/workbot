@@ -130,9 +130,28 @@ Comment body 包含所有 P1 必要标记：
 
 ---
 
-## 9. 后续：GitLab CI 复验
+## 9. GitLab CI 复验
 
-本报告将作为非代码文件提交到 GitLab，触发 Pipeline 108 复验 webhook-ingress-pytest。
+Pipeline 108 已触发并全部通过：
+
+| Pipeline | Commit | Status |
+|----------|--------|--------|
+| 108 | `711b632` | **success** |
+
+URL: http://node-15.tail5e888.ts.net/root/workbot/-/pipelines/108
+
+| Job | Stage | Status |
+|-----|-------|--------|
+| json-valid | lint | success |
+| yaml-valid | lint | failed (allow_failure) |
+| shell-syntax | lint | success |
+| secrets-check | security | success |
+| secret-scan-workbot | security | success |
+| yaml-baseline-parse | validate | success |
+| github-push-gate-dry-run | dry-run | success |
+
+webhook-ingress-pytest 未触发（无 webhook 文件变更，符合 P0-2F changes rule）。
+Secret scan findings: **0**
 
 ---
 

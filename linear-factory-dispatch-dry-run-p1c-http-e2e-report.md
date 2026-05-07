@@ -132,9 +132,42 @@ Secret scan on payload: **0 findings**
 
 ---
 
-## 10. GitLab Pipeline
+## 10. GitLab Pipeline 109 Addendum
 
-报告 + server.py 变更将触发 Pipeline 109。
+| 项目 | 值 |
+|------|-----|
+| Pipeline ID | 109 |
+| Pipeline URL | http://node-15.tail5e888.ts.net/root/workbot/-/pipelines/109 |
+| Pipeline Status | **success** |
+| Commit SHA | e034a354 |
+| Created | 2026-05-07T13:13:22.303Z |
+
+### Job Status Table
+
+| Job | Stage | Status | ID |
+|-----|-------|--------|-----|
+| json-valid | lint | success | 571 |
+| yaml-valid | lint | failed (allow_failure=true) | 572 |
+| shell-syntax | lint | success | 573 |
+| secrets-check | security | success | 574 |
+| secret-scan-workbot | security | success | 575 |
+| yaml-baseline-parse | validate | success | 576 |
+| webhook-ingress-pytest | test | **success** (43 passed in 0.85s) | 577 |
+| github-push-gate-dry-run | dry-run | success | 578 |
+
+### Verification Summary
+
+| Check | Result |
+|-------|--------|
+| webhook-ingress-pytest auto-triggered | Yes (server.py changed in webhook_ingress/) |
+| webhook-ingress-pytest passed | Yes (43 passed) |
+| secrets-check passed | Yes |
+| secret-scan-workbot passed | Yes |
+| github-push-gate-dry-run passed | Yes |
+| secret scan findings | **0** |
+| Pushed GitHub | **No** |
+| Real Factory triggered | **No** |
+| Linear state/labels changed | **No** |
 
 ---
 
