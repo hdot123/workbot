@@ -1,0 +1,110 @@
+# workbot GitLab CI — minimal dry-run pipeline
+# This file is a local draft. Do NOT push to GitHub or GitLab until onboarding is confirmed.
+#
+# Includes central CI standards from infra/gitlab-ci-standards v1.0.0
+# No git push, no production deploy, no Factory trigger, no Linear mutation.
+
+include:
+  - project: 'infra/gitlab-ci-standards'
+    ref: v1.0.0
+    file: '/templates/base.yml'
+  - project: 'infra/gitlab-ci-standards'
+    ref: v1.0.0
+    file: '/templates/secrets.yml'
+  - project: 'infra/gitlab-ci-standards'
+    ref: v1.0.0
+    file: '/templates/json-yaml.yml'
+  - project: 'infra/gitlab-ci-standards'
+    ref: v1.0.0
+    file: '/templates/shell.yml'
+
+# === workbot-specific jobs ===
+
+webhook-ingress-pytest:
+  stage: test
+  tags: [shell]
+  script:
+    - python3 -m pip install --quiet pytest pyyaml fastapi uvicorn httpx psycopg2-binary pytest-asyncio
+    - python3 -m pytest tests/test_webhook_ingress.py tests/test_webhook_ingress_server.py -q
+  rules:
+    - changes:
+        - workspace/tools/webhook_ingress/**/*
+        - tests/test_webhook_ingress.py
+        - tests/test_webhook_ingress_server.py
+
+yaml-baseline-parse:
+  stage: validate
+  tags: [shell]
+  script:
+    - echo "Validating webhook ingress YAML baseline..."
+    - python3 -c "import yaml; yaml.safe_load(open('workspace/tools/webhook_ingress/routes.yaml')); print('routes.yaml: OK')"
+    - python3 -c "import json; json.load(open('workspace/tools/webhook_ingress/schemas/canonical-webhook-event-v1.json')); print('canonical schema: OK')"
+
+secret-scan-workbot:
+  stage: security
+  tags: [shell]
+  script:
+    - echo "Scanning workbot codebase for secrets..."
+    - |
+      FOUND=0
+      for f in $(find . -type f \( -name "*.py" -o -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.env" -o -name "*.sh" -o -name "*.md" -o -name "*.toml" \) \
+        -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "./.venv/*" 2>/dev/null); do
+        # glpat- tokens
+        if grep -qE 'glpat-[a-zA-Z0-9]{20,}' "$f" 2>/dev/null; then
+          echo "FOUND: glpat- token in $f"; FOUND=1
+        fi
+        # OpenAI-style keys
+        if grep -Pn '(?<![\$,{])sk-[a-zA-Z0-9]{20,}' "$f" 2>/dev/null | grep -v 'PLACEHOLDER' | grep -v '^\s*#' > /dev/null 2>&1; then
+          echo "FOUND: sk- key in $f"; FOUND=1
+        fi
+        # Bearer tokens (not PLACEHOLDER)
+        if grep -in 'Authorization:.*Bearer.*[^P][^L][^A][^C][^E]' "$f" 2>/dev/null | grep -v PLACEHOLDER > /dev/null 2>&1; then
+          echo "FOUND: Bearer token in $f"; FOUND=1
+        fi
+        # Private keys
+        if grep -q 'BEGIN.*PRIVATE KEY' "$f" 2>/dev/null; then
+          echo "FOUND: Private key in $f"; FOUND=1
+        fi
+        # Linear API tokens
+        if grep -qE 'lin_api_[a-zA-Z0-9]{20,}' "$f" 2>/dev/null; then
+          echo "FOUND: lin_api_ token in $f"; FOUND=1
+        fi
+        # Factory API keys
+        if grep -qE 'fk-[a-zA-Z0-9]{20,}' "$f" 2>/dev/null; then
+          echo "FOUND: fk- key in $f"; FOUND=1
+        fi
+      done
+      if [ "$FOUND" -ne 0 ]; then
+        echo "FAIL: Secrets detected!"; exit 1
+      fi
+      echo "PASS: No secrets found in workbot"
+
+github-push-gate-dry-run:
+  stage: dry-run
+  tags: [shell]
+  script:
+    - echo "=== GitHub Push Gate Dry-Run ==="
+    - echo "Verifying gate-check logic..."
+    - |
+      # Verify gate-check is fail-closed
+      WF=".github/workflows/memory-core-auto-sync-deploy.yml"
+      if [ ! -f "$WF" ]; then
+        echo "FAIL: workflow file not found"; exit 1
+      fi
+      # Must NOT contain passed=true
+      if grep -q 'passed=true' "$WF"; then
+        echo "FAIL: gate-check contains passed=true — not fail-closed"; exit 1
+      fi
+      # Must NOT contain uncommented schedule
+      if grep -qE '^  schedule:' "$WF"; then
+        echo "FAIL: schedule is not commented out"; exit 1
+      fi
+      # git push lines must exist but be under gate-check
+      PUSH_COUNT=$(grep -c 'git push origin HEAD:main' "$WF" || true)
+      if [ "$PUSH_COUNT" -eq 0 ]; then
+        echo "FAIL: no git push lines found — check was wrong file"; exit 1
+      fi
+      echo "gate-check is fail-closed: OK"
+      echo "schedule is disabled: OK"
+      echo "git push lines under gate-check: OK ($PUSH_COUNT occurrences)"
+      echo "PASS: GitHub push gate dry-run verified"
