@@ -26,9 +26,14 @@ json-valid:
       skip_dirs = {'.git', 'node_modules', '.venv'}
       pass_count = 0
       fail_count = 0
+      skip_count = 0
       failures = []
       for p in sorted(repo.rglob('*.json')):
           if skip_dirs & set(p.parts):
+              continue
+          # skip broken symlinks (e.g. mcporter.json pointing to local host path)
+          if p.is_symlink() and not p.exists():
+              skip_count += 1
               continue
           try:
               json.loads(p.read_text(encoding='utf-8'))
@@ -36,7 +41,7 @@ json-valid:
           except Exception as e:
               fail_count += 1
               failures.append((str(p), str(e)))
-      print(f'JSON: PASS={pass_count} FAIL={fail_count}')
+      print(f'JSON: PASS={pass_count} FAIL={fail_count} SKIP_BROKEN_SYMLINK={skip_count}')
       for path, err in failures:
           print(f'FAIL: {path} — {err}')
       sys.exit(1 if fail_count > 0 else 0)
