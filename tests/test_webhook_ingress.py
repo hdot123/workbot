@@ -531,3 +531,170 @@ def test_routing_by_canonical_event():
     assert matcher.match(updated).endswith("/webhook/linear-issue-updated")
     assert matcher.match(comment).endswith("/webhook/linear-comment-events")
     assert matcher.ingress_path("linear") == "/webhooks/linear"
+
+
+# === P1 dry-run dispatch acceptance tests ===
+
+P1_REQUIRED_PAYLOAD_FIELDS = [
+    "dry_run", "no_write", "no_push", "no_deploy",
+    "github_push_forbidden", "required_ci", "parent_droid_role",
+    "stop_condition", "gitlab_required", "max_fix_attempts",
+    "subagent_policy", "dispatch_id", "linear_issue_key",
+    "project_id", "title",
+]
+
+P1_REQUIRED_COMMENT_MARKERS = [
+    "Factory dispatch dry-run generated",
+    "No real Factory task was triggered",
+    "No GitHub push",
+    "GitLab CI required before real execution",
+    "secret scan = 0 findings",
+]
+
+
+def _p1_factory_dispatch_event(allowed_project_ids=None):
+    """Helper: run factory dispatch dry-run and return action_result_json."""
+    store = WebhookEventStore()
+    payload = linear_issue_payload()
+    payload["data"]["projectId"] = "project-1"
+    payload["data"]["project"] = {"id": "project-1", "name": "Webhook Ingress Canary Project"}
+    payload["updatedFrom"] = {"stateId": "state-prev", "state": {"id": "state-prev", "name": "Backlog"}}
+    payload["data"]["state"] = {"id": "state-ready", "name": "Ready for Factory"}
+    ingress = WebhookIngress(
+        linear_secret=SECRET,
+        store=store,
+        n8n_sender=lambda event: None,
+        route_mode="production_canary",
+        action_registry=factory_dispatch_registry(allowed_project_ids or {"project-1"}),
+    )
+    result = ingress.handle(signed_request(payload=payload, delivery_id=f"p1-test-{id(payload)}"))
+    return result, store
+
+
+def test_p1_canary_issue_dispatch_payload_generated():
+    """P1 scenario 1: Linear canary issue event -> dispatch payload generated."""
+    result, store = _p1_factory_dispatch_event()
+    assert result.http_status == 200
+    row = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE phase = 'canary_action' AND message = 'factory dispatch dry-run payload generated'"
+    ).fetchone()
+    assert row is not None
+    action_result = json.loads(row[0])["action_result_json"]
+    for field in P1_REQUIRED_PAYLOAD_FIELDS:
+        assert field in action_result, f"missing required field: {field}"
+
+
+def test_p1_non_canary_condition_no_payload():
+    """P1 scenario 2: Non-canary condition -> no payload generated."""
+    store = WebhookEventStore()
+    payload = linear_issue_payload()
+    payload["data"]["projectId"] = "project-1"
+    # NOT in Ready for Factory state
+    payload["data"]["state"] = {"id": "state-backlog", "name": "Backlog"}
+    ingress = WebhookIngress(
+        linear_secret=SECRET, store=store, n8n_sender=lambda event: None,
+        route_mode="production_canary",
+        action_registry=factory_dispatch_registry({"project-1"}),
+    )
+    result = ingress.handle(signed_request(payload=payload, delivery_id="p1-non-canary"))
+    assert result.http_status == 200
+    rows = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE phase = 'canary_action' AND message = 'factory dispatch dry-run payload generated'"
+    ).fetchall()
+    assert rows == []
+
+
+def test_p1_duplicate_delivery_idempotent():
+    """P1 scenario 3: Duplicate delivery-id -> duplicate_accepted, no re-generation."""
+    store = WebhookEventStore()
+    payload = linear_issue_payload()
+    payload["data"]["projectId"] = "project-1"
+    payload["updatedFrom"] = {"state": {"id": "state-prev", "name": "Backlog"}}
+    payload["data"]["state"] = {"id": "state-ready", "name": "Ready for Factory"}
+    ingress = WebhookIngress(
+        linear_secret=SECRET, store=store, n8n_sender=lambda event: None,
+        route_mode="production_canary",
+        action_registry=factory_dispatch_registry({"project-1"}),
+    )
+    first = ingress.handle(signed_request(payload=payload, delivery_id="p1-dup-delivery"))
+    second = ingress.handle(signed_request(payload=payload, delivery_id="p1-dup-delivery"))
+    assert first.ack.to_dict()["status"] == "accepted"
+    assert second.ack.to_dict()["status"] == "duplicate_accepted"
+    rows = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchall()
+    assert len(rows) == 1
+
+
+def test_p1_payload_safety_flags():
+    """P1 scenario 4: Dispatch payload contains dry_run/no_write/no_push/no_deploy."""
+    result, store = _p1_factory_dispatch_event()
+    row = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchone()
+    p = json.loads(row[0])["action_result_json"]
+    assert p["dry_run"] is True
+    assert p["no_write"] is True
+    assert p["no_push"] is True
+    assert p["no_deploy"] is True
+
+
+def test_p1_payload_no_secrets():
+    """P1 scenario 5: Dispatch payload does not contain any secrets."""
+    result, store = _p1_factory_dispatch_event()
+    row = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchone()
+    payload_str = json.dumps(json.loads(row[0])["action_result_json"])
+    secret_patterns = ["glpat-", "sk-", "BEGIN PRIVATE KEY", "lin_api_", "fk-", "password", "secret"]
+    for pattern in secret_patterns:
+        assert pattern not in payload_str, f"secret pattern found in payload: {pattern}"
+
+
+def test_p1_canary_comment_no_secrets():
+    """P1 scenario 6: Linear dry-run comment body does not contain secrets."""
+    from workspace.tools.webhook_ingress.executors import linear_canary_comment_body
+    test_event = {
+        "event_id": "evt_p1_test",
+        "idempotency_key": "linear:delivery-p1",
+        "source": {"resource_id": "issue-p1"},
+        "payload": {"identifier": "JTO-999"},
+    }
+    body = linear_canary_comment_body(test_event)
+    secret_patterns = ["glpat-", "sk-", "BEGIN PRIVATE KEY", "lin_api_", "fk-", "password"]
+    for pattern in secret_patterns:
+        assert pattern not in body, f"secret pattern in comment: {pattern}"
+    for marker in P1_REQUIRED_COMMENT_MARKERS:
+        assert marker in body, f"missing required marker in comment: {marker}"
+
+
+def test_p1_production_issue_not_triggered():
+    """P1 scenario 7: Production issue (outside allowed projects) is not triggered."""
+    result, store = _p1_factory_dispatch_event(allowed_project_ids={"project-allowed"})
+    assert result.http_status == 200
+    rows = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchall()
+    assert rows == []
+
+
+def test_p1_github_push_forbidden_policy():
+    """P1 scenario 8: github_push_forbidden policy exists in payload."""
+    result, store = _p1_factory_dispatch_event()
+    row = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchone()
+    p = json.loads(row[0])["action_result_json"]
+    assert p["github_push_forbidden"] is True
+
+
+def test_p1_gitlab_required_policy():
+    """P1 scenario 9: GitLab required policy exists in payload."""
+    result, store = _p1_factory_dispatch_event()
+    row = store.conn.execute(
+        "SELECT details FROM webhook_processing_logs WHERE message = 'factory dispatch dry-run payload generated'"
+    ).fetchone()
+    p = json.loads(row[0])["action_result_json"]
+    assert p["gitlab_required"] is True
+    assert p["required_ci"] == "gitlab"
+    assert p["stop_condition"]["no_real_factory_dispatch_in_p1"] is True

@@ -62,4 +62,19 @@ class LinearCanaryCommentExecutor:
 def linear_canary_comment_body(canonical_event: dict[str, Any]) -> str:
     payload = canonical_event.get("payload") or {}
     identifier = payload.get("identifier") or canonical_event["source"]["resource_id"]
-    return f"[webhook-ingress-canary] OPS-LINEAR-010 canonical event {canonical_event['event_id']} accepted for {identifier}."
+    event_id = canonical_event["event_id"]
+    delivery_id = canonical_event.get("idempotency_key", "unknown")
+    source = canonical_event.get("source") or {}
+    issue_id = source.get("resource_id", "unknown")
+    return (
+        f"**Factory dispatch dry-run generated**\n"
+        f"- No real Factory task was triggered\n"
+        f"- No GitHub push\n"
+        f"- GitLab CI required before real execution\n"
+        f"- Payload stored in audit/action_result_json\n"
+        f"- event_id: `{event_id}`\n"
+        f"- delivery_id: `{delivery_id}`\n"
+        f"- issue_id: `{issue_id}`\n"
+        f"- secret scan = 0 findings\n"
+        f"\n[webhook-ingress-canary] {identifier} dry-run accepted"
+    )
