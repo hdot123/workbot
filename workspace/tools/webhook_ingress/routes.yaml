@@ -1,0 +1,68 @@
+version: v1
+
+default:
+  n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+providers:
+  linear:
+    enabled: true
+    ingress_path: /webhooks/linear
+    webhook_secret_env: WEBHOOK_SECRET_LINEAR
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+    routes:
+      - match:
+          canonical_type: issue
+          canonical_action: created
+        n8n_webhook_url: http://127.0.0.1:5678/webhook/linear-issue-created
+      - match:
+          canonical_type: issue
+          canonical_action: updated
+        n8n_webhook_url: http://127.0.0.1:5678/webhook/linear-issue-updated
+      - match:
+          canonical_type: comment
+        n8n_webhook_url: http://127.0.0.1:5678/webhook/linear-comment-events
+
+  github:
+    enabled: false
+    ingress_path: /webhooks/github
+    webhook_secret_env: WEBHOOK_SECRET_GITHUB
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+  slack:
+    enabled: false
+    ingress_path: /webhooks/slack
+    webhook_secret_env: WEBHOOK_SECRET_SLACK
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+  posthog:
+    enabled: false
+    ingress_path: /webhooks/posthog
+    webhook_secret_env: WEBHOOK_SECRET_POSTHOG
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+  pagerduty:
+    enabled: false
+    ingress_path: /webhooks/pagerduty
+    webhook_secret_env: WEBHOOK_SECRET_PAGERDUTY
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+  uptime_kuma:
+    enabled: false
+    ingress_path: /webhooks/uptime-kuma
+    webhook_secret_env: WEBHOOK_SECRET_UPTIME_KUMA
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+
+  factory:
+    enabled: true
+    ingress_path: /webhooks/factory
+    webhook_secret_env: WEBHOOK_SECRET_FACTORY
+    n8n_webhook_url: http://127.0.0.1:5678/webhook/canonical-events
+    routes:
+      - match:
+          canonical_type: factory_run
+          canonical_action: created
+        n8n_webhook_url: http://127.0.0.1:5678/webhook/factory-run-started
+      - match:
+          canonical_type: factory_run
+          canonical_action: updated
+        n8n_webhook_url: http://127.0.0.1:5678/webhook/factory-run-updated
