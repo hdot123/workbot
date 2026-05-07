@@ -246,7 +246,7 @@ yaml-baseline-parse:
 webhook-ingress-pytest:
   stage: test
   script:
-    - python3 -m pip install --quiet pytest pyyaml fastapi uvicorn httpx psycopg2-binary pytest-asyncio
+    - python3 -m pip install --quiet --break-system-packages pytest pyyaml fastapi uvicorn httpx psycopg2-binary pytest-asyncio
     - python3 -m pytest tests/test_webhook_ingress.py tests/test_webhook_ingress_server.py -q
   allow_failure: true
   rules:
