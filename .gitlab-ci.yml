@@ -254,8 +254,7 @@ webhook-ingress-pytest:
         - workspace/tools/webhook_ingress/**/*
         - tests/test_webhook_ingress.py
         - tests/test_webhook_ingress_server.py
-    - when: manual
-      allow_failure: true
+      when: on_success
 
 # === dry-run jobs ===
 
