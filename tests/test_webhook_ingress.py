@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# CI gate: validated via GitLab CI webhook-ingress-pytest (P0-2G)
+# CI gate: validated via GitLab CI webhook-ingress-pytest (P0-2G v2)
 from __future__ import annotations
 
 import hmac
