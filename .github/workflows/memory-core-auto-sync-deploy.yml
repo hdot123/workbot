@@ -75,7 +75,8 @@ jobs:
 
       - name: Exit when already on latest release
         if: ${{ steps.current.outputs.current_ref == steps.target.outputs.target_ref }}
-        run: echo "Already up-to-date: ${{ steps.target.outputs.target_ref }}"
+        run: |
+          echo "Already up-to-date: ${{ steps.target.outputs.target_ref }}"
 
       - name: Update EXTERNAL_CORE_RELEASE_REF
         if: ${{ steps.current.outputs.current_ref != steps.target.outputs.target_ref }}
