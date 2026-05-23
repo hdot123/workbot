@@ -1,0 +1,26 @@
+networks:
+  1panel-network:
+    external: true
+
+services:
+  safe-1password-mcp:
+    build:
+      context: /opt/mcp-servers/safe-1password-mcp
+      dockerfile: Dockerfile
+    container_name: safe-1password-mcp
+    environment:
+      OP_CONNECT_HOST: ${OP_CONNECT_HOST}
+      OP_API_KEY: ${OP_API_KEY}
+      PORT: "8001"
+      SSE_PATH: "/mcp/1password"
+      MESSAGE_PATH: "/mcp/1password/messages"
+    ports:
+      - "0.0.0.0:8001:8001"
+    networks:
+      - 1panel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,75 @@
+{
+  "project_id": "e8365417-e2d8-4834-ace2-98eff6adeeab",
+  "project_name": "P2 — Long-task dry-run + GitLab CI feedback loop",
+  "results": {
+    "P2-01": {
+      "identifier": "JTO-197",
+      "id": "743ead56-5c47-4a9a-b773-133064e50405"
+    },
+    "P2-02": {
+      "identifier": "JTO-198",
+      "id": "e0bdf4af-cb41-4f67-81f6-1cf1d3c50507"
+    },
+    "P2-03": {
+      "identifier": "JTO-199",
+      "id": "f4e93e32-f9f2-483e-a79e-3e92aa017211"
+    },
+    "P2-04": {
+      "identifier": "JTO-200",
+      "id": "3a5adb3b-2c1f-42d5-819b-78ea937bf865"
+    },
+    "P2-05": {
+      "identifier": "JTO-201",
+      "id": "7f17e6b8-de45-47a0-849a-1141507e10aa"
+    },
+    "P2-06": {
+      "identifier": "JTO-202",
+      "id": "2d6d18eb-4647-4938-bf99-c4d5e78fec00"
+    },
+    "P2-07": {
+      "identifier": "JTO-203",
+      "id": "f45b2a1a-8917-49e0-ac1a-d10ab0e0f94d"
+    },
+    "P2-08": {
+      "identifier": "JTO-204",
+      "id": "2ebf731c-ce1b-4de0-992b-378c08048b80"
+    },
+    "P2-AC-01": {
+      "identifier": "JTO-205",
+      "id": "a552d579-0eb7-4866-bf4f-3fa8dd7a8ea2"
+    },
+    "P2-AC-02": {
+      "identifier": "JTO-206",
+      "id": "9d8b8f3c-de12-4912-a1f8-18a40ef3cbd9"
+    },
+    "P2-AC-03": {
+      "identifier": "JTO-207",
+      "id": "884c1f57-e0ba-4136-8a87-f4747393a454"
+    },
+    "P2-AC-04": {
+      "identifier": "JTO-208",
+      "id": "00bc6c86-0baa-43b5-8218-e54637251ff9"
+    },
+    "P2-AC-05": {
+      "identifier": "JTO-209",
+      "id": "6c09d494-5a77-4483-bc4d-3250d146ada4"
+    },
+    "P2-AC-06": {
+      "identifier": "JTO-210",
+      "id": "7c4ace4a-4029-4805-9b15-c00dc35d7363"
+    },
+    "P2-AC-07": {
+      "identifier": "JTO-211",
+      "id": "cedb2f1d-f670-4039-8d1c-3208a018ef4c"
+    },
+    "P2-AC-08": {
+      "identifier": "JTO-212",
+      "id": "6820be51-0bae-4a38-87d1-c7ba503de844"
+    },
+    "P2-AC-09": {
+      "identifier": "JTO-213",
+      "id": "4814eb35-0f59-41e4-800a-6c8ce2c36225"
+    }
+  },
+  "total_issues": 17
+}
