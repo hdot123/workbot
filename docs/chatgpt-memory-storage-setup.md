@@ -1,1 +1,0 @@
-../workspace/memory/docs/inbox/chatgpt-memory-storage-setup.md

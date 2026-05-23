@@ -170,3 +170,24 @@ workspace/log/memory-hook/*
 
 # Local comparison artifacts (upstream audit clone)
 workspace/memory/tmp/
+
+# Memory-core quarantine directory (sensitive/runtime files)
+artifacts/quarantine/
+
+# Runtime directories that should not enter truth
+.DS_Store
+**/.DS_Store
+.cache/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Sensitive file patterns
+*.redacted
+*.bak
+*.backup
+*-inspect-backup.json
+*-dump.json
+mcporter.json
