@@ -1,3 +1,7 @@
+include:
+  - project: 'infra/ci-templates'
+    file: 'scope-check.yml'
+
 # workbot GitLab CI — minimal dry-run pipeline
 #
 # No git push, no production deploy, no Factory trigger, no Linear mutation.
