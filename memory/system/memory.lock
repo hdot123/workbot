@@ -1,0 +1,9 @@
+# memory.lock -- project binding to memory-core
+
+[memory]
+project = "workbot"
+memory_version = "0.4.0"
+schema_version = "context-package-v1"
+adapter_version = "builtin"
+locked_at = "2026-05-12"
+lock_reason = "initial"

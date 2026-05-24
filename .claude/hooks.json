@@ -2,22 +2,22 @@
   "hooks": [
     {
       "event": "SessionStart",
-      "command": "~/.claude/bin/memory-hook --host claude --event session-start",
+      "command": "~/.claude/bin/memory-hook --host codex --event session-start",
       "stdin": true
     },
     {
       "event": "UserPromptSubmit",
-      "command": "~/.claude/bin/memory-hook --host claude --event prompt-submit",
+      "command": "~/.claude/bin/memory-hook --host codex --event prompt-submit",
       "stdin": true
     },
     {
       "event": "Notification",
-      "command": "~/.claude/bin/memory-hook --host claude --event notification",
+      "command": "~/.claude/bin/memory-hook --host codex --event notification",
       "stdin": true
     },
     {
       "event": "Stop",
-      "command": "~/.claude/bin/memory-hook --host claude --event stop",
+      "command": "~/.claude/bin/memory-hook --host codex --event stop",
       "stdin": true
     }
   ]

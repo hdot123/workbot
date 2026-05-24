@@ -1,0 +1,20 @@
+# Memory Adapter Configuration
+
+[core]
+version = "0.5.0"
+adapter = "default"
+
+[policy]
+legality_source_policy = "map-only"
+registration_commit_policy = "same-commit"
+registration_commit_phase = "post"
+
+[routing]
+project_name = "workbot"
+project_scope = "workbot"
+host = "factory"
+canonical_files = [
+  "CANONICAL.md",
+  "STATE.md",
+]
+# artifact_root is not set

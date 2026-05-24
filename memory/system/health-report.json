@@ -1,0 +1,17 @@
+{
+  "status": "degraded",
+  "missing_paths": [],
+  "validation_errors": [],
+  "project_scope": "workbot",
+  "checked_at": "2026-05-23T12:34:14.166358",
+  "layout_audit": {
+    "total": 1564,
+    "p0": 1,
+    "p1": 4,
+    "p2": 1559,
+    "root_pollution_count": 0,
+    "multi_generation_conflict": false,
+    "has_real_workspace_conflict": false,
+    "recommended_mode": "repair"
+  }
+}

@@ -1,0 +1,17 @@
+# adapter.toml — canonical layout (memory-core v0.4.x)
+# 由 memory-init 在初始化时填充实际值
+
+[core]
+version = "0.4.0"
+adapter = "default"
+
+[policy]
+legality_source_policy = "map-only"
+registration_commit_policy = "same-commit"
+registration_commit_phase = "post"
+
+[routing]
+project_name = "workbot"
+project_scope = "workbot"
+host = "factory"
+canonical_files = ["CANONICAL.md", "STATE.md"]

@@ -112,27 +112,21 @@ This directory is the direct project discovery source used by Claude Code for `w
 - Run artifacts, audit evidence, and temporary validation output must stay under the designated run/evidence directories such as `workspace/memory/tmp/...`; they must not be merged into repository code truth unless the task explicitly requires repository-tracked documentation.
 - At the end of every phase task (`M*`, `P*`, `H*`) that is accepted, the executing agent must perform repository git delivery from `branch-1`.
 - Required accepted-phase delivery sequence: scoped `git add` on `branch-2` -> commit on `branch-2` -> merge into `branch-1` -> push `branch-1` to `origin/main` -> write commit SHA into the corresponding Projects card evidence.
-
 <!-- MEMORY_HOOK_BEGIN -->
 ## Memory Hook
 
-This project uses the memory-core protected wrapper for Codex/Claude/Factory hooks.
-The wrapper is installed at `~/.factory/bin/memory-hook` (Codex: `~/.codex/bin/memory-hook`, Claude: `~/.claude/bin/memory-hook`) and handles:
+This project uses the memory-core protected wrapper for Codex hooks.
+The wrapper is installed at `~/.codex/bin/memory-hook` and handles:
 - Project lifecycle tracking
 - HOME directory anti-pollution guards
 - Source repository detection (skips memory-core itself)
 - Git root normalization
-- Project memory isolation per project
 
-**Three-Host Unified Access:**
-- **Factory**: Uses `~/.factory/bin/memory-hook --host factory --event ...`
-- **Codex**: Uses `~/.codex/bin/memory-hook --host codex --event ...`
-- **Claude**: Uses `~/.claude/bin/memory-hook --host claude --event ...`
-
-Project-level hooks are configured in Factory settings. Do NOT use bare `memory-hook-gateway` commands directly.
+Project-level hooks are configured in `.codex/hooks.json`.
+Do NOT use bare `memory-hook-gateway` commands directly.
 
 For manual testing:
 ```bash
-~/.factory/bin/memory-hook --host factory --event session-start
+~/.codex/bin/memory-hook --host codex --event session-start
 ```
 <!-- MEMORY_HOOK_END -->
