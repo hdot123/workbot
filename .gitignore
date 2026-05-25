@@ -170,3 +170,47 @@ workspace/log/memory-hook/*
 
 # Local comparison artifacts (upstream audit clone)
 workspace/memory/tmp/
+
+# Memory-core quarantine directory (sensitive/runtime files)
+artifacts/quarantine/
+
+# Runtime directories that should not enter truth
+.DS_Store
+**/.DS_Store
+.cache/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime data that should not enter truth
+artifacts/backups/
+artifacts/runtime/
+artifacts/memory-hook/
+memory/system/errors*.log
+
+# Sensitive file patterns
+*.redacted
+*.bak
+*.backup
+*-inspect-backup.json
+*-dump.json
+mcporter.json
+
+# App build artifacts
+app/safe-1password-mcp/node_modules/
+app/safe-1password-mcp/dist/
+
+# History cache
+history-projects/cache/
+
+# Verified-absorbed archive directories (deleted 2026-05-23)
+artifacts/workspace-ingested/
+history-projects/workspace/
+history-projects/memory/
+
+# Files with potential secret patterns (Droid-Shield flagged)
+artifacts/reports/runbooks/deployment-runbook-n8n.md
+history-projects/root-docs/retired-root-docs-20260513-063519/webhook-ingress/OPS-LINEAR-009-label-webhook-ingress-canary-validation-plan.md
+history-projects/root-docs/retired-root-docs-20260513-063519/webhook-ingress/OPS-LINEAR-SEC-AUDIT-001-security-secret-redaction-audit-template.md

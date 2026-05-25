@@ -1,0 +1,102 @@
+# ownership.toml -- memory-core ownership declaration
+
+schema_version = "memory-ownership-v1"
+memory_version = "0.4.0"
+
+# Domains: directories under ownership protection
+
+[[domains]]
+name = "memory_docs"
+path = "memory/docs"
+level = "critical"
+recursive = true
+description = "Protected documentation domain"
+
+[[domains]]
+name = "memory_kb"
+path = "memory/kb"
+level = "critical"
+recursive = true
+description = "Protected knowledge base domain"
+
+[[domains]]
+name = "memory_system"
+path = "memory/system"
+level = "critical"
+recursive = true
+description = "Protected system state domain"
+
+[[domains]]
+name = "dot_memory"
+path = ".memory"
+level = "critical"
+recursive = true
+description = "Protected project memory domain"
+
+[[domains]]
+name = "project_map"
+path = "project-map"
+level = "critical"
+recursive = true
+description = "Protected project map domain"
+
+# Resources: specific files under ownership protection
+
+[[resources]]
+name = "agents_md"
+path = "AGENTS.md"
+level = "critical"
+description = "Agent policy file"
+
+[[resources]]
+name = "memory_lock"
+path = ".memory/memory.lock"
+level = "critical"
+domain = "dot_memory"
+description = "Memory lock file"
+
+[[resources]]
+name = "canonical_md"
+path = ".memory/CANONICAL.md"
+level = "critical"
+domain = "dot_memory"
+description = "Canonical definitions"
+
+[[resources]]
+name = "state_md"
+path = ".memory/STATE.md"
+level = "critical"
+domain = "dot_memory"
+description = "State documentation"
+
+[[resources]]
+name = "plan_md"
+path = ".memory/PLAN.md"
+level = "critical"
+domain = "dot_memory"
+description = "Plan documentation"
+
+[[resources]]
+name = "tasks_md"
+path = ".memory/TASKS.md"
+level = "critical"
+domain = "dot_memory"
+description = "Task documentation"
+
+[[resources]]
+name = "adapter_toml"
+path = ".memory/adapter.toml"
+level = "critical"
+domain = "dot_memory"
+description = "Adapter configuration"
+
+[[resources]]
+name = "ownership_toml"
+path = ".memory/ownership.toml"
+level = "critical"
+domain = "dot_memory"
+description = "Ownership configuration"
+
+# Policy: optional key-value pairs for ownership policy
+[policy]
+project_name = "workbot"

@@ -1,7 +1,0 @@
-interface:
-  display_name: "tmux-skills"
-  short_description: "Generate and monitor a foreground tmux multi-pane runtime"
-  default_prompt: "When a request involves foreground tmux pane generation or tmux pane stop reporting, use $tmux-skills as the canonical public entrypoint. The caller must provide pane_count and pane_titles. tmux-skills should create or attach the foreground formal-session, generate the requested panes, apply the requested titles, bind CODEX_THREAD_ID as the dedicated monitor app thread id, and only then arm stopped-pane reporting. Stopped-pane delivery should flow through the long-lived window IPC bridge into the owner window for that target thread, not through codex exec resume."
-
-policy:
-  allow_implicit_invocation: true

@@ -12,6 +12,7 @@ stages:
   - validate
   - test
   - dry-run
+  - sync
 
 variables:
   GIT_STRATEGY: fetch
@@ -287,3 +288,33 @@ github-push-gate-dry-run:
       echo "schedule is disabled: OK"
       echo "git push lines under gate-check: OK ($PUSH_COUNT occurrences)"
       echo "PASS: GitHub push gate dry-run verified"
+
+# === sync jobs ===
+
+sync-to-github:
+  stage: sync
+  script:
+    - echo "=== Syncing GitLab main to GitHub main ==="
+    - |
+      # Configure git identity for CI bot
+      git config --global user.email "ci-bot@workbot"
+      git config --global user.name "CI Sync Bot"
+
+      # Add GitHub remote with token
+      GITHUB_URL="https://hdot123:${GITHUB_SYNC_TOKEN}@github.com/hdot123/workbot.git"
+      git remote add github "$GITHUB_URL" 2>/dev/null || git remote set-url github "$GITHUB_URL"
+
+      # Force push GitLab main to GitHub main (with --allow-empty to handle no-change case)
+      git push github main --force
+
+      echo "=== Sync complete ==="
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - unknown_failure
+      - api_failure
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: always
+    - when: never
