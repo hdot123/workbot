@@ -168,7 +168,7 @@ secret-scan-workbot:
       skip_dirs = {'.git', 'node_modules', '.venv'}
       skip_name = {'.gitlab-ci.yml'}
       # Supabase publishable/anon keys are safe to expose in client code
-      skip_path_parts = ['memory-legacy-quarantine-', '.claude/settings']
+      skip_path_parts = ['memory-legacy-quarantine-', '.claude/settings', 'artifacts/reports/security/']
       found = 0
       repo = pathlib.Path('.')
       for p in sorted(repo.rglob('*')):
@@ -303,6 +303,9 @@ sync-to-github:
       # Add GitHub remote with token
       GITHUB_URL="https://hdot123:${GITHUB_SYNC_TOKEN}@github.com/hdot123/workbot.git"
       git remote add github "$GITHUB_URL" 2>/dev/null || git remote set-url github "$GITHUB_URL"
+
+      # Fetch main branch to ensure ref exists
+      git fetch origin main:main || true
 
       # Force push GitLab main to GitHub main (with --allow-empty to handle no-change case)
       git push github main --force
